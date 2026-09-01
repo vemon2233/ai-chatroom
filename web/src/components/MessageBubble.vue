@@ -1,11 +1,15 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { store } from '../store';
+import { splitMentions } from '../mentions';
 import type { ChatMessage } from '@server/core/types';
 import TraceDetail from './TraceDetail.vue';
 
 const props = defineProps<{ msg: ChatMessage & { streaming?: true } }>();
 const showDetail = ref(false);
+
+/** 正文按 @提及 切段(与输入框高亮同一解析真源) */
+const segments = computed(() => splitMentions(props.msg.text));
 
 const room = computed(() => store.currentRoom);
 const member = computed(() => room.value?.config.members.find((m) => m.id === props.msg.from));
@@ -52,7 +56,12 @@ const clickable = computed(() => !isMe.value && !isSystem.value && !props.msg.st
         @click="clickable && (showDetail = !showDetail)"
         :title="clickable ? '点击展开工作过程 / 用量' : undefined"
       >
-        <div class="text">{{ msg.text }}</div>
+        <div class="text">
+          <template v-for="(seg, i) in segments" :key="i">
+            <span v-if="seg.mention" class="mention">{{ seg.text }}</span>
+            <template v-else>{{ seg.text }}</template>
+          </template>
+        </div>
         <div v-if="meta" class="meta">{{ meta }}</div>
         <TraceDetail v-if="showDetail && msg.detail" :detail="msg.detail" />
       </div>
@@ -115,6 +124,8 @@ const clickable = computed(() => !isMe.value && !isSystem.value && !props.msg.st
   color: var(--accent);
 }
 .text { white-space: pre-wrap; word-break: break-word; }
+.mention { color: var(--accent); font-weight: 600; }
+.row.me .bubble .mention { color: #cfe0ff; }
 .meta {
   margin-top: 6px;
   font-size: 11px;
