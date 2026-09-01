@@ -1,0 +1,57 @@
+# AI 聊天室 — agent 注册表
+# 每个 entry 定义一个"适配器":如何调用一种 CLI。
+# 房间里的"成员"= 适配器 + 人设/立场 prompt + 显示名(运行期可任意多实例)。
+
+adapters:
+  claude:
+    displayName: Claude Code
+    kind: claude            # 对应 src/adapters/claude.ts 的解析器
+    command: claude
+    args:
+      - -p                  # prompt 走 stdin(多行安全,见 src/adapters/proc.ts)
+      - --output-format
+      - stream-json
+      - --verbose
+
+  # ⚠️ experimental:本机未安装 codex CLI,以下路径零实测。
+  codex:
+    displayName: Codex CLI
+    kind: codex
+    command: codex
+    args:
+      - exec
+      - --json
+      - --sandbox
+      - read-only
+      - -                  # 从 stdin 读 prompt
+
+  # ⚠️ experimental:本机未安装 gemini CLI,以下路径零实测。
+  gemini:
+    displayName: Gemini CLI
+    kind: gemini
+    command: gemini
+    args:
+      - --output-format
+      - json
+      # gemini 无参时从 stdin 读 prompt
+
+  # 通用模板适配器:任何"接收 prompt、输出文本"的 CLI 都能接。
+  # 复制本块改名即可(例如接入 DeepSeek harness)。
+  # 注意:prompt 一律走 stdin 传递(多行/长文本安全),args 不需要 {prompt} 占位符。
+  generic:
+    displayName: 通用 CLI
+    kind: generic
+    command: cat            # 默认演示:回显 prompt(便于无 CLI 时测试 UI)
+    args: []
+
+# 侦察员(Scout):绑定项目的房间,首棒前自动跑一次只读项目分析,全员共享。
+scout:
+  adapter: claude           # 用哪个适配器跑侦察
+  model: haiku              # 便宜档模型参数(注入 --model)
+  allowedTools: 'Read Glob Grep'
+  timeoutMs: 180000         # 超时(超时即取消进程,不泄漏)
+  maxRetries: 2             # 失败熔断:连续失败 N 次后本房间生命周期内不再重试
+
+server:
+  port: 3210
+  host: 127.0.0.1

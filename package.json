@@ -1,0 +1,20 @@
+{
+  "name": "ai-chatroom",
+  "version": "2.0.0",
+  "description": "AI 聊天室 — 多 Agent CLI(Claude Code / Codex / Gemini / 自定义)群聊、探讨、辩论系统(v2 架构重写)",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "server",
+    "web"
+  ],
+  "scripts": {
+    "dev": "concurrently -n server,web -c blue,green \"npm:dev -w server\" \"npm:dev -w web\"",
+    "build": "npm run build -w web",
+    "typecheck": "npm run typecheck -w server && npm run typecheck -w web",
+    "test": "npm run test -w server"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0"
+  }
+}
