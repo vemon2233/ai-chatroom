@@ -2,7 +2,7 @@
 import { ref, watch } from 'vue';
 import { store } from '../store';
 import { api } from '../api';
-import Drawer from './ui/Drawer.vue';
+import Modal from './ui/Modal.vue';
 
 const model = defineModel<boolean>({ default: false });
 
@@ -31,7 +31,7 @@ async function save() {
 </script>
 
 <template>
-  <Drawer v-model="model" title="房间设置">
+  <Modal v-model="model" title="房间设置" width="440px">
     <div class="form-row">
       <label>发言长度(即时生效:下一次发言即按新长度)</label>
       <select v-model="speechLength">
@@ -64,7 +64,7 @@ async function save() {
       <button class="btn btn-ghost" @click="model = false">取消</button>
       <button class="btn btn-primary" @click="save">保存(即时生效)</button>
     </template>
-  </Drawer>
+  </Modal>
 </template>
 
 <style scoped>

@@ -24,10 +24,9 @@
 
   /* ---- overlay 体系(全工程唯一覆盖层真源)----
    * z-index 量纲(严禁业务组件自造覆盖层级):
-   *   40 面板/抽屉(Drawer) < 60 模态窗口(Modal) < 90 确认对话框(Dialog,压一切)
+   *   60 模态窗口(Modal) < 90 确认对话框(Dialog,压一切)
    * 遮罩浓度/圆角/阴影一律取 token,禁止硬编码漂移。 */
   --overlay-dim: rgba(15, 16, 20, 0.45);
-  --z-overlay: 40;
   --z-modal: 60;
   --z-dialog: 90;
 }
@@ -80,9 +79,9 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent); }
 .btn-danger:hover { border-color: var(--danger); }
 .btn-danger-solid { background: var(--danger); color: #fff; }
 
-/* ---- overlay 公共层(原语 Modal/Drawer/DialogHost 共用)----
- * .overlay-mask  遮罩:fixed 全屏、统一浓度;Modal 层级由原语组件自定(z-modal/z-overlay)
- * .overlay-window 窗体基座:面板质感;形态差异由 .modal(居中)/.drawer(右侧滑入)扩展
+/* ---- overlay 公共层(原语 Modal/DialogHost 共用)----
+ * .overlay-mask  遮罩:fixed 全屏、统一浓度;层级 token 见 :root
+ * .overlay-window 窗体基座:面板质感;居中窗口形态(.modal 定宽)
  * .overlay-header/.overlay-body/.overlay-footer 结构槽位:业务组件不再自写这三块 */
 .overlay-mask {
   position: fixed;
@@ -107,21 +106,6 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent); }
 }
 .overlay-window.modal {
   width: 540px;
-}
-.overlay-window.drawer {
-  position: absolute;          /* 脱离 mask 的居中 flex,贴右 */
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: 360px;
-  max-height: none;
-  border-radius: 0;
-  border-left: 1px solid var(--border);
-  animation: drawer-in 0.18s ease-out;
-}
-@keyframes drawer-in {
-  from { transform: translateX(30px); opacity: 0.4; }
-  to { transform: none; opacity: 1; }
 }
 
 .overlay-header {
