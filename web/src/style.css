@@ -21,6 +21,15 @@
   --radius: 10px;
   --shadow-sm: 0 1px 2px rgba(20, 22, 26, 0.05);
   --shadow-md: 0 8px 30px rgba(20, 22, 26, 0.12);
+
+  /* ---- overlay 体系(全工程唯一覆盖层真源)----
+   * z-index 量纲(严禁业务组件自造覆盖层级):
+   *   40 面板/抽屉(Drawer) < 60 模态窗口(Modal) < 90 确认对话框(Dialog,压一切)
+   * 遮罩浓度/圆角/阴影一律取 token,禁止硬编码漂移。 */
+  --overlay-dim: rgba(15, 16, 20, 0.45);
+  --z-overlay: 40;
+  --z-modal: 60;
+  --z-dialog: 90;
 }
 
 html, body, #app { height: 100%; }
@@ -69,45 +78,89 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent); }
 .btn-ghost:hover { border-color: var(--accent); color: var(--accent); opacity: 1; }
 .btn-danger { color: var(--danger); border: 1px solid var(--border); background: var(--panel); }
 .btn-danger:hover { border-color: var(--danger); }
+.btn-danger-solid { background: var(--danger); color: #fff; }
 
-.modal-mask {
+/* ---- overlay 公共层(原语 Modal/Drawer/DialogHost 共用)----
+ * .overlay-mask  遮罩:fixed 全屏、统一浓度;Modal 层级由原语组件自定(z-modal/z-overlay)
+ * .overlay-window 窗体基座:面板质感;形态差异由 .modal(居中)/.drawer(右侧滑入)扩展
+ * .overlay-header/.overlay-body/.overlay-footer 结构槽位:业务组件不再自写这三块 */
+.overlay-mask {
   position: fixed;
   inset: 0;
-  background: rgba(15, 16, 20, 0.45);
+  background: var(--overlay-dim);
   backdrop-filter: blur(2px);
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 60;
+  z-index: var(--z-modal);
 }
-.modal {
+
+.overlay-window {
   background: var(--panel);
   border-radius: 14px;
-  width: 540px;
+  box-shadow: var(--shadow-md);
   max-width: 92vw;
   max-height: 88vh;
   display: flex;
   flex-direction: column;
-  box-shadow: var(--shadow-md);
+  overflow: hidden;
 }
-.modal header {
-  padding: 16px 20px;
-  font-size: 15px;
+.overlay-window.modal {
+  width: 540px;
+}
+.overlay-window.drawer {
+  position: absolute;          /* 脱离 mask 的居中 flex,贴右 */
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 360px;
+  max-height: none;
+  border-radius: 0;
+  border-left: 1px solid var(--border);
+  animation: drawer-in 0.18s ease-out;
+}
+@keyframes drawer-in {
+  from { transform: translateX(30px); opacity: 0.4; }
+  to { transform: none; opacity: 1; }
+}
+
+.overlay-header {
+  padding: 15px 20px;
+  font-size: 14.5px;
   font-weight: 600;
   border-bottom: 1px solid var(--border-soft);
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-shrink: 0;
 }
-.modal .modal-close { font-size: 15px; color: var(--muted); cursor: pointer; }
-.modal .modal-close:hover { color: var(--text); }
-.modal-body { padding: 16px 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
-.modal footer {
+.overlay-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.overlay-close {
+  font-size: 14px;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 2px 4px;
+  margin-left: 12px;
+  flex-shrink: 0;
+}
+.overlay-close:hover { color: var(--text); }
+
+.overlay-body {
+  padding: 16px 20px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 0;
+}
+
+.overlay-footer {
   padding: 13px 20px;
   border-top: 1px solid var(--border-soft);
   display: flex;
   justify-content: flex-end;
   gap: 10px;
+  flex-shrink: 0;
 }
 
 .form-row { display: flex; flex-direction: column; gap: 5px; }

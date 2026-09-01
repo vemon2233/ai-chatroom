@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue';
 import { store } from '../store';
 import { api } from '../api';
+import { dialog } from '../composables/useDialog';
 import AddMemberPanel from './AddMemberPanel.vue';
 
 const showAdd = ref(false);
@@ -10,14 +11,21 @@ const room = computed(() => store.currentRoom!);
 async function onChipClick(memberId: string) {
   const member = room.value.config.members.find((m) => m.id === memberId);
   if (!member) return;
-  const text = prompt(`给 ${member.name} 下指令(仅 TA 可见):`);
+  const text = await dialog.prompt(
+    `给 ${member.name} 下指令`,
+    '这条指令只有 TA 会看到(注入 TA 下一次发言的 prompt):',
+  );
   if (text?.trim()) {
     await api.instruct(room.value.config.id, memberId, text.trim());
   }
 }
 
 async function onRemove(memberId: string, name: string) {
-  if (!confirm(`确定让 ${name} 退出房间?`)) return;
+  const ok = await dialog.confirm('移出房间', `确定让 ${name} 退出房间?`, {
+    danger: true,
+    confirmText: '移出',
+  });
+  if (!ok) return;
   await api.removeMember(room.value.config.id, memberId);
 }
 </script>

@@ -2,13 +2,14 @@
 import { ref } from 'vue';
 import { store, refreshRooms } from '../store';
 import { api } from '../api';
+import { dialog } from '../composables/useDialog';
 import NewRoomModal from './NewRoomModal.vue';
 import CharacterModal from './CharacterModal.vue';
 
 const emit = defineEmits<{ (e: 'enter-room', id: string): void }>();
 
 const showNewRoom = ref(false);
-const showCharModal = ref(false);
+const showCharModal = ref(false); // "新角色"按钮用;编辑走 openEdit(内部置位)
 const charModalRef = ref<InstanceType<typeof CharacterModal> | null>(null);
 
 function switchTab(tab: 'rooms' | 'chars') {
@@ -20,7 +21,12 @@ function editCharacter(c: import('@server/core/types').Character) {
 }
 
 async function onDeleteRoom(id: string) {
-  if (!confirm('删除房间?聊天历史文件将保留(重启后不再复活)。')) return;
+  const ok = await dialog.confirm(
+    '删除房间',
+    '删除房间?聊天历史文件将保留(重启后不再复活)。',
+    { danger: true, confirmText: '删除' },
+  );
+  if (!ok) return;
   await api.deleteRoom(id);
   if (store.currentRoom?.config.id === id) store.currentRoom = null;
   await refreshRooms();

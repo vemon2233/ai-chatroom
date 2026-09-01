@@ -3,6 +3,7 @@ import { onMounted } from 'vue';
 import { initStore, store, enterRoom } from './store';
 import Sidebar from './components/Sidebar.vue';
 import RoomView from './components/RoomView.vue';
+import DialogHost from './components/ui/DialogHost.vue';
 
 onMounted(() => initStore());
 </script>
@@ -19,6 +20,7 @@ onMounted(() => initStore());
       </div>
       <RoomView v-else />
     </main>
+    <DialogHost />
   </div>
 </template>
 
