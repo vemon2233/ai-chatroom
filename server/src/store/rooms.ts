@@ -7,8 +7,9 @@ import { readFile, writeFile, mkdir, rename } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import type { RoomConfig } from '../core/types';
+import { REPO_ROOT } from '../server/config';
 
-const DATA_DIR = path.resolve(process.cwd(), 'data');
+const DATA_DIR = path.join(REPO_ROOT, 'data');
 const FILE = path.join(DATA_DIR, 'rooms.json');
 
 type RoomsFile = Record<string, RoomConfig>;

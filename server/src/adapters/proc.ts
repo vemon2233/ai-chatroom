@@ -140,7 +140,9 @@ export function runCliHarness(
   let settled = false;
   let resultText = '';
   let errorText: string | undefined;
-  let cancelled = false;
+  // 外部主动终止(编排器 stop/点名打断):此时尚未 settled → cancelled;
+  // 适配器拿到 result 后自行杀进程(settle 已置位)属正常完成,不算 cancelled。
+  let externallyCancelled = false;
 
   const finish = (ok: boolean, errMsg?: string) => {
     if (settled) return;
@@ -172,14 +174,14 @@ export function runCliHarness(
     stderrTail: () => '',
     stdoutAll: () => resultText,
     cancel: () => {
-      cancelled = true;
+      if (!settled) externallyCancelled = true; // settled 后的 cancel = 适配器收尾杀进程
       killTree(child);
     },
     done: new Promise<SpeakOutcome>((resolve) => {
       child.on('close', () => {
         resolve({
-          status: cancelled ? 'cancelled'
-            : settled && errorText != null ? 'error'
+          status: externallyCancelled ? 'cancelled'
+            : errorText != null ? 'error'
               : 'ok',
           result: errorText == null ? resultText : errorText,
           durationMs: Date.now() - started,

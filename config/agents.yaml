@@ -53,5 +53,5 @@ scout:
   maxRetries: 2             # 失败熔断:连续失败 N 次后本房间生命周期内不再重试
 
 server:
-  port: 3210
+  port: 3220
   host: 127.0.0.1

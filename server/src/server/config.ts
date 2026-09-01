@@ -3,6 +3,7 @@
 import { readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { parse } from 'yaml';
 import type { ScoutConfig } from '../core/scout';
 
@@ -19,7 +20,11 @@ export interface AppConfig {
   server: { port: number; host: string };
 }
 
-const CONFIG_PATH = path.resolve(process.cwd(), 'config', 'agents.yaml');
+/** 仓库根:从本文件(src/server/)向上两级——路径锚定与 process.cwd() 无关
+ *  (npm run dev -w server 的 cwd 是 server/,直接跑则在仓库根,都必须工作)。 */
+export const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
+
+const CONFIG_PATH = path.join(REPO_ROOT, 'config', 'agents.yaml');
 
 export async function loadConfig(): Promise<AppConfig> {
   if (!existsSync(CONFIG_PATH)) {
@@ -39,6 +44,6 @@ export async function loadConfig(): Promise<AppConfig> {
       timeoutMs: parsed.scout?.timeoutMs ?? 180000,
       maxRetries: parsed.scout?.maxRetries ?? 2,
     },
-    server: parsed.server ?? { port: 3210, host: '127.0.0.1' },
+    server: parsed.server ?? { port: 3220, host: '127.0.0.1' },
   };
 }

@@ -1,0 +1,117 @@
+/* AI 聊天室 v2 — 全局样式(视觉重设计:现代深浅混合,类 Linear/Slack 质感) */
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  --bg: #f6f7f9;
+  --panel: #ffffff;
+  --border: #e5e7eb;
+  --border-soft: #eef0f3;
+  --text: #16181d;
+  --muted: #878e99;
+  --accent: #4f6ef7;
+  --accent-soft: #eef1fe;
+  --me-bubble: #4f6ef7;
+  --me-text: #ffffff;
+  --danger: #e5484d;
+  --ok: #30a46c;
+  --warn: #f5a623;
+  --sidebar-bg: #17181c;
+  --sidebar-text: #d4d7dd;
+  --radius: 10px;
+  --shadow-sm: 0 1px 2px rgba(20, 22, 26, 0.05);
+  --shadow-md: 0 8px 30px rgba(20, 22, 26, 0.12);
+}
+
+html, body, #app { height: 100%; }
+
+body {
+  font-family: -apple-system, "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  overflow: hidden;
+  font-size: 14px;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+  border: none;
+  background: none;
+}
+
+input, textarea, select {
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+input:focus, textarea:focus, select:focus { border-color: var(--accent); }
+
+.btn {
+  border-radius: 8px;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  transition: opacity 0.15s, background 0.15s;
+}
+.btn:hover { opacity: 0.88; }
+.btn-primary { background: var(--accent); color: #fff; }
+.btn-ghost {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+.btn-ghost:hover { border-color: var(--accent); color: var(--accent); opacity: 1; }
+.btn-danger { color: var(--danger); border: 1px solid var(--border); background: var(--panel); }
+.btn-danger:hover { border-color: var(--danger); }
+
+.modal-mask {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 16, 20, 0.45);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 60;
+}
+.modal {
+  background: var(--panel);
+  border-radius: 14px;
+  width: 540px;
+  max-width: 92vw;
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: var(--shadow-md);
+}
+.modal header {
+  padding: 16px 20px;
+  font-size: 15px;
+  font-weight: 600;
+  border-bottom: 1px solid var(--border-soft);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.modal .modal-close { font-size: 15px; color: var(--muted); cursor: pointer; }
+.modal .modal-close:hover { color: var(--text); }
+.modal-body { padding: 16px 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
+.modal footer {
+  padding: 13px 20px;
+  border-top: 1px solid var(--border-soft);
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.form-row { display: flex; flex-direction: column; gap: 5px; }
+.form-row > label { font-size: 12.5px; font-weight: 600; color: var(--text); }
+.form-row textarea { resize: vertical; min-height: 54px; }
+
+.hidden { display: none !important; }

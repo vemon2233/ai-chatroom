@@ -4,8 +4,9 @@ import { appendFile, mkdir, readFile, readdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import type { ChatMessage } from '../core/types';
+import { REPO_ROOT } from '../server/config';
 
-const DATA_DIR = path.resolve(process.cwd(), 'data', 'rooms');
+const DATA_DIR = path.join(REPO_ROOT, 'data', 'rooms');
 
 async function ensureDir() {
   if (!existsSync(DATA_DIR)) await mkdir(DATA_DIR, { recursive: true });

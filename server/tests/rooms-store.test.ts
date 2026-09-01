@@ -4,13 +4,13 @@ import { describe, it, expect, afterAll } from 'vitest';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { persistRoom, loadAllRooms, deleteRoom } from '../src/store/rooms';
+import { REPO_ROOT } from '../src/server/config';
 import type { RoomConfig } from '../src/core/types';
 
-// store 的 DATA_DIR 固定为 <server cwd>/data,测试用真实路径但每例自清理。
-
-// 直接对函数行为做断言:写→读往返(DATA_DIR 固定为 <cwd>/data,测试前清空该文件)
+// 路径与 store 同源:REPO_ROOT/data/rooms.json。测试前后自清理。
+// 注意:断言前先备份/恢复真实数据文件由 afterAll 兜底(测试场景为隔离环境)。
 describe('rooms store', () => {
-  const FILE = path.resolve(process.cwd(), 'data', 'rooms.json');
+  const FILE = path.join(REPO_ROOT, 'data', 'rooms.json');
 
   it('写穿 → 全量加载往返(含 sessionIds)', async () => {
     await rm(FILE, { force: true });

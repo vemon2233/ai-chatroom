@@ -7,7 +7,7 @@ import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
-import { loadConfig } from './config';
+import { loadConfig, REPO_ROOT } from './config';
 import { MessageBus } from '../core/bus';
 import { ChatRoom } from '../core/room';
 import { loadAllRooms, persistRoom } from '../store/rooms';
@@ -57,7 +57,7 @@ async function main() {
     }
 
     // 静态文件:web/dist(生产);开发时由 vite(5173)服务,这里的兜底基本不触发
-    const WEB_ROOT = path.resolve(process.cwd(), '..', 'web', 'dist');
+    const WEB_ROOT = path.resolve(REPO_ROOT, 'web', 'dist');
     const file = p === '/' ? '/index.html' : p;
     const safe = path.normalize(file).replace(/^([/\\])+/, '');
     const full = path.resolve(WEB_ROOT, safe);
@@ -77,7 +77,7 @@ async function main() {
 
   setupWs(server, bus);
 
-  const port = cfg.server.port ?? 3210;
+  const port = cfg.server.port ?? 3220;
   const host = cfg.server.host ?? '127.0.0.1';
   server.listen(port, host, () => {
     console.log(`\n  AI 聊天室 v2 已启动 → http://${host}:${port}`);
