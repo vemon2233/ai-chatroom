@@ -6,7 +6,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { Character } from '../core/types';
-import { REPO_ROOT } from '../server/config';
+import { REPO_ROOT } from '../paths';
 
 const DATA_DIR = path.join(REPO_ROOT, 'data');
 const FILE = path.join(DATA_DIR, 'characters.json');

@@ -73,14 +73,6 @@ export function tryParseJson(line: string): any | null {
   }
 }
 
-export function emit(
-  onEvent: (ev: AgentEvent) => void,
-  member: string,
-  ev: Omit<AgentEvent, 'member'>,
-) {
-  onEvent({ member, ...ev });
-}
-
 /**
  * Windows 下安全终止 spawn 的进程树。
  * shell:true 时 child.kill() 只杀 cmd.exe 外壳,CLI 真身会残留成孤儿
@@ -116,10 +108,6 @@ export interface CliHarness {
   finish: (ok: boolean, errMsg?: string) => void;
   /** 仅标记已结束(事件流里已发过 done/error 时用),随后杀进程 */
   settle: () => void;
-  /** stderr 尾部(诊断用) */
-  stderrTail: () => string;
-  /** 原始 stdout 全文(兜底解析用) */
-  stdoutAll: () => string;
   /** 强制终止进程树(标记后续 outcome 为 cancelled) */
   cancel: () => void;
   /** 进程退出后 resolve(outcome 三态) */
@@ -173,8 +161,6 @@ export function runCliHarness(
   const harness: CliHarness = {
     finish,
     settle,
-    stderrTail: () => '',
-    stdoutAll: () => resultText,
     cancel: () => {
       if (!settled) externallyCancelled = true; // settled 后的 cancel = 适配器收尾杀进程
       killTree(child);
@@ -201,14 +187,4 @@ export function runCliHarness(
     }),
   };
   return harness;
-}
-
-/** 适配器内累积正文(design:适配器在 onLine 里调用,done 时已就绪)。 */
-export function makeResultAccumulator() {
-  let text = '';
-  return {
-    push(s: string) { text += s; },
-    set(s: string) { text = s; },
-    get: () => text,
-  };
 }

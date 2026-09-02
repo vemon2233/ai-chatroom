@@ -319,6 +319,28 @@ describe('编排器状态机', () => {
     expect(h.fake.callCount()).toBe(0);
   });
 
+  it('startFreeDiscussion:开始按钮冷启动(不再走 @free 文本化石)', async () => {
+    const h = makeHarness([{ result: '我开个头,不传棒' }], {}, undefined, {
+      m1: [{ result: '我开个头,不传棒' }],
+    });
+    h.orch.startFreeDiscussion();
+    await settle(100);
+    expect(h.fake.requests[0]?.member).toBe('m1'); // 首成员起头
+    expect(h.messages.some((m) => m.from === 'm1')).toBe(true);
+    // 不传棒 → idle(链正常终止);不得出现 v1 化石行为(点名失败提示)
+    const sys = h.messages.filter((m) => m.system).map((m) => m.text).join('|');
+    expect(sys).not.toContain('没有找到');
+    expect(h.orch.state).toBe('idle');
+  });
+
+  it('startFreeDiscussion 空房间:no-op 不崩', async () => {
+    const h = makeHarness([], {}, []);
+    h.orch.startFreeDiscussion();
+    await settle(50);
+    expect(h.orch.state).toBe('idle');
+    expect(h.fake.callCount()).toBe(0);
+  });
+
   it('cancel 落占位消息:stop 时保留已流出的正文(有输出场景)', async () => {
     const h = makeHarness([{ result: '说一半被打断', holdMs: 200 }]);
     await h.orch.onUserMessage('开始');

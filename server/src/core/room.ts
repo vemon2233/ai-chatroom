@@ -6,12 +6,17 @@ import { randomUUID } from 'node:crypto';
 import type { MessageBus } from './bus';
 import { Orchestrator } from './orchestrator';
 import { Scout, type ScoutConfig } from './scout';
-import { MEMBER_PALETTE } from './orchestrator';
+import { MEMBER_PALETTE } from './palette';
 import type { ChatMessage, MemberConfig, RoomConfig, RoomSettings, RoomState } from './types';
 import { getAdapter as getAdapterByKind } from '../adapters/index';
-import type { AdapterConfig } from '../server/config';
-import { loadRoomMessages } from '../store/transcript';
-import { persistRoom } from '../store/rooms';
+
+/** ChatRoom 的持久化接缝(构造注入,core 层不 import store——依赖保持单向:server→core→adapters)。 */
+export interface RoomPersistence {
+  /** rooms.json 写穿(config 全量替换该 entry) */
+  persistRoom(cfg: RoomConfig): Promise<void>;
+  /** JSONL 历史加载(重启复活) */
+  loadMessages(roomId: string): Promise<ChatMessage[]>;
+}
 
 export interface CreateRoomInput {
   name: string;
@@ -33,11 +38,15 @@ export class ChatRoom {
   constructor(
     cfg: RoomConfig,
     private bus: MessageBus,
-    adapterConfigs: Record<string, AdapterConfig>,
+    adapterConfigs: Record<string, { kind: string; command: string; args: string[] }>,
     scoutCfg: ScoutConfig,
+    private persistence: RoomPersistence,
   ) {
     this.config = cfg;
-    const scoutAdapterEntry = adapterConfigs[scoutCfg.adapter] ?? { command: '', args: [] };
+    const scoutAdapterEntry = adapterConfigs[scoutCfg.adapter];
+    if (!scoutAdapterEntry) {
+      throw new Error(`侦察适配器未配置: ${scoutCfg.adapter}(检查 config/agents.yaml 的 scout.adapter 与 adapters 是否一致)`);
+    }
     this.scout = new Scout(
       scoutCfg,
       (key) => {
@@ -57,7 +66,7 @@ export class ChatRoom {
       pushMessage: (msg) => this.pushMessage(msg),
       sysMessage: (text) => this.sysMessage(text),
       onStatuses: () => this.bus.emitRoomState(this.getState()),
-      persistRoom: () => persistRoom(this.config),
+      persistRoom: () => this.persistence.persistRoom(this.config),
       runScout: async () => {
         const report = await this.scout.ensure(this.config.projectPath);
         if (report) {
@@ -72,7 +81,7 @@ export class ChatRoom {
 
   /** 从持久化恢复历史(服务重启后,listen 前 await)。 */
   async restore(): Promise<void> {
-    this.messages = await loadRoomMessages(this.config.id);
+    this.messages = await this.persistence.loadMessages(this.config.id);
   }
 
   get id() {
@@ -115,7 +124,7 @@ export class ChatRoom {
       await this.sysMessage(
         `${added.map((m) => m.name).join('、')} 加入了房间,当前 ${this.config.members.length} 位成员`,
       );
-      await persistRoom(this.config);
+      await this.persistence.persistRoom(this.config);
       this.bus.emitRoomState(this.getState());
     }
     return added;
@@ -128,7 +137,7 @@ export class ChatRoom {
     if (this.config.moderatorId === memberId) this.config.moderatorId = undefined;
     this.orch.memberRemoved(memberId);
     await this.sysMessage(`${removed!.name} 离开了房间`);
-    await persistRoom(this.config);
+    await this.persistence.persistRoom(this.config);
     this.bus.emitRoomState(this.getState());
   }
 
@@ -180,7 +189,8 @@ export class ChatRoom {
       await this.sysMessage('房间里还没有成员,请先添加成员再开始。');
       return;
     }
-    await this.orch.onUserMessage('@free'); // 开始按钮 = 进入接棒模式起头
+    await this.sysMessage('自由讨论开始(接棒模式):发言者自己决定下一位。');
+    this.orch.startFreeDiscussion(); // 显式入口(v1 用 '@free' 文本触发,v2 parseUserCommand 已无该指令,曾是化石 bug)
   }
 
   async stop(): Promise<void> {
@@ -202,7 +212,7 @@ export class ChatRoom {
         this.config.moderatorId = patch.moderatorId;
       }
     }
-    await persistRoom(this.config);
+    await this.persistence.persistRoom(this.config);
     this.bus.emitRoomState(this.getState());
   }
 }

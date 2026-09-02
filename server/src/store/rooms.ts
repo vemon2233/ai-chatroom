@@ -7,12 +7,16 @@ import { readFile, writeFile, mkdir, rename } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import type { RoomConfig } from '../core/types';
-import { REPO_ROOT } from '../server/config';
+import { REPO_ROOT } from '../paths';
 
 const DATA_DIR = path.join(REPO_ROOT, 'data');
 const FILE = path.join(DATA_DIR, 'rooms.json');
 
 type RoomsFile = Record<string, RoomConfig>;
+
+// 模块级写互斥:persistRoom 是 readAll→改→写回的 check-then-act,
+// 并发调用(如成员增删与消息完成写穿交错)会以旧读覆盖丢更新——串行化。
+let writeChain: Promise<unknown> = Promise.resolve();
 
 async function readAll(): Promise<RoomsFile> {
   if (!existsSync(FILE)) return {};
@@ -40,20 +44,26 @@ async function atomicWrite(file: string, content: string): Promise<void> {
   }
 }
 
+/** 串行化一次"读-改-写"(所有变更共用 writeChain,防止交错覆盖)。 */
+function serialized(mutate: (all: RoomsFile) => void): Promise<void> {
+  const run = writeChain.then(async () => {
+    const all = await readAll();
+    mutate(all);
+    await mkdir(DATA_DIR, { recursive: true });
+    await atomicWrite(FILE, JSON.stringify(all, null, 2));
+  });
+  writeChain = run.catch(() => {}); // 失败不断链
+  return run;
+}
+
 /** 写穿一个房间(config 全量替换该 entry)。 */
-export async function persistRoom(cfg: RoomConfig): Promise<void> {
-  const all = await readAll();
-  all[cfg.id] = cfg;
-  await mkdir(DATA_DIR, { recursive: true });
-  await atomicWrite(FILE, JSON.stringify(all, null, 2));
+export function persistRoom(cfg: RoomConfig): Promise<void> {
+  return serialized((all) => { all[cfg.id] = cfg; });
 }
 
 /** 删除一个房间的 config(JSONL 历史保留,可回看)。 */
-export async function deleteRoom(roomId: string): Promise<void> {
-  const all = await readAll();
-  delete all[roomId];
-  await mkdir(DATA_DIR, { recursive: true });
-  await atomicWrite(FILE, JSON.stringify(all, null, 2));
+export function deleteRoom(roomId: string): Promise<void> {
+  return serialized((all) => { delete all[roomId]; });
 }
 
 /** 启动时全量加载(复活房间;编排运行态不持久化,复活后 idle)。 */

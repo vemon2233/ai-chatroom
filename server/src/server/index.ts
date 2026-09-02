@@ -1,5 +1,5 @@
 // AI 聊天室 v2 — 服务入口。
-// npm run dev → http://localhost:3210
+// npm run dev → http://localhost:3220
 // 启动顺序(关键):loadConfig → 复活房间(rooms.json → ChatRoom → await restore)
 // → 全部恢复完才 listen(防启动窗口读到空历史)。
 
@@ -7,12 +7,20 @@ import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
-import { loadConfig, REPO_ROOT } from './config';
+import { loadConfig } from './config';
+import { REPO_ROOT } from '../paths';
 import { MessageBus } from '../core/bus';
 import { ChatRoom } from '../core/room';
 import { loadAllRooms, persistRoom } from '../store/rooms';
+import { loadRoomMessages } from '../store/transcript';
 import { createRoutes } from './routes';
 import { setupWs } from './ws';
+
+/** 持久化接缝(server 注入 store 实现给 core 的 ChatRoom——依赖单向:server→core,core 不知 store)。 */
+const roomPersistence = {
+  persistRoom,
+  loadMessages: (roomId: string) => loadRoomMessages(roomId),
+};
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -32,7 +40,7 @@ async function main() {
   const persisted = await loadAllRooms();
   for (const rcfg of persisted) {
     // 适配器被删的角色:成员保留,首次发言时报错并提示(不阻塞复活)
-    const room = new ChatRoom(rcfg, bus, cfg.adapters, cfg.scout);
+    const room = new ChatRoom(rcfg, bus, cfg.adapters, cfg.scout, roomPersistence);
     await room.restore(); // JSONL 历史进内存(listen 前完成)
     rooms.set(room.id, room);
   }
@@ -89,6 +97,3 @@ main().catch((e) => {
   console.error('启动失败:', e);
   process.exit(1);
 });
-
-// persistRoom 被 routes 动态 import;此处引用保持类型可见(无副作用)
-void persistRoom;

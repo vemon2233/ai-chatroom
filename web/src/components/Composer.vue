@@ -3,11 +3,9 @@ import { computed, nextTick, ref, watch } from 'vue';
 import { store } from '../store';
 import { api } from '../api';
 import { detectMention, type TextSegment } from '../mentions';
-import type { MemberConfig } from '@server/core/types';
 
 const text = ref('');
 const inputEl = ref<HTMLTextAreaElement | null>(null);
-const popupEl = ref<HTMLElement | null>(null);
 
 const busy = computed(() => {
   const room = store.currentRoom;
@@ -18,7 +16,7 @@ const busy = computed(() => {
 // ---------- 微信式 @ 弹选 ----------
 
 /** 弹层候选:成员名 + 全员指令(@all)。按 query 前缀过滤。 */
-interface Candidate { label: string; sub: string; insert: string; member?: MemberConfig }
+interface Candidate { label: string; sub: string; insert: string }
 
 const popup = ref<{ start: number; query: string } | null>(null);
 const activeIdx = ref(0);
@@ -32,7 +30,7 @@ const candidates = computed<Candidate[]>(() => {
   }
   for (const m of store.currentRoom?.config.members ?? []) {
     if (m.name.toLowerCase().includes(q)) {
-      list.push({ label: `@${m.name}`, sub: m.persona.slice(0, 24), insert: `@${m.name}`, member: m });
+      list.push({ label: `@${m.name}`, sub: m.persona.slice(0, 24), insert: `@${m.name}` });
     }
   }
   return list;
@@ -46,13 +44,9 @@ function refreshPopup() {
   const el = inputEl.value;
   if (!el) return;
   const pos = el.selectionStart ?? text.value.length;
-  const detected = detectMention(text.value.slice(0, pos));
-  popup.value = detected && candidatesWouldShow(detected.query) ? detected : null;
-}
-
-function candidatesWouldShow(query: string): boolean {
-  // 无候选也保持弹层打开(用户正在输入过滤词),除非 query 里已出现空白(token 终止由 detectMention 保证)
-  return true;
+  // 检测到激活 @token 即弹(无候选也保持打开——用户正在输入过滤词;
+  // token 终止/误触邮箱等情况由 detectMention 的行首/空白前置条件排除)
+  popup.value = detectMention(text.value.slice(0, pos));
 }
 
 /** 弹性增高:内容超出时按 scrollHeight 长高(上限 CSS max-height),删减回缩。 */
@@ -146,7 +140,7 @@ async function onStop() {
       ></textarea>
 
       <!-- 微信式 @ 弹选:锚定输入框上方 -->
-      <div v-if="popup && candidates.length" ref="popupEl" class="mention-popup">
+      <div v-if="popup && candidates.length" class="mention-popup">
         <div
           v-for="(c, i) in candidates"
           :key="c.insert"

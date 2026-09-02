@@ -3,9 +3,9 @@
 import { readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { parse } from 'yaml';
 import type { ScoutConfig } from '../core/scout';
+import { REPO_ROOT } from '../paths';
 
 export interface AdapterConfig {
   displayName: string;
@@ -19,10 +19,6 @@ export interface AppConfig {
   scout: ScoutConfig;
   server: { port: number; host: string };
 }
-
-/** 仓库根:从本文件(src/server/)向上两级——路径锚定与 process.cwd() 无关
- *  (npm run dev -w server 的 cwd 是 server/,直接跑则在仓库根,都必须工作)。 */
-export const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 
 const CONFIG_PATH = path.join(REPO_ROOT, 'config', 'agents.yaml');
 

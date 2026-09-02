@@ -4,11 +4,17 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { existsSync } from 'node:fs';
 import { ChatRoom, makeRoomConfig, type CreateRoomInput } from '../core/room';
 import type { MessageBus } from '../core/bus';
+import { deleteRoom, persistRoom } from '../store/rooms';
 import { loadRoomMessages } from '../store/transcript';
 import { CharacterStore } from '../store/characters';
-import { deleteRoom } from '../store/rooms';
 import type { Character, RoomSettings } from '../core/types';
 import type { AdapterConfig, AppConfig } from './config';
+
+/** 组装 ChatRoom 的持久化接缝(server 层负责把 store 实现注入 core——依赖单向)。 */
+const roomPersistence = {
+  persistRoom,
+  loadMessages: (roomId: string) => loadRoomMessages(roomId),
+};
 
 function readBody(req: IncomingMessage): Promise<any> {
   return new Promise((resolve, reject) => {
@@ -146,9 +152,9 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
           return json(res, 400, { error: `项目目录不存在: ${body.projectPath}` });
         }
         const rcfg = makeRoomConfig(body);
-        const room = new ChatRoom(rcfg, bus, adapterConfigs, cfg.scout);
+        const room = new ChatRoom(rcfg, bus, adapterConfigs, cfg.scout, roomPersistence);
         rooms.set(room.id, room);
-        await import('../store/rooms').then((m) => m.persistRoom(rcfg));
+        await persistRoom(rcfg);
         bus.broadcast({ type: 'rooms' });
         return json(res, 201, { id: room.id, state: room.getState() });
       }

@@ -59,10 +59,6 @@ export class Scout {
     private adapterEntry: { command: string; args: string[] },
   ) {}
 
-  get reportDone(): boolean {
-    return this.done;
-  }
-
   /** 若该跑(绑项目、没跑过、没熔断),跑一次并返回侦察消息;并发调用共享同一次执行。 */
   ensure(projectPath: string | undefined): Promise<ChatMessage | null> {
     if (!projectPath || this.done || this.failureCount >= this.cfg.maxRetries) {

@@ -8,11 +8,9 @@ defineProps<{
 }>();
 
 const model = defineModel<boolean>({ default: false });
-const emit = defineEmits<{ (e: 'closed'): void }>();
 
 function close() {
   model.value = false;
-  emit('closed');
 }
 </script>
 

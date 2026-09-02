@@ -1,10 +1,10 @@
 // 聊天记录持久化:每房间一个 JSONL 文件,追加写入,重开可回放。
 
-import { appendFile, mkdir, readFile, readdir } from 'node:fs/promises';
+import { appendFile, mkdir, readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import type { ChatMessage } from '../core/types';
-import { REPO_ROOT } from '../server/config';
+import { REPO_ROOT } from '../paths';
 
 const DATA_DIR = path.join(REPO_ROOT, 'data', 'rooms');
 
@@ -38,10 +38,4 @@ export async function loadRoomMessages(roomId: string): Promise<ChatMessage[]> {
     }
   }
   return out;
-}
-
-export async function listRoomIds(): Promise<string[]> {
-  if (!existsSync(DATA_DIR)) return [];
-  const files = await readdir(DATA_DIR);
-  return files.filter((f) => f.endsWith('.jsonl')).map((f) => f.replace(/\.jsonl$/, ''));
 }

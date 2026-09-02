@@ -57,11 +57,6 @@ interface SpeechEntry {
   afterRounds?: 'finalSummary';
 }
 
-const PALETTE = [
-  '#5B8DEF', '#8E7CC3', '#4CAF7D', '#E0915B',
-  '#D46A9E', '#6ABFC3', '#C3A96A', '#9BA65D',
-];
-
 export class Orchestrator {
   state: OrchestrationState = 'idle';
   statuses: Record<string, MemberStatus> = {};
@@ -175,21 +170,27 @@ export class Orchestrator {
       default: {
         // 纯文本:激活/维持接棒模式,预算重置
         this.budget = this.deps.room.chainBudget;
-        if (this.state === 'idle' && members.length > 0 && this.currentSpeaker == null) {
-          // 冷启动:选一位起头
-          this.setState('baton');
-          const first = members[0]!;
-          this.enqueue({
-            memberId: first.id,
-            trigger: '讨论开始,请你先就主题开个头。',
-            baton: true,
-          });
-        } else if (this.state === 'baton' && this.currentSpeaker == null && this.queue.length === 0) {
-          // 冷场补救:没人在说、队列空(上次没写接棒行已回 idle,不该到这里;防御性保留)
-          this.pickAndEnqueue(null);
-        }
+        this.startFreeDiscussion();
         return;
       }
+    }
+  }
+
+  /** 进入/维持接棒自由讨论(纯文本消息与「开始」按钮共用入口)。
+   *  冷启动(idle 且无人说):首成员起头;已在 baton:不重复起头(接棒链自行驱动)。 */
+  startFreeDiscussion(): void {
+    const members = this.deps.room.members;
+    if (this.state === 'idle' && members.length > 0 && this.currentSpeaker == null) {
+      this.setState('baton');
+      const first = members[0]!;
+      this.enqueue({
+        memberId: first.id,
+        trigger: '讨论开始,请你先就主题开个头。',
+        baton: true,
+      });
+    } else if (this.state === 'baton' && this.currentSpeaker == null && this.queue.length === 0) {
+      // 冷场补救:没人在说、队列空(上次没写接棒行已回 idle,不该到这里;防御性保留)
+      this.pickAndEnqueue(null);
     }
   }
 
@@ -287,14 +288,14 @@ export class Orchestrator {
       batonMode: batonActive,
     });
 
-    const outcome = await this.invokeWithRetry(member, prompt, entry.trigger);
+    const { outcome, trace, thinking, usage } = await this.invokeWithRetry(member, prompt);
 
     switch (outcome.status) {
       case 'cancelled': {
         // stop/点名/轮流打断:正文不落库,但"发言被终止"本身是聊天历史的一部分——
         // 记一条已停止占位消息(刷新后仍可见,替代凭空消失)
         this.statuses[member.id] = 'idle';
-        const streamed = this.traceBuf
+        const streamed = trace
           .filter((t) => t.kind === 'text')
           .map((t) => t.content)
           .join('');
@@ -306,8 +307,8 @@ export class Orchestrator {
           text: streamed.trim() || '(已停止思考)',
           ts: Date.now(),
           detail: {
-            trace: this.traceBuf,
-            thinking: this.thinkingBuf || undefined,
+            trace,
+            thinking: thinking || undefined,
             durationMs: outcome.durationMs,
             adapter: member.adapter,
             trigger: entry.trigger,
@@ -318,9 +319,14 @@ export class Orchestrator {
       }
       case 'error': {
         this.statuses[member.id] = 'error';
-        this.onStatuses();
         await this.sysMessage(`${member.name} 发言失败: ${outcome.error ?? '未知错误'}`);
-        // 一律 idle:绝不从错误文本解析接棒,不自动重试
+        // error → 一律 idle 且终止本轮编排:绝不从错误文本解析接棒,不自动重试;
+        // bump 世代作废队列残留(否则轮流剩余条目会在 state=idle 的伪装下继续跑)
+        this.bumpGeneration();
+        // error 不粘滞:全员复位 idle(红点只在出错瞬间可见,下一次交互不再干扰)
+        for (const id of Object.keys(this.statuses)) {
+          if (this.statuses[id] === 'error') this.statuses[id] = 'idle';
+        }
         this.setState('idle');
         return;
       }
@@ -344,9 +350,9 @@ export class Orchestrator {
       text: finalText,
       ts: Date.now(),
       detail: {
-        trace: this.traceBuf,
-        thinking: this.thinkingBuf || undefined,
-        usage: this.lastUsage,
+        trace,
+        thinking: thinking || undefined,
+        usage,
         durationMs: outcome.durationMs, // harness 真实计时(修 v1 0.0s bug)
         adapter: member.adapter,
         trigger: entry.trigger,
@@ -400,38 +406,45 @@ export class Orchestrator {
   private async invokeWithRetry(
     member: MemberConfig,
     prompt: string,
-    trigger: string | undefined,
-  ): Promise<SpeakOutcome> {
-    const first = await this.invoke(member, prompt, trigger);
-    if (first.status !== 'error') return first; // ok 原样;cancelled 直接透传,禁止重试
+  ): Promise<Awaited<ReturnType<Orchestrator['invoke']>>> {
+    const first = await this.invoke(member, prompt);
+    if (first.outcome.status !== 'error') return first; // ok 原样;cancelled 直接透传,禁止重试
     const hadResume = member.sessionIds?.[member.adapter];
     if (hadResume) {
       // stale session 是最可能的失败因——清掉重试一次
       delete member.sessionIds![member.adapter];
       await this.deps.persistRoom();
-      return this.invoke(member, prompt, trigger);
+      return this.invoke(member, prompt);
     }
     return first;
   }
 
-  private thinkingBuf = '';
-  private traceBuf: import('./types').TraceEntry[] = [];
-  private lastUsage: ChatMessage['detail'] extends undefined ? never : NonNullable<ChatMessage['detail']>['usage'] = undefined;
-
-  private async invoke(member: MemberConfig, prompt: string, trigger?: string): Promise<SpeakOutcome> {
+  /** invoke 产物:outcome + 本次发言的过程缓冲(局部变量,不挂实例——
+   *  队列虽串行,但把过程状态显式装进返回值可让"无并发窗口"成为类型可见的事实) */
+  private async invoke(member: MemberConfig, prompt: string): Promise<{
+    outcome: SpeakOutcome;
+    trace: import('./types').TraceEntry[];
+    thinking: string;
+    usage: NonNullable<ChatMessage['detail']>['usage'];
+  }> {
     const acfg = this.deps.adapterConfigs[member.adapter];
     if (!acfg) {
-      return { status: 'error', result: '', durationMs: 0, error: `适配器未配置: ${member.adapter}` };
+      return {
+        outcome: { status: 'error', result: '', durationMs: 0, error: `适配器未配置: ${member.adapter}` },
+        trace: [], thinking: '', usage: undefined,
+      };
     }
     const adapter = this.deps.resolveAdapter(member.adapter);
 
     this.statuses[member.id] = 'thinking';
-    this.thinkingBuf = '';
-    this.traceBuf = [];
     this.currentSpeaker = member.id;
     this.onStatuses();
 
-    const trace = this.traceBuf;
+    // 本次发言的过程缓冲(局部;invoke 的生命周期内聚)
+    const trace: import('./types').TraceEntry[] = [];
+    let thinking = '';
+    let usage: NonNullable<ChatMessage['detail']>['usage'] = undefined;
+
     const req: import('../adapters/base').SpeakRequest = {
       member: member.id,
       prompt,
@@ -442,7 +455,6 @@ export class Orchestrator {
       permission: this.deps.room.toolPermission,
     };
 
-    let usage: NonNullable<ChatMessage['detail']>['usage'] = undefined;
     const handle = adapter.speak(req, (ev: AgentEvent) => {
       // session id 发现:记录到成员(下次 resume)
       if (ev.sessionId) {
@@ -450,7 +462,7 @@ export class Orchestrator {
       }
       if (ev.phase === 'thinking') {
         if (ev.thinkingDelta) {
-          this.thinkingBuf += ev.thinkingDelta;
+          thinking += ev.thinkingDelta;
           trace.push({ kind: 'thinking', ts: Date.now(), content: ev.thinkingDelta });
         }
         if (ev.toolUse) trace.push({ kind: 'tool_use', ts: Date.now(), label: ev.toolUse.name, content: ev.toolUse.input });
@@ -471,8 +483,7 @@ export class Orchestrator {
     const outcome = await handle.done;
     this.cancelCurrent = null;
     this.currentSpeaker = undefined;
-    this.lastUsage = usage;
-    return outcome;
+    return { outcome, trace, thinking, usage };
   }
 
   // ---------- @指令解析 ----------
@@ -486,6 +497,7 @@ export class Orchestrator {
       return { kind: 'all', rounds: allMatch[1] ? Math.max(1, parseInt(allMatch[1])) : 1 };
     }
     // @成员名:提取所有 @ token,从最长开始尝试(用户最具体的意图优先)
+    // ⚠ token 语法与前端 web/src/mentions.ts 是同一契约的双语言实现——改这里必须同步改那边
     const atNames = [...text.matchAll(/@([^\s@,，。]+)/g)].map((mm) => mm[1]!);
     for (const raw of [...atNames].sort((a, b) => b.length - a.length)) {
       const hit = matchMemberByName(raw, this.deps.room.members);
@@ -513,5 +525,3 @@ export class Orchestrator {
     this.budget = Math.max(0, n);
   }
 }
-
-export const MEMBER_PALETTE = PALETTE;
