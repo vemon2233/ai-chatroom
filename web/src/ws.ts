@@ -4,8 +4,10 @@ import type { WsEvent } from '@server/core/bus';
 
 export function connectWs(onEvent: (ev: WsEvent) => void): void {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  // vite dev 代理 /ws → 3210;同源直连(vite ws 代理配置)
-  const ws = new WebSocket(`${proto}://${location.host}`);
+  // 显式 /ws 路径:
+  //  - dev:vite proxy 的 '/ws' 规则按路径前缀匹配,根路径连不中代理 → 实时推送全断
+  //  - prod:后端 WebSocketServer 挂在 http server 上不校验路径,/ws 同样放行
+  const ws = new WebSocket(`${proto}://${location.host}/ws`);
 
   ws.onmessage = (e) => {
     try {
