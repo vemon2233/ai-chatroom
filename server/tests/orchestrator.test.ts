@@ -16,6 +16,8 @@ interface ScriptedResponse {
   holdMs?: number;
   /** 该响应归属哪个成员;缺省按入队顺序轮转 */
   member?: string;
+  /** 只发 thinking 不发 streaming(模拟纯思考阶段被 stop) */
+  noStream?: boolean;
 }
 
 /** 脚本化 fake adapter:响应按 member 匹配(member 无对应脚本则用缺省脚本按序轮转)。 */
@@ -42,8 +44,11 @@ function makeFakeAdapter(defaultScript: ScriptedResponse[], byMember?: Record<st
         if (s.sessionId) {
           onEvent({ member: req.member, phase: 'thinking', sessionId: s.sessionId });
         }
-        onEvent({ member: req.member, phase: 'streaming', textDelta: s.result ?? '' });
-        onEvent({ member: req.member, phase: 'done', result: s.outcome?.status === 'error' ? undefined : (s.result ?? '') });
+        onEvent({ member: req.member, phase: 'thinking', thinkingDelta: '想了很多…' });
+        if (!s.noStream) {
+          onEvent({ member: req.member, phase: 'streaming', textDelta: s.result ?? '' });
+          onEvent({ member: req.member, phase: 'done', result: s.outcome?.status === 'error' ? undefined : (s.result ?? '') });
+        }
         if (s.outcome?.status === 'error') {
           onEvent({ member: req.member, phase: 'error', error: s.outcome?.error ?? 'boom' });
         }
@@ -314,17 +319,32 @@ describe('编排器状态机', () => {
     expect(h.fake.callCount()).toBe(0);
   });
 
-  it('cancel 落占位消息:stop 时记录"(已停止思考)"而非凭空消失', async () => {
+  it('cancel 落占位消息:stop 时保留已流出的正文(有输出场景)', async () => {
     const h = makeHarness([{ result: '说一半被打断', holdMs: 200 }]);
     await h.orch.onUserMessage('开始');
-    await settle(30); // 发言进行中(hold 200ms)
+    await settle(30); // 发言进行中(hold 200ms),streaming 事件已推入 trace
     await h.orch.stop();
     await settle(300);
-    // 正文不落,但"已停止"占位必须落库(刷新后仍可见)
+    const msgs = h.messages.filter((m) => m.from === 'm1');
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0]!.text).toBe('说一半被打断'); // 已流出正文保留在占位消息
+    expect(h.orch.state).toBe('idle');
+    expect(h.orch.statuses['m1']).toBe('idle');
+  });
+
+  it('cancel 落占位消息:纯思考阶段停止 → "(已停止思考)"', async () => {
+    // 无 streaming 事件(只 thinking):占位文本应为"(已停止思考)"
+    const members = makeMembers(1, ['甲']);
+    const h = makeHarness([], {}, members, {
+      m1: [{ result: '(never streamed)', holdMs: 300, noStream: true }],
+    });
+    await h.orch.onUserMessage('开始');
+    await settle(30);
+    await h.orch.stop();
+    await settle(400);
     const msgs = h.messages.filter((m) => m.from === 'm1');
     expect(msgs).toHaveLength(1);
     expect(msgs[0]!.text).toBe('(已停止思考)');
-    expect(h.orch.state).toBe('idle');
     expect(h.orch.statuses['m1']).toBe('idle');
   });
 
