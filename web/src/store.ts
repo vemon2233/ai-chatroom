@@ -74,6 +74,11 @@ function onWsEvent(ev: import('@server/core/bus').WsEvent): void {
       const rid = currentRoomId();
       if (rid === ev.roomId) {
         store.currentRoom = ev.state; // 整快照替换,不 merge
+        // 状态归位的成员清理流式缓冲(正常完成由 message 事件清;stop/error 等
+        // 无最终消息的路径在此兜底,防止"正在思考…"占位气泡永久悬挂)
+        for (const [mid, status] of Object.entries(ev.state.statuses)) {
+          if (status === 'idle' || status === 'error') delete store.memberStream[mid];
+        }
       }
       return;
     }

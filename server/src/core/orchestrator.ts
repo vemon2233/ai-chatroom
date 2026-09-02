@@ -290,11 +290,32 @@ export class Orchestrator {
     const outcome = await this.invokeWithRetry(member, prompt, entry.trigger);
 
     switch (outcome.status) {
-      case 'cancelled':
-        // stop/点名/轮流打断:不落库、不接棒,状态已被调用方置好
+      case 'cancelled': {
+        // stop/点名/轮流打断:正文不落库,但"发言被终止"本身是聊天历史的一部分——
+        // 记一条已停止占位消息(刷新后仍可见,替代凭空消失)
         this.statuses[member.id] = 'idle';
+        const streamed = this.traceBuf
+          .filter((t) => t.kind === 'text')
+          .map((t) => t.content)
+          .join('');
+        await this.deps.pushMessage({
+          id: randomUUID(),
+          roomId: this.deps.room.id,
+          from: member.id,
+          fromName: member.name,
+          text: streamed.trim() || '(已停止思考)',
+          ts: Date.now(),
+          detail: {
+            trace: this.traceBuf,
+            thinking: this.thinkingBuf || undefined,
+            durationMs: outcome.durationMs,
+            adapter: member.adapter,
+            trigger: entry.trigger,
+          },
+        });
         this.onStatuses();
         return;
+      }
       case 'error': {
         this.statuses[member.id] = 'error';
         this.onStatuses();

@@ -314,14 +314,18 @@ describe('编排器状态机', () => {
     expect(h.fake.callCount()).toBe(0);
   });
 
-  it('cancel 不落库:stop 时进行中发言被丢弃', async () => {
+  it('cancel 落占位消息:stop 时记录"(已停止思考)"而非凭空消失', async () => {
     const h = makeHarness([{ result: '说一半被打断', holdMs: 200 }]);
     await h.orch.onUserMessage('开始');
     await settle(30); // 发言进行中(hold 200ms)
     await h.orch.stop();
     await settle(300);
-    expect(h.messages.some((m) => m.text === '说一半被打断')).toBe(false);
+    // 正文不落,但"已停止"占位必须落库(刷新后仍可见)
+    const msgs = h.messages.filter((m) => m.from === 'm1');
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0]!.text).toBe('(已停止思考)');
     expect(h.orch.state).toBe('idle');
+    expect(h.orch.statuses['m1']).toBe('idle');
   });
 
   it('stop 不触发 resume 重试:cancel 后绝不复活新进程(修"按两次停止"bug)', async () => {
