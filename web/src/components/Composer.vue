@@ -129,7 +129,7 @@ async function onStop() {
         ref="inputEl"
         v-model="text"
         rows="1"
-        placeholder="直接发言=自由讨论(接棒);@名字 点名;@all2 轮流2轮"
+        placeholder="无@=接棒模式 · @成员名=点名(答完即止) · @allN=轮流N轮 · Enter 发送 / Shift+Enter 换行"
         @input="onInput"
         @click="refreshPopup"
         @keydown="onKeydown"
@@ -154,7 +154,6 @@ async function onStop() {
     <button v-if="!busy" class="btn btn-primary send" @click="send">发送</button>
     <button v-else class="btn stop send" @click="onStop">‖ 停止</button>
   </div>
-  <div class="hint">无@=接棒模式 · @成员名=点名(答完即止) · @allN=轮流N轮 · Enter 发送 / Shift+Enter 换行</div>
 </template>
 
 <style scoped>
