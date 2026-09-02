@@ -55,7 +55,16 @@ function candidatesWouldShow(query: string): boolean {
   return true;
 }
 
+/** 弹性增高:内容超出时按 scrollHeight 长高(上限 CSS max-height),删减回缩。 */
+function autoGrow() {
+  const el = inputEl.value;
+  if (!el) return;
+  el.style.height = 'auto';
+  el.style.height = `${Math.min(el.scrollHeight, 140)}px`;
+}
+
 function onInput() {
+  autoGrow();
   refreshPopup();
 }
 
@@ -112,6 +121,7 @@ async function send() {
   const t = text.value.trim();
   if (!t || !store.currentRoom) return;
   text.value = '';
+  nextTick(() => autoGrow()); // 清空后回缩到单行高
   popup.value = null;
   await api.say(store.currentRoom.config.id, t);
 }
@@ -166,22 +176,29 @@ async function onStop() {
   align-items: center; /* 输入框与发送按钮同一行垂直居中 */
 }
 .input-wrap { flex: 1; position: relative; min-width: 0; }
+/* 单行 42px 精确分解:20px 行高 + 上下 10px padding + 上下 1px 边框。
+ * padding 垂直对称 → placeholder/文字真正居中(textarea 的多余高度默认垫底,不能靠 min-height 撑)。 */
 textarea {
   width: 100%;
   resize: none;
+  height: 42px;
   min-height: 42px;
   max-height: 140px;
-  line-height: 20px; /* 与 min-height 配合:单行时文字垂直居中 */
+  padding: 10px;
+  line-height: 20px;
   box-sizing: border-box;
+  overflow-y: auto;
 }
-/* 发送/停止按钮:与输入框基线高度一致(42px = textarea min-height),垂直居中 */
+/* 发送/停止按钮:42px 与输入框逐像素一致(含边框盒),文字行高钉死防基线漂移 */
 .send {
   height: 42px;
   padding: 0 22px;
+  line-height: 1;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  box-sizing: border-box;
 }
 .send.stop { background: var(--danger); color: #fff; }
 
