@@ -189,11 +189,13 @@ textarea {
   box-sizing: border-box;
   overflow-y: auto;
 }
-/* 发送/停止按钮:42px 与输入框逐像素一致(含边框盒),文字行高钉死防基线漂移 */
+/* 发送/停止按钮:与输入框同一排版坐标(font 13px / line 20px)——
+ * 盒高逐像素 42px 一致,文字行参数也一致,视觉重心同线,消灭"低一点点"的字体错觉 */
 .send {
   height: 42px;
   padding: 0 22px;
-  line-height: 1;
+  font-size: 13px;
+  line-height: 20px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
