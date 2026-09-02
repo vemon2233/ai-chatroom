@@ -179,6 +179,7 @@ async function onStop() {
 /* 单行 42px 精确分解:20px 行高 + 上下 10px padding + 上下 1px 边框。
  * padding 垂直对称 → placeholder/文字真正居中(textarea 的多余高度默认垫底,不能靠 min-height 撑)。 */
 textarea {
+  display: block; /* 关键:textarea 默认 inline,基线对齐会在容器内留下 descender 空隙(input-wrap 46px > 42px),flex 居中后按钮视觉下沉 2px */
   width: 100%;
   resize: none;
   height: 42px;
