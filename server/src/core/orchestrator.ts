@@ -373,17 +373,19 @@ export class Orchestrator {
     }
   }
 
-  /** invoke + resume 失败自愈(清 sessionId 重试一次) */
+  /** invoke + resume 失败自愈(清 sessionId 重试一次)。
+   *  cancelled(用户 stop/点名打断)绝不是失败——不重试,否则"停止"会立刻复活一个新进程
+   *  (实测根因:用户须按两次停止)。 */
   private async invokeWithRetry(
     member: MemberConfig,
     prompt: string,
     trigger: string | undefined,
   ): Promise<SpeakOutcome> {
     const first = await this.invoke(member, prompt, trigger);
-    if (first.status === 'ok') return first;
+    if (first.status !== 'error') return first; // ok 原样;cancelled 直接透传,禁止重试
     const hadResume = member.sessionIds?.[member.adapter];
     if (hadResume) {
-      // stale session 是最可能的失败因(v1 此场景会永久失败)——清掉重试一次
+      // stale session 是最可能的失败因——清掉重试一次
       delete member.sessionIds![member.adapter];
       await this.deps.persistRoom();
       return this.invoke(member, prompt, trigger);

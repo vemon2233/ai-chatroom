@@ -324,6 +324,27 @@ describe('编排器状态机', () => {
     expect(h.orch.state).toBe('idle');
   });
 
+  it('stop 不触发 resume 重试:cancel 后绝不复活新进程(修"按两次停止"bug)', async () => {
+    // 场景:成员已有 sessionId(init 事件捕获),发言被 stop 打断 → cancelled
+    // 若 invokeWithRetry 把 cancelled 当失败重试,会立刻 spawn 新进程(第二次 BUSY)
+    const members = makeMembers(1, ['甲']);
+    members[0]!.sessionIds = { fake: 'sess-1' }; // 模拟首话后已有 session
+    let cancelRequested = false;
+    const h = makeHarness([], {}, members, {
+      m1: [{ result: '被打断', holdMs: 120 }],
+    });
+    await h.orch.onUserMessage('开始');
+    await settle(30); // 甲在说
+    await h.orch.stop(); // cancel → outcome=cancelled
+    const callsAfterStop = h.fake.callCount();
+    await settle(300);
+    // 关键断言:cancelled 后零重试(调用数不增),statuses 回 idle
+    expect(h.fake.callCount()).toBe(callsAfterStop);
+    expect(h.orch.statuses['m1']).toBe('idle');
+    expect(h.orch.state).toBe('idle');
+    expect(cancelRequested).toBe(false);
+  });
+
   it('session id 捕获后随消息持久化(写穿钩子被调)', async () => {
     const h = makeHarness([{ result: '发言', sessionId: 'sess-123' }]);
     await h.orch.onUserMessage('开始');

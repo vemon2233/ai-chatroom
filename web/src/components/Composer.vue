@@ -162,7 +162,7 @@ async function onStop() {
       </div>
     </div>
     <button v-if="!busy" class="btn btn-primary send" @click="send">发送</button>
-    <button v-else class="btn stop send" @click="onStop">‖ 停止</button>
+    <button v-else class="btn stop send" @click="onStop">停止</button>
   </div>
 </template>
 

@@ -143,6 +143,8 @@ export function runCliHarness(
   // 外部主动终止(编排器 stop/点名打断):此时尚未 settled → cancelled;
   // 适配器拿到 result 后自行杀进程(settle 已置位)属正常完成,不算 cancelled。
   let externallyCancelled = false;
+  // done 的 resolve 句柄:close 事件与 cancel 兜底定时器谁先到谁结案(Promise resolve 幂等)
+  let resolveDone: ((o: SpeakOutcome) => void) | null = null;
 
   const finish = (ok: boolean, errMsg?: string) => {
     if (settled) return;
@@ -176,8 +178,16 @@ export function runCliHarness(
     cancel: () => {
       if (!settled) externallyCancelled = true; // settled 后的 cancel = 适配器收尾杀进程
       killTree(child);
+      // Windows 实测:shell:true 下 taskkill /T 杀掉 claude.exe 后,cmd 壳的 close 事件
+      // 可能永不到达(管道悬挂)→ done 永不 resolve → 编排器卡死(用户须按两次停止的直接根因)。
+      // 兜底:cancel 后 2s 仍无 close 则主动以 cancelled 结案。resolve 幂等,先到先得。
+      const timer = setTimeout(() => {
+        resolveDone?.({ status: 'cancelled', result: '', durationMs: Date.now() - started });
+      }, 2000);
+      timer.unref?.(); // 不阻止进程退出
     },
     done: new Promise<SpeakOutcome>((resolve) => {
+      resolveDone = resolve; // 闭包内,每 harness 一份
       child.on('close', () => {
         resolve({
           status: externallyCancelled ? 'cancelled'
