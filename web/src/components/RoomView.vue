@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { store } from '../store';
-import { api } from '../api';
 import MemberBar from './MemberBar.vue';
 import ChatFlow from './ChatFlow.vue';
 import Composer from './Composer.vue';
@@ -20,10 +19,6 @@ const projName = computed(() =>
 const orchName = computed(() =>
   ({ idle: '待命', baton: '自由讨论', roundrobin: '轮流发言' } as Record<string, string>)[room.value.orchestration] ?? '',
 );
-
-async function onStop() {
-  await api.stop(room.value.config.id);
-}
 </script>
 
 <template>
@@ -35,7 +30,6 @@ async function onStop() {
       </div>
       <div class="topbar-right">
         <span class="orch-tag" :class="room.orchestration">{{ orchName }}</span>
-        <button v-if="room.orchestration !== 'idle'" class="btn btn-danger" @click="onStop">‖ 停止</button>
         <button class="btn btn-ghost" @click="showSettings = true">⚙ 设置</button>
       </div>
     </header>
