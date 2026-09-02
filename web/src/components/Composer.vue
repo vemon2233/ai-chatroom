@@ -160,10 +160,10 @@ async function onStop() {
 .composer {
   background: var(--panel);
   border-top: 1px solid var(--border-soft);
-  padding: 12px 18px 6px;
+  padding: 12px 18px;
   display: flex;
   gap: 10px;
-  align-items: flex-end;
+  align-items: center; /* 输入框与发送按钮同一行垂直居中 */
 }
 .input-wrap { flex: 1; position: relative; min-width: 0; }
 textarea {
@@ -171,8 +171,18 @@ textarea {
   resize: none;
   min-height: 42px;
   max-height: 140px;
+  line-height: 20px; /* 与 min-height 配合:单行时文字垂直居中 */
+  box-sizing: border-box;
 }
-.send { padding: 11px 22px; }
+/* 发送/停止按钮:与输入框基线高度一致(42px = textarea min-height),垂直居中 */
+.send {
+  height: 42px;
+  padding: 0 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
 .send.stop { background: var(--danger); color: #fff; }
 
 .mention-popup {
