@@ -24,6 +24,7 @@ export interface RoomListItem {
 }
 export interface CreateRoomBody {
   name: string;
+  emoji?: string;
   topic: string;
   speechLength?: 'short' | 'normal' | 'long';
   projectPath?: string;

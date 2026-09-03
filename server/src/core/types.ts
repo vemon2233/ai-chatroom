@@ -89,6 +89,8 @@ export interface ChatMessage {
 export interface RoomConfig {
   id: string;
   name: string;
+  /** 头像 emoji(侧栏卡片展示;建房可选,默认 💬;旧数据无此字段前端兜底) */
+  emoji?: string;
   /** 房间主题/讨论题目(注入每个成员的 prompt) */
   topic: string;
   /** 连续自动接棒上限(防失控烧 token;默认 6,用户新消息重置;设置面板运行期可改) */

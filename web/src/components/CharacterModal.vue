@@ -69,21 +69,6 @@ async function save() {
   }
 }
 
-async function remove() {
-  const c = store.characters.find((x) => x.id === editingId.value);
-  if (!c) return;
-  const ok = await dialog.confirm(
-    '删除角色',
-    `删除角色「${c.name}」?已拉进房间的成员不受影响。`,
-    { danger: true, confirmText: '删除' },
-  );
-  if (!ok) return;
-  await api.deleteCharacter(c.id);
-  model.value = false;
-  reset();
-  await refreshCharacters();
-}
-
 defineExpose({ openEdit });
 </script>
 
@@ -120,10 +105,6 @@ defineExpose({ openEdit });
       </div>
     </div>
 
-    <div v-if="editingId" class="danger-zone">
-      <button class="btn btn-danger" @click="remove">删除此角色</button>
-    </div>
-
     <template #footer>
       <button class="btn btn-ghost" @click="model = false; reset()">取消</button>
       <button class="btn btn-primary" @click="save">保存</button>
@@ -134,5 +115,4 @@ defineExpose({ openEdit });
 <style scoped>
 .grid2 { display: grid; grid-template-columns: 80px 1fr; gap: 10px; }
 .grid2-eq { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.danger-zone { border-top: 1px dashed var(--border); padding-top: 12px; display: flex; justify-content: flex-end; }
 </style>

@@ -7,14 +7,19 @@ import Modal from './ui/Modal.vue';
 const model = defineModel<boolean>({ default: false });
 
 const name = ref('');
+const emoji = ref('💬');
 const topic = ref('');
 const speechLength = ref<'short' | 'normal' | 'long'>('normal');
 const projectPath = ref('');
 const toolPermission = ref<'readonly' | 'readwrite' | 'full'>('readonly');
 
+/** 建房 emoji 候选(与角色卡形成同构的侧栏头像) */
+const EMOJI_CHOICES = ['💬', '🗣️', '⚖️', '🔬', '🧭', '🏗️', '🎮', '📊', '🔥', '💡'];
+
 watch(model, (open) => {
   if (open) {
     name.value = '';
+    emoji.value = '💬';
     topic.value = '';
     speechLength.value = 'normal';
     projectPath.value = '';
@@ -25,6 +30,7 @@ watch(model, (open) => {
 async function create() {
   const body: CreateRoomBody = {
     name: name.value.trim() || '新房间',
+    emoji: emoji.value,
     topic: topic.value.trim() || '自由聊天',
     speechLength: speechLength.value,
     projectPath: projectPath.value.trim() || undefined,
@@ -40,9 +46,24 @@ async function create() {
 
 <template>
   <Modal v-model="model" title="新建房间">
-    <div class="form-row">
-      <label>房间名称</label>
-      <input v-model="name" type="text" placeholder="例如:技术选型讨论" />
+    <div class="grid2">
+      <div class="form-row">
+        <label>Emoji</label>
+        <div class="emoji-picker">
+          <button
+            v-for="e in EMOJI_CHOICES"
+            :key="e"
+            type="button"
+            class="emoji-opt"
+            :class="{ sel: emoji === e }"
+            @click="emoji = e"
+          >{{ e }}</button>
+        </div>
+      </div>
+      <div class="form-row">
+        <label>房间名称</label>
+        <input v-model="name" type="text" placeholder="例如:技术选型讨论" />
+      </div>
     </div>
     <div class="form-row">
       <label>主题 / 讨论题目</label>
@@ -90,6 +111,17 @@ async function create() {
 </template>
 
 <style scoped>
+.grid2 { display: grid; grid-template-columns: 150px 1fr; gap: 10px; align-items: start; }
+.emoji-picker { display: grid; grid-template-columns: repeat(5, 1fr); gap: 3px; }
+.emoji-opt {
+  font-size: 17px;
+  padding: 4px 0;
+  border-radius: 7px;
+  border: 1px solid transparent;
+  transition: border-color 0.12s, background 0.12s;
+}
+.emoji-opt:hover { background: var(--border-soft); }
+.emoji-opt.sel { border-color: var(--accent); background: var(--accent-soft); }
 .perm-row { display: flex; gap: 8px; }
 .perm {
   flex: 1;

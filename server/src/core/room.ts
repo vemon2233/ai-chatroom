@@ -20,6 +20,7 @@ export interface RoomPersistence {
 
 export interface CreateRoomInput {
   name: string;
+  emoji?: string;
   topic: string;
   projectPath?: string;
   toolPermission?: RoomConfig['toolPermission'];
@@ -235,6 +236,7 @@ export function makeRoomConfig(input: CreateRoomInput): RoomConfig {
   return {
     id: `room_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
     name: input.name || '新房间',
+    emoji: input.emoji || '💬',
     topic: input.topic || '自由聊天',
     chainBudget: input.chainBudget ?? 6,
     speechLength: input.speechLength ?? 'normal',
