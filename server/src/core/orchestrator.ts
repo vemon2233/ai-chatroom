@@ -1,12 +1,19 @@
 // 编排器(v2 核心):显式状态机 + 单长驻异步循环串行队列 + 世代计数器。
 //
-// 状态:'idle'(控制权在用户)| 'baton'(接棒自由讨论)| 'roundrobin'(@allN 执行中)
+// 状态:'idle'(控制权在用户)| 'baton'(接棒链执行中)| 'roundrobin'(@allN 执行中)
+//
+// 起手权模型(v2.1):谁起头由"上一个说话的人"决定,编排器从不自选——
+//  - 待命接棒者(pendingNextId):点名回应/链末发言者在尾行 <接棒>@名字 指定;
+//    链上传递直接开跑,点名回应则暂停待命(用户纯文本消息后 TA 起头)
+//  - 用户 <接棒>@名字 消息 = 直接指定起手进链
+//  - 无待命者的冷启动 → 随机起头(仅此一处编排器自行选人)
 //
 // v1 教训(本文件的设计全部由此推导,勿改):
 //  - v1 用 6 个互锁标志位隐式表达状态 → pendingBaton 死锁、双触发、状态残留三类事故
 //  - v1 队列是链式 .then(run,run):两个快速入队可在微任务级联中并发穿透 → 双进程
 //  - v1 stop 后 status!=='error' 判断放行 → 半截垃圾消息落库
 //  - v1 resume 失败无自愈 → 本房间后续发言永久失败
+//  - v2.0 曾写死 members[0] 冷启动起头 → 实测"每轮讨论永远第一个 agent 开场"
 //
 // v2 构造性防御:
 //  - 队列唯一消费者:一个长驻 async 循环,物理上无并发窗口
@@ -51,8 +58,8 @@ interface SpeechEntry {
   instruction?: string;
   /** 入队时的世代;dequeue 时 ≠ 当前世代 → 丢弃 */
   generation: number;
-  /** 接棒条目:发言结束后解析尾行决定下一位 */
-  baton?: boolean;
+  /** 接棒条目:发言结束后解析尾行决定下一位。chain=链上(结果直接开跑)/ callout=回应用户点名(结果待命暂停) */
+  batonMode?: 'chain' | 'callout';
   /** @allN 条目跑完后的终局动作 */
   afterRounds?: 'finalSummary';
 }
@@ -62,11 +69,11 @@ export class Orchestrator {
   statuses: Record<string, MemberStatus> = {};
   currentSpeaker: string | undefined;
 
+  /** 待命接棒者:点名回应者指定的下一位;用户下一条纯文本消息后 TA 起头(不持久化,重启即空) */
+  private pendingNextId: string | undefined;
   private queue: SpeechEntry[] = [];
   private generation = 0;
   private budget: number;
-  private fairCursor = 0;
-  private lastSpeakAt: Record<string, number> = {};
   private loopRunning = false;
   private cancelCurrent: (() => void) | null = null;
 
@@ -84,7 +91,7 @@ export class Orchestrator {
   /** 成员移除:状态清除 + 队列中该成员的条目一并移除(队列归编排器所有,防御内聚于此) */
   memberRemoved(memberId: string): void {
     delete this.statuses[memberId];
-    delete this.lastSpeakAt[memberId];
+    if (this.pendingNextId === memberId) this.pendingNextId = undefined;
     this.queue = this.queue.filter((e) => e.memberId !== memberId);
     if (this.currentSpeaker === memberId) this.cancelCurrent?.();
     this.onStatuses();
@@ -139,20 +146,35 @@ export class Orchestrator {
   /** 用户消息(已入库):解析 @指令并驱动状态机。 */
   async onUserMessage(text: string): Promise<void> {
     const cmd = this.parseUserCommand(text);
-    const members = this.deps.room.members;
 
     switch (cmd.kind) {
-      case 'mention': {
-        // 点名 = 一问一答:bump 世代取消一切未开始条目(含旧 @name),单答入队,答完回 idle
+      case 'start': {
+        // <接棒>@xx:直接指定起手进接棒链
         this.bumpGeneration();
         this.cancelCurrent?.();
-        this.state = 'idle'; // 不进入 baton/roundrobin;答完留在 idle
+        this.pendingNextId = undefined;
+        this.setState('baton');
+        this.enqueue({
+          memberId: cmd.member.id,
+          trigger: `${cmd.fromName} 指定你起头,请就主题开个头或回应该消息。`,
+          batonMode: 'chain',
+        });
+        return;
+      }
+      case 'mention': {
+        // 点名 = 回应 + 指定待命接棒者:bump 世代取消一切未开始条目(含旧 @name),
+        // 被点名者回应并在尾行 <接棒>@xx 指定下一位 → 暂停,用户发话后 xx 起头
+        this.bumpGeneration();
+        this.cancelCurrent?.();
+        this.pendingNextId = undefined;
+        this.state = 'idle';
         this.onStatuses();
         if (cmd.member) {
-          this.sysNotice(`已取消之前的指令,@${cmd.member.name} 将回答你`);
+          this.sysNotice(`已取消之前的指令,@${cmd.member.name} 将回应你并指定下一位`);
           this.enqueue({
             memberId: cmd.member.id,
-            trigger: '用户在聊天中 @了你,请回应用户的问题。回答完即止,不要向其他人传棒。',
+            trigger: `用户在聊天中 @了你,请回应用户。回应完在结尾用 <接棒>@名字 指定下一位(讨论将暂停等待用户)。`,
+            batonMode: 'callout',
           });
         } else {
           this.sysNotice(`没有找到 @ 的成员,控制权回到你手里`);
@@ -163,12 +185,13 @@ export class Orchestrator {
         // 轮流 N 轮:bump 世代,预入队全部条目(辩手×N轮 + 轮末小结 + 终局总结)
         this.bumpGeneration();
         this.cancelCurrent?.();
+        this.pendingNextId = undefined;
         this.startRoundRobin(cmd.rounds);
         return;
       }
       case 'none':
       default: {
-        // 纯文本:激活/维持接棒模式,预算重置
+        // 纯文本:待命接棒者起头;无待命者 → 随机起头。预算重置。
         this.budget = this.deps.room.chainBudget;
         this.startFreeDiscussion();
         return;
@@ -176,40 +199,64 @@ export class Orchestrator {
     }
   }
 
-  /** 进入/维持接棒自由讨论(纯文本消息与「开始」按钮共用入口)。
-   *  冷启动(idle 且无人说):首成员起头;已在 baton:不重复起头(接棒链自行驱动)。 */
+  /** 纯文本消息的起手决策(「开始」按钮共用入口)。
+   *  待命接棒者(点名回应者指定)起头;无待命者冷启动 → 随机(唯一自选点);
+   *  已在 baton 且有人在说/队列非空 → 不打扰(链自行驱动)。
+   *  ⚠ 触发冷场补救:baton 中无人说且队列空(防御性,正常路径到不了)。 */
   startFreeDiscussion(): void {
     const members = this.deps.room.members;
     if (this.state === 'idle' && members.length > 0 && this.currentSpeaker == null) {
       this.setState('baton');
-      const first = members[0]!;
+      const starter = this.pickStarter(members);
+      const origin = this.pendingNextId
+        ? `${starter.name} 是之前被指定的接棒对象`
+        : '冷启动随机选中';
+      this.pendingNextId = undefined;
+      this.sysNotice(`${origin},${starter.name} 起头`);
       this.enqueue({
-        memberId: first.id,
-        trigger: '讨论开始,请你先就主题开个头。',
-        baton: true,
+        memberId: starter.id,
+        trigger: '讨论继续,请你先就主题开个头。',
+        batonMode: 'chain',
       });
     } else if (this.state === 'baton' && this.currentSpeaker == null && this.queue.length === 0) {
       // 冷场补救:没人在说、队列空(上次没写接棒行已回 idle,不该到这里;防御性保留)
-      this.pickAndEnqueue(null);
+      const starter = this.pickStarter(members);
+      this.pendingNextId = undefined;
+      this.enqueue({
+        memberId: starter.id,
+        trigger: '刚才有人发言了,轮到你接着说。可以回应、反驳或补充。',
+        batonMode: 'chain',
+      });
     }
   }
 
-  /** 停止按钮:bump 世代 + 杀当前进程 → idle */
+  /** 起手选择:待命接棒者优先(成员被移除则作废);否则随机(冷启动,唯一自选点)。 */
+  private pickStarter(members: MemberConfig[]): MemberConfig {
+    if (this.pendingNextId) {
+      const hit = members.find((m) => m.id === this.pendingNextId);
+      if (hit) return hit;
+    }
+    return members[Math.floor(Math.random() * members.length)]!;
+  }
+
+  /** 停止按钮:bump 世代 + 杀当前进程 → idle(待命接棒者保留——停止不撤销既定意向) */
   async stop(): Promise<void> {
     this.bumpGeneration();
     this.cancelCurrent?.();
     this.setState('idle');
   }
 
-  /** 用户给成员直接下指令(一问一答,同 @点名语义) */
+  /** 用户给成员直接下指令(同 @点名语义:回应 + 指定待命接棒者) */
   directInstruction(memberId: string, userText: string): void {
     this.bumpGeneration();
     this.cancelCurrent?.();
+    this.pendingNextId = undefined;
     this.state = 'idle';
     this.onStatuses();
     this.enqueue({
       memberId,
-      trigger: `用户(房间主人)直接对你说:${userText}`,
+      trigger: `用户(房间主人)直接对你说:${userText}\n回应完在结尾用 <接棒>@名字 指定下一位(讨论将暂停等待用户)。`,
+      batonMode: 'callout',
     });
   }
 
@@ -257,22 +304,7 @@ export class Orchestrator {
   }
 
   private finalTrigger(): string {
-    return '讨论已到最后一轮,这是收场总结(终局发言,没有下一位)。请总结:各方核心观点、分歧点、可能的共识或结论。不要再写【接棒】行。';
-  }
-
-  /** 轮询挑下一位(排除 exclude;公平游标) */
-  private pickAndEnqueue(exclude: string | null): void {
-    const candidates = this.deps.room.members.filter((m) => m.id !== exclude);
-    if (candidates.length === 0) return;
-    const pick = candidates[this.fairCursor % candidates.length]!;
-    this.fairCursor = (this.fairCursor + 1) % candidates.length;
-    this.enqueue({
-      memberId: pick.id,
-      trigger: exclude
-        ? '刚才有人发言了,轮到你接着说。可以回应、反驳或补充。'
-        : '群里刚有新消息,你有话想说就说。',
-      baton: true,
-    });
+    return '讨论已到最后一轮,这是收场总结(终局发言,没有下一位)。请总结:各方核心观点、分歧点、可能的共识或结论。不要再写接棒行。';
   }
 
   // ---------- 单次发言执行(invoke)+ 尾部接棒决策 ----------
@@ -281,11 +313,13 @@ export class Orchestrator {
     const genAtStart = entry.generation;
     await this.deps.runScout(); // 绑定项目的房间:首棒前侦察(内部幂等+熔断)
 
-    const batonActive = entry.baton === true && this.state === 'baton';
+    // 接棒语义由条目自带(callout 在 idle 态执行——点名回应不需要全局 baton 状态背书;
+    // state 门闩只用于尾部 chain 传递决策,防 roundrobin 残留条目误传棒)
+    const batonActive = entry.batonMode != null;
     const prompt = await buildPrompt(this.deps.room, member, this.historySnapshot(), {
       trigger: entry.trigger,
       instruction: entry.instruction,
-      batonMode: batonActive,
+      batonMode: entry.batonMode,
     });
 
     const { outcome, trace, thinking, usage } = await this.invokeWithRetry(member, prompt);
@@ -335,12 +369,11 @@ export class Orchestrator {
     }
 
     this.statuses[member.id] = 'idle';
-    this.lastSpeakAt[member.id] = Date.now();
 
-    // 落库前:非接棒状态下的发言剥掉尾行接棒标记(防 session 记忆惯性复写)
+    // 落库前:非链上发言剥掉尾行接棒标记(防 session 记忆惯性复写;新旧语法都剥)
     let finalText = outcome.result || '(无输出)';
     if (!batonActive) {
-      finalText = finalText.replace(/【接棒】[^\n]*/g, '').trimEnd();
+      finalText = finalText.replace(/(?:<接棒>|【接棒】)[^\n]*/g, '').trimEnd();
     }
     await this.deps.pushMessage({
       id: randomUUID(),
@@ -367,8 +400,9 @@ export class Orchestrator {
       return;
     }
 
-    // 接棒决策:只在"接棒条目 + 状态仍是 baton + 世代未变"时发生
-    if (batonActive && this.state === 'baton' && genAtStart === this.generation) {
+    // 接棒决策:只在"接棒条目 + 世代未变"时发生;
+    // callout(点名回应)在 idle 态合法执行 → 尾部门闩不看 state,只看条目语义与世代
+    if (batonActive && genAtStart === this.generation) {
       const baton = parseBaton(outcome.result, this.deps.room.members, member.id);
       if (baton.endDiscussion) {
         await this.sysMessage(`🏁 ${member.name} 宣布讨论结束。`);
@@ -378,24 +412,33 @@ export class Orchestrator {
       const next = baton.nextMemberId
         ? this.deps.room.members.find((m) => m.id === baton.nextMemberId)
         : undefined;
-      if (next) {
-        if (this.budget <= 0) {
-          await this.sysMessage('自由讨论已达接棒上限,发条新消息可继续。');
-          this.setState('idle');
-          return;
-        }
-        this.budget--;
-        await this.sysMessage(`🎯 ${member.name} 把接棒交给 ${next.name}`);
-        this.enqueue({
-          memberId: next.id,
-          trigger: `${member.name} 指定你接棒。请针对 TA 刚才的发言回应、反驳或补充。`,
-          baton: true,
-        });
+      if (!next) {
+        // 没写接棒行/无效:不指定任何人,控制权回用户
+        await this.sysMessage(`${member.name} 没有指定下一位,控制权回到你手中。发消息将从随机成员继续。`);
+        this.setState('idle');
         return;
       }
-      // 没写接棒行/无效 → 停止,控制权回用户
-      await this.sysMessage(`${member.name} 没有指定下一位,控制权回到你手中。发消息可继续讨论。`);
-      this.setState('idle');
+      if (entry.batonMode === 'callout') {
+        // 点名回应:指定者进入待命,讨论暂停——用户下一条纯文本消息后 TA 起头
+        this.pendingNextId = next.id;
+        await this.sysMessage(`⏸ ${member.name} 指定 ${next.name} 接棒。你发消息后 TA 开始发言。`);
+        this.setState('idle');
+        return;
+      }
+      // 链上传递:立即开跑(预算闸门)
+      if (this.budget <= 0) {
+        this.pendingNextId = next.id;
+        await this.sysMessage('自由讨论已达接棒上限,发条新消息可继续。');
+        this.setState('idle');
+        return;
+      }
+      this.budget--;
+      await this.sysMessage(`🎯 ${member.name} 把接棒交给 ${next.name}`);
+      this.enqueue({
+        memberId: next.id,
+        trigger: `${member.name} 指定你接棒。请针对 TA 刚才的发言回应、反驳或补充。`,
+        batonMode: 'chain',
+      });
       return;
     }
   }
@@ -489,9 +532,18 @@ export class Orchestrator {
   // ---------- @指令解析 ----------
 
   private parseUserCommand(text: string):
+    | { kind: 'start'; member: MemberConfig; fromName: string }
     | { kind: 'mention'; member?: MemberConfig }
     | { kind: 'all'; rounds: number }
     | { kind: 'none' } {
+    // <接棒>@xx / 【接棒】@xx(与 agent 同一语法):直接指定起手进链
+    const startMatch = text.match(/(?:<接棒>|【接棒】)\s*@([^\s@,，。]+)/);
+    if (startMatch) {
+      const hit = matchMemberByName(startMatch[1]!, this.deps.room.members);
+      if (hit) return { kind: 'start', member: hit, fromName: '用户' };
+      // 名字没对上 → 按 mention 处理会误触发"点名回应"语义;这里提示并忽略
+      return { kind: 'none' };
+    }
     const allMatch = text.match(/@all\s*(\d*)/);
     if (allMatch) {
       return { kind: 'all', rounds: allMatch[1] ? Math.max(1, parseInt(allMatch[1])) : 1 };

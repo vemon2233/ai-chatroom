@@ -1,7 +1,8 @@
-// 编排器测试(fake adapter 注入,H1-H8 全场景)。
+// 编排器测试(fake adapter 注入,状态机全场景)。
 // fake adapter 用脚本化响应:按调用序返回预设 outcome,验证状态机转移。
+// Math.random 统一 mock(冷启动随机的确定性):beforeEach 置 spy=0.0 → 永远选第一位。
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Orchestrator, type OrchestratorDeps } from '../src/core/orchestrator';
 import type { AgentAdapter, AgentEvent, SpeakOutcome, SpeakRequest } from '../src/adapters/base';
 import type { ChatMessage, MemberConfig, RoomConfig } from '../src/core/types';
@@ -134,27 +135,27 @@ function makeHarness(
   return { orch: new Orchestrator(deps), messages, fake, room };
 }
 
-/** 等待队列清空(串行循环跑完)。 */
-async function drain(h: Harness, ms = 120): Promise<void> {
-  for (let i = 0; i < 50; i++) {
-    await new Promise((r) => setTimeout(r, ms / 10));
-    if (h.orch.state !== 'roundrobin' || true) {
-      // 简单等够时间让队列消化
-    }
-  }
-}
-
 async function settle(ms = 60): Promise<void> {
   await new Promise((r) => setTimeout(r, ms));
 }
 
+// Math.random mock:返回 0 → 冷启动随机永远选中 members[0](m1/甲)
+let randomSpy: ReturnType<typeof vi.spyOn> | null = null;
+
+beforeEach(() => {
+  randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0);
+});
+afterEach(() => {
+  randomSpy?.mockRestore();
+});
+
 // ---------- 场景 ----------
 
-describe('编排器状态机', () => {
-  it('纯文本冷启动:进入 baton,首成员起头,接棒链传递', async () => {
+describe('编排器状态机:接棒链', () => {
+  it('纯文本冷启动:无待命者 → 随机起头(mock=0 → m1),链传递', async () => {
     const h = makeHarness([
-      { result: '第一棒\n【接棒】@乙' },
-      { result: '第二棒\n【接棒】@甲' },
+      { result: '第一棒\n<接棒>@乙' },
+      { result: '第二棒\n<接棒>@甲' },
       { result: '第三棒(无接棒行)' },
     ]);
     await h.orch.onUserMessage('开始讨论');
@@ -167,10 +168,20 @@ describe('编排器状态机', () => {
     expect(memberMsgs.filter((m) => m.from === 'm2').length).toBe(1);
     expect(h.orch.state).toBe('idle'); // m3 没写接棒行 → 停止,用户接管
     const sys = h.messages.filter((m) => m.system).map((m) => m.text).join('|');
-    expect(sys).toContain('控制权回到你手中');
+    expect(sys).toContain('随机选中'); // 冷启动随机提示
   });
 
-  it('没写接棒行 → idle + 系统提示(不轮询兜底)', async () => {
+  it('冷启动随机真的随机分布(mock 变化 → 不同成员)', async () => {
+    const h = makeHarness([], {}, undefined, {
+      m1: [{ result: '甲' }], m2: [{ result: '乙' }], m3: [{ result: '丙' }],
+    });
+    randomSpy?.mockReturnValue(0.5); // floor(0.5*3)=1 → m2
+    await h.orch.onUserMessage('开始');
+    await settle(120);
+    expect(h.fake.requests[0]?.member).toBe('m2');
+  });
+
+  it('没写接棒行 → idle + 提示(不轮询兜底)', async () => {
     const h = makeHarness([{ result: '我说完了' }]);
     await h.orch.onUserMessage('聊聊');
     await settle(150);
@@ -178,8 +189,8 @@ describe('编排器状态机', () => {
     expect(h.fake.callCount()).toBe(1); // 只有一次发言,没有兜底调用
   });
 
-  it('【接棒】结束 → idle', async () => {
-    const h = makeHarness([{ result: '总结陈词\n【接棒】结束' }]);
+  it('<接棒>结束 → idle', async () => {
+    const h = makeHarness([{ result: '总结陈词\n<接棒>结束' }]);
     await h.orch.onUserMessage('开始');
     await settle(120);
     expect(h.orch.state).toBe('idle');
@@ -187,28 +198,137 @@ describe('编排器状态机', () => {
     expect(sys).toContain('宣布讨论结束');
   });
 
-  it('接棒预算耗尽 → idle + 提示', async () => {
+  it('接棒预算耗尽 → idle + 提示(指定者转待命)', async () => {
     const h = makeHarness([
-      { result: '1\n【接棒】@乙' },
-      { result: '2\n【接棒】@甲' },
+      { result: '1\n<接棒>@乙' },
+      { result: '2\n<接棒>@甲' },
     ], { chainBudget: 1 }); // 预算 1:第一棒传棒后耗尽
     await h.orch.onUserMessage('开始');
     await settle(150);
     const sys = h.messages.filter((m) => m.system).map((m) => m.text).join('|');
     expect(sys).toContain('接棒上限');
     expect(h.orch.state).toBe('idle');
+    // 预算耗尽:被指定的甲进入待命,下次纯文本消息 TA 起头
+    randomSpy?.mockReturnValue(0.99); // 若无待命者会选 m3;有待命者应仍选 m1
+    await h.orch.onUserMessage('继续');
+    await settle(120);
+    expect(h.fake.requests[2]?.member).toBe('m1');
   });
 
-  it('@点名:一问一答,答完 idle,不传棒', async () => {
-    const h = makeHarness([{ result: '回答:我认为…' }]);
+  it('旧语法【接棒】仍解析(resume 旧 session 记忆惯性)', async () => {
+    const h = makeHarness([
+      { result: '旧格式\n【接棒】@乙' },
+      { result: '乙收到了' },
+    ]);
+    await h.orch.onUserMessage('开始');
+    await settle(250);
+    expect(h.messages.some((m) => m.text === '乙收到了')).toBe(true);
+  });
+});
+
+describe('编排器状态机:@点名 → 待命接棒', () => {
+  it('点名:回应 + <接棒>指定下一位 → 暂停待命(不自动发言)', async () => {
+    const h = makeHarness([], {}, undefined, {
+      m2: [{ result: '回答:我认为…\n<接棒>@丙' }],
+      m3: [{ result: '丙不该自动发言' }],
+    });
     await h.orch.onUserMessage('@乙 你怎么看?');
+    await settle(150);
+    expect(h.fake.requests[0]?.member).toBe('m2');
+    expect(h.messages.some((m) => m.text === '丙不该自动发言')).toBe(false); // 关键:暂停
+    expect(h.orch.state).toBe('idle');
+    const sys = h.messages.filter((m) => m.system).map((m) => m.text).join('|');
+    expect(sys).toContain('你发消息后 TA 开始发言'); // 待命提示
+  });
+
+  it('待命者:用户纯文本消息后起头进链', async () => {
+    const h = makeHarness([], {}, undefined, {
+      m2: [{ result: '回答\n<接棒>@丙' }],
+      m3: [{ result: '丙起头\n<接棒>结束' }],
+    });
+    await h.orch.onUserMessage('@乙 你怎么看?');
+    await settle(150);
+    randomSpy?.mockReturnValue(0.99); // 若无待命者随机会选 m3 之外……floor(0.99*3)=2 → 也是 m3;改 0(→m1)更严格
+    randomSpy?.mockReturnValue(0);    // 无待命者会选 m1;有待命者必须仍选 m3
+    await h.orch.onUserMessage('继续吧');
+    await settle(150);
+    expect(h.fake.requests[1]?.member).toBe('m3'); // 丙(待命者)起头,而非随机 m1
+    expect(h.messages.some((m) => m.text.startsWith('丙起头'))).toBe(true); // chain 保留接棒行
+  });
+
+  it('点名后没写接棒行 → 无待命者,纯文本走随机', async () => {
+    const h = makeHarness([], {}, undefined, {
+      m2: [{ result: '我回答完了,不指定' }],
+      m1: [{ result: '甲随机起头' }],
+    });
+    await h.orch.onUserMessage('@乙 说说');
+    await settle(150);
+    await h.orch.onUserMessage('继续');
+    await settle(150);
+    expect(h.fake.requests[1]?.member).toBe('m1'); // mock=0 → m1
+  });
+
+  it('待命者被移除 → 作废,纯文本走随机', async () => {
+    const h = makeHarness([], {}, undefined, {
+      m2: [{ result: '回答\n<接棒>@丙' }],
+      m1: [{ result: '甲兜底起头' }],
+    });
+    await h.orch.onUserMessage('@乙 说');
+    await settle(150);
+    h.orch.memberRemoved('m3'); // 丙(待命者)被移除
+    await h.orch.onUserMessage('继续');
+    await settle(150);
+    expect(h.fake.requests[1]?.member).toBe('m1'); // 不崩溃,回退随机
+  });
+
+  it('@点名取消未开始的旧条目(世代隔离)', async () => {
+    const h = makeHarness([], {}, undefined, {
+      m1: [{ result: '甲发言\n<接棒>@乙', holdMs: 80 }],
+      m2: [{ result: '乙被打断前的话' }],
+      m3: [{ result: '丙回应点名' }],
+    });
+    await h.orch.onUserMessage('开始');
+    await settle(20); // 甲在说(hold 80ms)
+    await h.orch.onUserMessage('@丙 你来说'); // m2 的条目应被世代作废
+    await settle(250);
+    expect(h.messages.some((m) => m.text === '丙回应点名')).toBe(true);
+    expect(h.messages.some((m) => m.text === '乙被打断前的话')).toBe(false);
+    expect(h.orch.state).toBe('idle');
+  });
+});
+
+describe('编排器状态机:<接棒> 用户指令', () => {
+  it('用户 <接棒>@xx → xx 直接起头进链(不等下一条消息)', async () => {
+    const h = makeHarness([
+      { result: '我起头\n<接棒>@乙' },
+      { result: '乙接棒\n<接棒>结束' },
+    ]);
+    await h.orch.onUserMessage('<接棒>@丙 从你开始');
+    await settle(60); // 丙在说(hold 50ms)期间链就应为 baton
+    expect(h.fake.requests[0]?.member).toBe('m3'); // 指定丙,不是随机 m1
+    expect(h.orch.state).toBe('baton');
+    await settle(260);
+    expect(h.messages.some((m) => m.text.startsWith('乙接棒'))).toBe(true); // 链继续;乙 <接棒>结束 → idle
+    expect(h.orch.state).toBe('idle');
+  });
+
+  it('用户旧语法【接棒】@xx 同样生效', async () => {
+    const h = makeHarness([{ result: '起头' }]);
+    await h.orch.onUserMessage('【接棒】@乙 开始');
     await settle(120);
     expect(h.fake.requests[0]?.member).toBe('m2');
-    expect(h.orch.state).toBe('idle');
-    expect(h.messages.filter((m) => m.from === 'm2').length).toBe(1);
   });
 
-  it('@allN:轮流 N 轮 + 主持人轮末小结 + 终局总结,跑完 idle', async () => {
+  it('<接棒>@不存在 → 不误触发点名,按纯文本随机', async () => {
+    const h = makeHarness([{ result: '随机起头' }]);
+    await h.orch.onUserMessage('<接棒>@不存在的人 开始');
+    await settle(120);
+    expect(h.fake.requests[0]?.member).toBe('m1'); // mock=0 → 随机 m1
+  });
+});
+
+describe('编排器状态机:@allN 轮流', () => {
+  it('轮流 N 轮 + 主持人轮末小结 + 终局总结,跑完 idle', async () => {
     const members = makeMembers(3, ['甲', '乙', '主持']);
     const h = makeHarness(
       Array.from({ length: 10 }, (_, i) => ({ result: `发言${i}` })),
@@ -222,6 +342,16 @@ describe('编排器状态机', () => {
     expect(h.orch.state).toBe('idle');
     const sys = h.messages.filter((m) => m.system).map((m) => m.text).join('|');
     expect(sys).toContain('轮流发言结束');
+  });
+
+  it('轮流中的发言剥掉接棒行(非链上不保留标记)', async () => {
+    const h = makeHarness([{ result: '轮流发言\n<接棒>@乙' }]);
+    await h.orch.onUserMessage('@all1');
+    await settle(150);
+    const memberMsgs = h.messages.filter((m) => m.from === 'm1');
+    expect(memberMsgs).toHaveLength(1);
+    expect(memberMsgs[0]!.text).not.toContain('<接棒>'); // 已剥
+    expect(memberMsgs[0]!.text).toContain('轮流发言');
   });
 
   it('轮流中 stop:剩余条目全部丢弃(世代计数)', async () => {
@@ -239,7 +369,9 @@ describe('编排器状态机', () => {
     await settle(150);
     expect(h.fake.callCount()).toBe(callsAfter); // 不再新增
   });
+});
 
+describe('编排器状态机:错误与取消', () => {
   it('发言 error → 一律 idle,不解析接棒,不重试', async () => {
     const h = makeHarness([{ outcome: { status: 'error', error: 'CLI 崩了' } }]);
     await h.orch.onUserMessage('开始');
@@ -279,68 +411,6 @@ describe('编排器状态机', () => {
     expect(h.messages.some((m) => m.text === '乙不该发言')).toBe(false);
   });
 
-  it('baton 中用户新消息:预算重置,链不断', async () => {
-    const h = makeHarness([
-      { result: '1\n【接棒】@乙' },
-      { result: '2\n【接棒】@甲' },
-      { result: '3\n【接棒】@乙' },
-      { result: '4\n【接棒】@甲' },
-    ], { chainBudget: 2 });
-    await h.orch.onUserMessage('开始');
-    await settle(60);
-    expect(h.orch.state).toBe('baton');
-    // 预算 2 将耗尽,用户消息重置
-    await h.orch.onUserMessage('继续聊');
-    await settle(300);
-    // 链条持续(预算被重置)
-    expect(h.fake.callCount()).toBeGreaterThanOrEqual(3);
-  });
-
-  it('@点名取消未开始的旧条目(世代隔离)', async () => {
-    const h = makeHarness([], {}, undefined, {
-      m1: [{ result: '甲发言\n【接棒】@乙', holdMs: 80 }],
-      m2: [{ result: '乙被打断前的话' }],
-      m3: [{ result: '丙回答点名' }],
-    });
-    await h.orch.onUserMessage('开始');
-    await settle(20); // 甲在说(hold 80ms)
-    await h.orch.onUserMessage('@丙 你来说'); // m2 的条目应被世代作废
-    await settle(250);
-    expect(h.messages.some((m) => m.text === '丙回答点名')).toBe(true);
-    expect(h.messages.some((m) => m.text === '乙被打断前的话')).toBe(false);
-    expect(h.orch.state).toBe('idle');
-  });
-
-  it('空房间纯消息:提示不转移', async () => {
-    const h = makeHarness([], {}, []);
-    await h.orch.onUserMessage('有人吗');
-    await settle(60);
-    expect(h.orch.state).toBe('idle');
-    expect(h.fake.callCount()).toBe(0);
-  });
-
-  it('startFreeDiscussion:开始按钮冷启动(不再走 @free 文本化石)', async () => {
-    const h = makeHarness([{ result: '我开个头,不传棒' }], {}, undefined, {
-      m1: [{ result: '我开个头,不传棒' }],
-    });
-    h.orch.startFreeDiscussion();
-    await settle(100);
-    expect(h.fake.requests[0]?.member).toBe('m1'); // 首成员起头
-    expect(h.messages.some((m) => m.from === 'm1')).toBe(true);
-    // 不传棒 → idle(链正常终止);不得出现 v1 化石行为(点名失败提示)
-    const sys = h.messages.filter((m) => m.system).map((m) => m.text).join('|');
-    expect(sys).not.toContain('没有找到');
-    expect(h.orch.state).toBe('idle');
-  });
-
-  it('startFreeDiscussion 空房间:no-op 不崩', async () => {
-    const h = makeHarness([], {}, []);
-    h.orch.startFreeDiscussion();
-    await settle(50);
-    expect(h.orch.state).toBe('idle');
-    expect(h.fake.callCount()).toBe(0);
-  });
-
   it('cancel 落占位消息:stop 时保留已流出的正文(有输出场景)', async () => {
     const h = makeHarness([{ result: '说一半被打断', holdMs: 200 }]);
     await h.orch.onUserMessage('开始');
@@ -370,12 +440,9 @@ describe('编排器状态机', () => {
     expect(h.orch.statuses['m1']).toBe('idle');
   });
 
-  it('stop 不触发 resume 重试:cancel 后绝不复活新进程(修"按两次停止"bug)', async () => {
-    // 场景:成员已有 sessionId(init 事件捕获),发言被 stop 打断 → cancelled
-    // 若 invokeWithRetry 把 cancelled 当失败重试,会立刻 spawn 新进程(第二次 BUSY)
+  it('stop 不触发 resume 重试:cancel 后绝不复活新进程', async () => {
     const members = makeMembers(1, ['甲']);
     members[0]!.sessionIds = { fake: 'sess-1' }; // 模拟首话后已有 session
-    let cancelRequested = false;
     const h = makeHarness([], {}, members, {
       m1: [{ result: '被打断', holdMs: 120 }],
     });
@@ -388,7 +455,20 @@ describe('编排器状态机', () => {
     expect(h.fake.callCount()).toBe(callsAfterStop);
     expect(h.orch.statuses['m1']).toBe('idle');
     expect(h.orch.state).toBe('idle');
-    expect(cancelRequested).toBe(false);
+  });
+
+  it('stop 保留待命接棒者:停止不撤销既定意向', async () => {
+    const h = makeHarness([], {}, undefined, {
+      m2: [{ result: '回答\n<接棒>@丙' }],
+      m3: [{ result: '丙待命起头' }],
+    });
+    await h.orch.onUserMessage('@乙 说');
+    await settle(150); // 乙指定丙待命
+    await h.orch.stop(); // 无事发生地停止
+    randomSpy?.mockReturnValue(0); // 无待命者会选 m1
+    await h.orch.onUserMessage('继续');
+    await settle(150);
+    expect(h.fake.requests[1]?.member).toBe('m3'); // 丙仍起头
   });
 
   it('session id 捕获后随消息持久化(写穿钩子被调)', async () => {
@@ -396,5 +476,60 @@ describe('编排器状态机', () => {
     await h.orch.onUserMessage('开始');
     await settle(120);
     expect(h.room.members[0]!.sessionIds?.fake).toBe('sess-123');
+  });
+});
+
+describe('编排器状态机:杂项入口', () => {
+  it('baton 中用户新消息:预算重置,链不断', async () => {
+    const h = makeHarness([
+      { result: '1\n<接棒>@乙' },
+      { result: '2\n<接棒>@甲' },
+      { result: '3\n<接棒>@乙' },
+      { result: '4\n<接棒>@甲' },
+    ], { chainBudget: 2 });
+    await h.orch.onUserMessage('开始');
+    await settle(60);
+    expect(h.orch.state).toBe('baton');
+    // 预算 2 将耗尽,用户消息重置
+    await h.orch.onUserMessage('继续聊');
+    await settle(300);
+    // 链条持续(预算被重置)
+    expect(h.fake.callCount()).toBeGreaterThanOrEqual(3);
+  });
+
+  it('空房间纯消息:提示不转移', async () => {
+    const h = makeHarness([], {}, []);
+    await h.orch.onUserMessage('有人吗');
+    await settle(60);
+    expect(h.orch.state).toBe('idle');
+    expect(h.fake.callCount()).toBe(0);
+  });
+
+  it('startFreeDiscussion:开始按钮冷启动(随机起头,非固定第一)', async () => {
+    const h = makeHarness([], {}, undefined, {
+      m1: [{ result: '我开个头,不传棒' }],
+    });
+    randomSpy?.mockReturnValue(0.66); // floor(0.66*3)=1 → m2;证明非固定 m1
+    const h2 = h; // 同一 harness,脚本按 member:m2 无脚本 → 用 default(空)→ result ''
+    // 换个干净装配:m2 有脚本
+    const members = makeMembers(3, ['甲', '乙', '丙']);
+    const h3 = makeHarness([{ result: '乙开个头' }], {}, members, {
+      m2: [{ result: '乙开个头' }],
+    });
+    randomSpy?.mockReturnValue(0.66);
+    h3.orch.startFreeDiscussion();
+    await settle(100);
+    expect(h3.fake.requests[0]?.member).toBe('m2');
+    expect(h3.messages.some((m) => m.from === 'm2')).toBe(true);
+    // 不传棒 → idle(链正常终止)
+    expect(h3.orch.state).toBe('idle');
+  });
+
+  it('startFreeDiscussion 空房间:no-op 不崩', async () => {
+    const h = makeHarness([], {}, []);
+    h.orch.startFreeDiscussion();
+    await settle(50);
+    expect(h.orch.state).toBe('idle');
+    expect(h.fake.callCount()).toBe(0);
   });
 });

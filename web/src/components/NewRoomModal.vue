@@ -36,7 +36,7 @@ async function onSubmit(body: RoomFormBody) {
       <template #after-form>
         <div class="hint">
           创建后进入房间再添加成员(角色库拉入或新建角色,像微信群拉人)。<br />
-          互动方式不预设——发消息随时切换:<b>直接发言</b>=自由讨论(接棒) · <b>@成员名</b>=点名 · <b>@all2</b>=轮流2轮
+          互动方式不预设——发消息随时切换:<b>直接发言</b>=接棒续聊 · <b>接棒@成员</b>=TA直接起头 · <b>@成员</b>=点名(答完指定下一位并暂停) · <b>@all2</b>=轮流2轮
         </div>
       </template>
     </RoomForm>

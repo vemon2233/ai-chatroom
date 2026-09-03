@@ -54,16 +54,17 @@ web/src/
 
 ### 核心数据流
 
-1. **发言链路**:用户消息 → `/say` → `ChatRoom.userSpeak`(入库)→ `Orchestrator.onUserMessage`(解析 @)→ 串行队列出队 → `runOne`(可选 Scout 预检)→ `buildPrompt` → `invoke`(适配器 speak,stdin 喂 prompt)→ 事件流(trace/thinking/sessionId 捕获)→ 落库 JSONL + WS 广播 + rooms.json 写穿 → 接棒条目则尾部解析 `【接棒】@名字` 决定下一位。
+1. **发言链路**:用户消息 → `/say` → `ChatRoom.userSpeak`(入库)→ `Orchestrator.onUserMessage`(解析 @/<接棒>)→ 串行队列出队 → `runOne`(可选 Scout 预检)→ `buildPrompt` → `invoke`(适配器 speak,stdin 喂 prompt)→ 事件流(trace/thinking/sessionId 捕获)→ 落库 JSONL + WS 广播 + rooms.json 写穿 → 接棒条目则尾部解析 `<接棒>@名字` 决定下一位。
 
-2. **@语法**(每条消息驱动,模式不锁死):
-   - `@成员名` = 一问一答(bump 世代取消未开始条目,答完回 idle)
+2. **@语法**(每条消息驱动,模式不锁死;user 与 agent 共用 `<接棒>@名字` 语法,兼容旧【接棒】):
+   - `接棒@成员` / `<接棒>@成员` = 指定起手:该成员直接起头进接棒链
+   - `@成员名` = 点名:被点名者回应用户,尾行 `<接棒>@xx` 指定下一位 → **暂停待命**(xx 不自动发言;用户下一条纯文本消息后 xx 起头)
    - `@allN` = 轮流 N 轮(预入队全部条目:辩手×N + 主持人轮末小结 + 终局总结)
-   - 无 @ = 接棒模式(默认常态;「开始」按钮走 `startFreeDiscussion()` 显式入口)
+   - 无 @ = 接棒续聊:有待命接棒者(pendingNextId)→ TA 起头;无 → **随机**起头(v2.1 起冷启动随机,修"永远第一个 agent 开场")
    - 接棒失败语义:发言者没写有效接棒行 → 停止,控制权回用户(无轮询兜底)
-   - 停止语义:cancelled → 落"(已停止思考)"占位消息(有部分正文则保留正文);**cancelled 绝不触发 resume 重试**(否则停止会复活新进程——实测"按两次停止"bug 根因)
+   - 停止语义:cancelled → 落"(已停止思考)"占位消息(有部分正文则保留正文);**cancelled 绝不触发 resume 重试**(否则停止会复活新进程——实测"按两次停止"bug 根因);stop 不清除待命接棒者
 
-3. **状态机**:`idle | baton | roundrobin`。队列唯一消费者是单个长驻 async 循环;世代计数器(generation)让 stop/@allN/@name/error 天然作废一切过期条目;接棒解析只在 invoke 尾部且校验世代未变。**error → 一律 idle + bump 世代终止本轮编排**,绝不解析错误文本;error 状态不粘滞(全员复位)。
+3. **状态机**:`idle | baton | roundrobin`。队列唯一消费者是单个长驻 async 循环;世代计数器(generation)让 stop/@allN/@name/error 天然作废一切过期条目;接棒解析只在 invoke 尾部且校验世代未变。**error → 一律 idle + bump 世代终止本轮编排**,绝不解析错误文本;error 状态不粘滞(全员复位)。接棒语义由条目自带(chain=链上/callout=点名回应),callout 在 idle 态合法执行——尾部门闩只看条目语义+世代,不看全局 state。
 
 4. **三概念分离**:适配器(CLI 类型,agents.yaml)≠ 角色(全局资产,characters.json)≠ 成员(角色快照拉入房间,同名精确去重+最小空闲后缀)。
 
@@ -87,12 +88,12 @@ web/src/
 
 ## 测试
 
-- `server/tests/orchestrator.test.ts`:19 场景(fake adapter 按 member 脚本化)——接棒链/没写接棒行停止/@allN+主持人/轮流中 stop/世代隔离/error→idle/cancel 占位与不重试/resume 自愈/幽灵成员/预算重置/startFreeDiscussion
-- `baton.test.ts`:v1 移植的解析断言;`rooms-store.test.ts`:持久化往返
+- `server/tests/orchestrator.test.ts`:29 场景(fake adapter 按 member 脚本化 + Math.random mock 确定性)——接棒链/冷启动随机/点名待命/待命者起头/`<接棒>`用户指令/@allN+主持人/轮流中 stop/世代隔离/error→idle/cancel 占位与不重试/resume 自愈/幽灵成员/预算重置+待命承接/旧语法兼容
+- `baton.test.ts`:`<接棒>`/旧【接棒】双语法解析断言 + 成员名匹配;`rooms-store.test.ts`:持久化往返
 - 改 orchestrator 必须同步改测试(该文件是并发 bug 的唯一防线)
 
 ## 已知边界(v2 接受)
 
 - codex/gemini 适配器零实测(标 experimental);gemini 无 trace/session 上报
 - 房间删除后 JSONL 历史文件保留(不 GC)
-- 编排运行态不持久化(重启后接棒链/轮次不自动续跑,发消息重新驱动)
+- 编排运行态不持久化(重启后接棒链/轮次/待命接棒者不自动恢复,发消息重新驱动)

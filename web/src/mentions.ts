@@ -25,10 +25,12 @@ export function splitMentions(text: string): TextSegment[] {
 /**
  * 检测光标前是否处于"激活的 @ 提及"中(微信式弹选触发条件)。
  * @before 光标前的全部文本;返回 @ 的起始下标与已输入的查询串。
- * 要求 @ 前是行首或空白(避免误触邮箱等);token 内出现空白即终止。
+ * 要求 @ 前是行首、空白或接棒语法边界符(> 】——"接棒@xx"/"<接棒>@xx" 也要弹);
+ * 其余(邮箱等)不触发;token 内出现空白即终止。
+ * ⚠ 前置条件字符集与后端 orchestrator.parseUserCommand 的接棒解析对应。
  */
 export function detectMention(before: string): { start: number; query: string } | null {
-  const m = before.match(/(?:^|\s)@([^\s@,，。]*)$/);
+  const m = before.match(/(?:^|[\s>】])@([^\s@,，。]*)$/);
   if (!m) return null;
   const query = m[1] ?? '';
   return { start: before.length - query.length - 1, query };

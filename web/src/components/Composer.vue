@@ -133,7 +133,7 @@ async function onStop() {
         ref="inputEl"
         v-model="text"
         rows="1"
-        placeholder="无@=接棒模式 · @成员名=点名(答完即止) · @allN=轮流N轮 · Enter 发送 / Shift+Enter 换行"
+        placeholder="无@=接棒续聊 · @成员=点名(答完指定下一位并暂停) · 接棒@成员=TA直接起头 · @allN=轮流N轮 · Enter 发送"
         @input="onInput"
         @click="refreshPopup"
         @keydown="onKeydown"

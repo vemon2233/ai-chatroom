@@ -190,7 +190,7 @@ export class ChatRoom {
       await this.sysMessage('房间里还没有成员,请先添加成员再开始。');
       return;
     }
-    await this.sysMessage('自由讨论开始(接棒模式):发言者自己决定下一位。');
+    await this.sysMessage('自由讨论开始(接棒模式):有待命接棒者由 TA 起头,否则随机。');
     this.orch.startFreeDiscussion(); // 显式入口(v1 用 '@free' 文本触发,v2 parseUserCommand 已无该指令,曾是化石 bug)
   }
 

@@ -11,29 +11,33 @@ const members = [
   { id: 'm4', name: '工程师4' },
 ];
 
-describe('parseBaton:接棒行解析', () => {
+describe('parseBaton:接棒行解析(新语法 <接棒>,兼容旧【接棒】)', () => {
   it('@工程师3 命中3号', () => {
+    expect(parseBaton('正文\n<接棒>@工程师3', members, 'm2').nextMemberId).toBe('m3');
+  });
+  it('旧语法【接棒】同样解析(resume 旧 session 记忆惯性)', () => {
     expect(parseBaton('正文\n【接棒】@工程师3', members, 'm2').nextMemberId).toBe('m3');
   });
   it('@工程师2 命中2号', () => {
-    expect(parseBaton('正文\n【接棒】@工程师2', members, 'm1').nextMemberId).toBe('m2');
+    expect(parseBaton('正文\n<接棒>@工程师2', members, 'm1').nextMemberId).toBe('m2');
   });
   it('@工程师 命中1号(纯名)', () => {
-    expect(parseBaton('正文\n【接棒】@工程师', members, 'm3').nextMemberId).toBe('m1');
+    expect(parseBaton('正文\n<接棒>@工程师', members, 'm3').nextMemberId).toBe('m1');
   });
   it('@工程师4 命中4号', () => {
-    expect(parseBaton('正文\n【接棒】@工程师4', members, 'm2').nextMemberId).toBe('m4');
+    expect(parseBaton('正文\n<接棒>@工程师4', members, 'm2').nextMemberId).toBe('m4');
   });
   it('结束', () => {
+    expect(parseBaton('正文\n<接棒>结束', members, 'm2').endDiscussion).toBe(true);
     expect(parseBaton('正文\n【接棒】结束', members, 'm2').endDiscussion).toBe(true);
   });
-  it('自传无效(→ 停止,无 nextMemberId)', () => {
-    expect(parseBaton('正文\n【接棒】@工程师2', members, 'm2').nextMemberId).toBeUndefined();
+  it('自传无效(→ 无指令)', () => {
+    expect(parseBaton('正文\n<接棒>@工程师2', members, 'm2').nextMemberId).toBeUndefined();
   });
-  it('名字对不上 → 无效(→ 停止)', () => {
-    expect(parseBaton('正文\n【接棒】@不存在的人', members, 'm2').nextMemberId).toBeUndefined();
+  it('名字对不上 → 无效', () => {
+    expect(parseBaton('正文\n<接棒>@不存在的人', members, 'm2').nextMemberId).toBeUndefined();
   });
-  it('没有接棒行 → 无指令(→ 停止)', () => {
+  it('没有接棒行 → 无指令', () => {
     const r = parseBaton('我说完了,没有下文', members, 'm2');
     expect(r.nextMemberId).toBeUndefined();
     expect(r.endDiscussion).toBeUndefined();
@@ -77,11 +81,15 @@ describe('buildPrompt', () => {
     expect(p).toContain('600 字以内'); // normal 档
   });
 
-  it('batonMode 注入接棒规则', async () => {
-    const p1 = await buildPrompt(room, member, [], { batonMode: false });
-    expect(p1).not.toContain('接棒规则');
-    const p2 = await buildPrompt(room, member, [], { batonMode: true });
-    expect(p2).toContain('【接棒】');
+  it('batonMode 注入接棒规则(chain/callout 两套文案,无则不注入)', async () => {
+    const p0 = await buildPrompt(room, member, [], {});
+    expect(p0).not.toContain('接棒规则');
+    const pChain = await buildPrompt(room, member, [], { batonMode: 'chain' });
+    expect(pChain).toContain('<接棒>@名字');
+    expect(pChain).toContain('TA 会立即接着发言');
+    const pCallout = await buildPrompt(room, member, [], { batonMode: 'callout' });
+    expect(pCallout).toContain('<接棒>@名字');
+    expect(pCallout).toContain('等用户发话后 TA 才开始');
   });
 
   it('short/long 长度档位', async () => {

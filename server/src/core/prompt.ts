@@ -43,7 +43,7 @@ export async function buildPrompt(
   room: RoomConfig,
   member: MemberConfig,
   history: ChatMessage[],
-  opts: { trigger?: string; instruction?: string; batonMode?: boolean } = {},
+  opts: { trigger?: string; instruction?: string; batonMode?: 'chain' | 'callout' } = {},
 ): Promise<string> {
   const others = room.members
     .filter((m) => m.id !== member.id)
@@ -97,15 +97,20 @@ export async function buildPrompt(
     lengthBrief(room.speechLength),
   );
 
-  // 接棒模式:发言末尾指定下一位发言者(发言权传递,由发言者自己决定)
-  if (opts.batonMode) {
+  // 接棒:发言末尾指定下一位发言者。chain=链上(指定后立即开跑) / callout=回应用户点名(指定后暂停待命)
+  if (opts.batonMode === 'chain' || opts.batonMode === 'callout') {
     const otherNames = room.members.filter((m) => m.id !== member.id).map((m) => m.name);
+    const rule =
+      opts.batonMode === 'chain'
+        ? '这是接棒链讨论,你发完言后由你决定下一位发言者,TA 会立即接着发言。'
+        : '你在回应用户的点名。回应完毕后,由你指定下一位发言者——讨论将暂停,等用户发话后 TA 才开始。';
     parts.push(
       `# 接棒规则(重要)\n` +
-      `这是自由讨论模式,你发完言后由你决定下一位发言者。发言正文结束后,另起一行写接棒指令:\n` +
-      `- 想让谁接话:最后一行写 \`【接棒】@名字\`(从:${otherNames.join(' / ')} 中选)\n` +
-      `- 认为讨论已充分收敛、没有继续的必要:最后一行写 \`【接棒】结束\`\n` +
-      `选择依据:谁的观点被你质疑了、谁还没说过话、谁的视角最适合回应你刚才的内容。不要把接棒给【接棒】自己。`,
+      `${rule}\n` +
+      `发言正文结束后,另起一行写接棒指令(与用户输入语法一致):\n` +
+      `- 想让谁接话:最后一行写 \`<接棒>@名字\`(从:${otherNames.join(' / ')} 中选)\n` +
+      `- 认为讨论已充分收敛、没有继续的必要:最后一行写 \`<接棒>结束\`\n` +
+      `选择依据:谁的观点被你质疑了、谁还没说过话、谁的视角最适合回应你刚才的内容。不要接棒给自己。`,
     );
   }
 
@@ -114,16 +119,19 @@ export async function buildPrompt(
   return parts.join('\n\n---\n\n');
 }
 
+/** 接棒行正则:新语法 <接棒>(用户/agent 统一)+ 旧语法 【接棒】(兼容 resume 旧 session 的记忆惯性)。 */
+const BATON_LINE = /(?:<接棒>|【接棒】)\s*(.+)/;
+
 /** 接棒尾行解析:从发言全文中提取接棒指令。 */
 export function parseBaton(
   text: string,
   members: Array<{ id: string; name: string }>,
   selfId: string,
 ): { nextMemberId?: string; endDiscussion?: boolean } {
-  // 取最后 3 行内找【接棒】标记(容错:agent 可能在正文里换行后又补写)
+  // 取最后 3 行内找接棒标记(容错:agent 可能在正文里换行后又补写)
   const tailLines = text.trim().split('\n').slice(-3);
   for (const line of tailLines.reverse()) {
-    const m = line.match(/【接棒】\s*(.+)/);
+    const m = line.match(BATON_LINE);
     if (!m) continue;
     const directive = (m[1] ?? '').trim();
     if (/结束|收敛|无需|到此/.test(directive)) return { endDiscussion: true };
@@ -132,10 +140,10 @@ export function parseBaton(
     const rawName = ((nameMatch?.[1]) ?? directive).trim();
     const hit = matchMemberByName(rawName, members);
     if (hit && hit.id !== selfId) return { nextMemberId: hit.id };
-    if (hit && hit.id === selfId) return {}; // 传给自己:无效 → 停止(用户接管)
-    return {}; // 名字对不上:无效 → 停止(用户接管)
+    if (hit && hit.id === selfId) return {}; // 传给自己:无效 → 无指令
+    return {}; // 名字对不上:无效 → 无指令
   }
-  return {}; // 没有接棒行:停止(用户接管)
+  return {}; // 没有接棒行:无指令
 }
 
 /**
