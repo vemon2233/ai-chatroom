@@ -1,8 +1,11 @@
 <script setup lang="ts">
 // 添加成员 = 顶部角色库预选(可多选拉入)+ 下半部新建角色表单(同 CharacterForm,
 // 提交即入库并自动拉入房间)。与「新角色」弹窗共享同一表单——概念只剩"角色",无临时成员。
+//
+// 互斥手风琴:打开时两区全展开;勾选角色 → 折叠新建区;展开新建区 → 折叠选卡区。
+// 防误解:用户不会以为"勾了角色还要填表单"。取消勾选/清空表单不自动回弹(用户主导)。
 
-import { ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { store, refreshCharacters } from '../store';
 import { api } from '../api';
 import { dialog } from '../composables/useDialog';
@@ -15,17 +18,39 @@ const model = defineModel<boolean>({ default: false });
 const picked = ref<Set<string>>(new Set());
 const formRef = ref<InstanceType<typeof CharacterForm> | null>(null);
 
+// 手风琴状态:两区各自是否展开;互斥折叠由用户动作触发,不由状态派生
+const showPick = ref(true);
+const showCreate = ref(true);
+
 watch(model, (open) => {
   if (open) {
     picked.value = new Set();
     formRef.value?.reset();
+    showPick.value = true;   // 打开时全展开
+    showCreate.value = true;
   }
 });
 
 function togglePick(id: string) {
   if (picked.value.has(id)) picked.value.delete(id);
   else picked.value.add(id);
+  // 勾了角色 → 新建区折叠(选卡区保持可见)
+  if (picked.value.size > 0) showCreate.value = false;
 }
+
+/** 展开/收起新建区;展开时折叠选卡区(用户明确转向"新建"意图) */
+function toggleCreate() {
+  showCreate.value = !showCreate.value;
+  if (showCreate.value) showPick.value = false;
+}
+
+/** 展开/收起选卡区(反向对称) */
+function togglePickSection() {
+  showPick.value = !showPick.value;
+  if (showPick.value) showCreate.value = false;
+}
+
+const pickedCount = computed(() => picked.value.size);
 
 /** 新建角色并立即拉入房间 */
 async function createAndPull(body: Omit<Character, 'id' | 'createdAt'>) {
@@ -47,7 +72,7 @@ async function createAndPull(body: Omit<Character, 'id' | 'createdAt'>) {
 async function submit() {
   const roomId = store.currentRoom!.config.id;
   if (picked.value.size === 0 && !formRef.value?.valid()) {
-    await dialog.alert('还没有可添加的内容', '请先在上方勾选角色,或在下方填写新角色。');
+    await dialog.alert('还没有可添加的内容', '请先勾选角色库成员,或展开"新建角色"填写。');
     return;
   }
   if (picked.value.size > 0) {
@@ -65,8 +90,12 @@ async function submit() {
 
 <template>
   <Modal v-model="model" title="添加成员" width="560px">
-    <div class="section-label">从角色库选择(可多选,拉入为快照):</div>
-    <div class="char-grid">
+    <!-- 选卡区(可折叠;勾选数徽标) -->
+    <div class="sec-head" @click="togglePickSection">
+      <span class="sec-title">从角色库选择<span v-if="pickedCount > 0" class="sec-badge">已选 {{ pickedCount }}</span></span>
+      <span class="sec-caret" :class="{ open: showPick }">▾</span>
+    </div>
+    <div v-show="showPick" class="char-grid">
       <div
         v-for="c in store.characters"
         :key="c.id"
@@ -81,11 +110,12 @@ async function submit() {
       </div>
     </div>
 
-    <div class="section-label">或新建角色(保存进角色库,并立即拉入本房间):</div>
-    <CharacterForm ref="formRef" @submit="createAndPull">
-      <template #after-form>
-        <div class="section-hint">留空则跳过,只拉入上方勾选的角色。</div>
-      </template>
+    <!-- 新建区(可折叠) -->
+    <div class="sec-head" @click="toggleCreate">
+      <span class="sec-title">新建角色<span class="sec-sub">保存进角色库,并立即拉入本房间</span></span>
+      <span class="sec-caret" :class="{ open: showCreate }">▾</span>
+    </div>
+    <CharacterForm v-show="showCreate" ref="formRef" @submit="createAndPull">
       <template #footer />
     </CharacterForm>
 
@@ -97,8 +127,27 @@ async function submit() {
 </template>
 
 <style scoped>
-.section-label { font-size: 12px; color: var(--muted); margin-top: 4px; }
-.section-hint { font-size: 11px; color: var(--muted); }
+.sec-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  padding: 2px 0;
+  user-select: none;
+}
+.sec-title { font-size: 12.5px; font-weight: 600; color: var(--text); display: flex; align-items: center; gap: 8px; flex: 1; }
+.sec-sub { font-size: 11px; font-weight: 400; color: var(--muted); }
+.sec-badge {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: 10px;
+  padding: 1px 8px;
+}
+.sec-caret { font-size: 10px; color: var(--muted); transition: transform 0.15s; }
+.sec-caret.open { transform: rotate(0deg); }
+.sec-caret:not(.open) { transform: rotate(-90deg); }
 
 .char-grid {
   display: grid;
@@ -107,6 +156,7 @@ async function submit() {
   max-height: 240px;
   overflow-y: auto;
   padding: 2px;
+  margin-top: 6px;
 }
 .char-card {
   position: relative;
