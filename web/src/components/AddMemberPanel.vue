@@ -9,6 +9,7 @@ import { computed, ref, watch } from 'vue';
 import { store, refreshCharacters } from '../store';
 import { api } from '../api';
 import { dialog } from '../composables/useDialog';
+import { initialsFor, colorForName } from '../lib/avatar';
 import type { Character } from '@server/core/types';
 import Modal from './ui/Modal.vue';
 import CharacterForm from './CharacterForm.vue';
@@ -44,7 +45,7 @@ function toggleCreate() {
   if (showCreate.value) showPick.value = false;
 }
 
-/** 表单任一字段被用户改动(输入/选 emoji/切适配器…)→ 转向新建意图,折叠选卡区 */
+/** 表单任一字段被用户改动(输入/切适配器…)→ 转向新建意图,折叠选卡区 */
 function onFormTouched() {
   if (showPick.value) showPick.value = false;
 }
@@ -109,7 +110,7 @@ async function submit() {
         @click="togglePick(c.id)"
       >
         <span class="check">{{ picked.has(c.id) ? '✓' : '' }}</span>
-        <span class="cc-emoji">{{ c.emoji || '🙂' }}</span>
+        <span class="cc-avatar" :style="{ background: colorForName(c.name) }">{{ initialsFor(c.name) }}</span>
         <span class="cc-name" :title="c.persona">{{ c.name }}</span>
         <span class="cc-adapter">{{ c.adapter }}</span>
       </div>
@@ -180,7 +181,7 @@ async function submit() {
   cursor: pointer;
   transition: border-color 0.12s, background 0.12s;
 }
-.char-card:hover { border-color: #b8c2e8; background: #f8f9fc; }
+.char-card:hover { border-color: var(--accent-border); background: var(--accent-soft); }
 .char-card.picked { border-color: var(--accent); background: var(--accent-soft); }
 /* 勾选角标:选中才出现,右上角实底圆 */
 .check {
@@ -198,7 +199,18 @@ async function submit() {
   align-items: center;
   justify-content: center;
 }
-.cc-emoji { font-size: 23px; line-height: 1; }
+/* initials 迷你圆 */
+.cc-avatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+}
 .cc-name {
   font-size: 12.5px;
   font-weight: 600;

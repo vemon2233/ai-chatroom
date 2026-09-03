@@ -1,13 +1,14 @@
 <script setup lang="ts">
 // SidebarCard 原语:侧栏列表项的唯一卡片实现(房间/角色同构)。
-// 结构:图标瓷片(圆角底) + 右两行(名称+徽标 / 摘要);删除按钮 hover 悬浮右侧居中,
-// 实底(侧栏同色)保证压住摘要时不产生文字叠字的脏感。
+// 结构:initials 彩圆(房间灰底取名称首字;角色哈希取色)+ 右两行(名称+徽标 / 摘要);
+// 删除按钮 hover 悬浮右侧居中,实底(侧栏同色)保证压住摘要时不产生文字叠字的脏感。
 // 样式只存在这一份;业务列表只负责传数据与接事件(对齐 overlay 原语化先例)。
 
-defineProps<{
-  /** 头像 emoji */
-  icon: string;
-  /** 主行名称 */
+import { computed } from 'vue';
+import { initialsFor, colorForName } from '../../lib/avatar';
+
+const props = defineProps<{
+  /** 主行名称(initials 取字真源) */
   title: string;
   /** 右侧徽标(房间=N人;角色=adapter);空则不占位 */
   badge?: string;
@@ -15,19 +16,24 @@ defineProps<{
   sub?: string;
   /** 激活态(当前房间):左侧主题色条 + 提亮底 */
   active?: boolean;
+  /** 头像着色:'room' 灰底(房间无持久色)/'hash' 按名称哈希取色板(角色) */
+  tone?: 'room' | 'hash';
 }>();
 
 const emit = defineEmits<{
   (e: 'click'): void;
   (e: 'remove'): void;
 }>();
+
+const initials = computed(() => initialsFor(props.title));
+const avatarColor = computed(() =>
+  props.tone === 'hash' ? colorForName(props.title) : 'var(--text-muted)',
+);
 </script>
 
 <template>
   <div class="card" :class="{ active }" @click="emit('click')">
-    <div class="card-icon-tile">
-      <span class="card-icon">{{ icon }}</span>
-    </div>
+    <div class="card-avatar" :style="{ background: avatarColor }">{{ initials }}</div>
     <div class="card-main">
       <div class="card-line">
         <span class="card-title">{{ title }}</span>
@@ -52,51 +58,51 @@ const emit = defineEmits<{
   border-left: 2px solid transparent; /* 与激活态色条等宽,激活时换色不跳动 */
   transition: background 0.12s;
 }
-.card:hover { background: rgba(255, 255, 255, 0.06); }
+.card:hover { background: var(--panel-softer); }
 .card.active {
-  background: rgba(255, 255, 255, 0.09);
+  background: var(--accent-soft);
   border-left-color: var(--accent);
 }
 
-/* 图标瓷片:emoji 的视觉锚点(裸 emoji 尺寸感不稳,瓷片统一体量) */
-.card-icon-tile {
-  width: 34px;
-  height: 34px;
+/* initials 彩圆:名称首字/双字母的视觉锚点 */
+.card-avatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
   flex-shrink: 0;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.07);
   display: flex;
   align-items: center;
   justify-content: center;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
 }
-.card.active .card-icon-tile { background: rgba(79, 110, 247, 0.22); }
-.card-icon { font-size: 16px; line-height: 1; }
 
 .card-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; padding-right: 52px; /* 删除按钮悬浮位预留 */ }
 .card-line { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
 .card-title {
   font-size: 13px;
   font-weight: 550;
-  color: #eceef2;
+  color: var(--text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* 徽标:纯灰字,无框(描边 pill 在暗底上显重) */
+/* 徽标:纯灰字,无框(描边 pill 在浅底上显重) */
 .card-badge {
   font-size: 10.5px;
-  color: #767b85;
+  color: var(--faint);
   flex-shrink: 0;
 }
 .card-sub {
   font-size: 11px;
-  color: #80858f;
+  color: var(--muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-/* 悬浮删除:右侧垂直居中;实底(侧栏同色系)+红字红框,
+/* 悬浮删除:右侧垂直居中;实底(白,与卡片同面)+红字红框,
  * 压住摘要尾部时是"一枚按钮盖在卡上",不会红灰文字叠字 */
 .card-remove {
   position: absolute;
@@ -106,7 +112,7 @@ const emit = defineEmits<{
   font-size: 11px;
   font-weight: 500;
   color: var(--danger);
-  background: #232529;
+  background: var(--panel);
   border: 1px solid rgba(229, 72, 77, 0.45);
   border-radius: 6px;
   padding: 3.5px 10px;

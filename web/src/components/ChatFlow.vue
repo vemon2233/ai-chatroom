@@ -66,9 +66,10 @@ watch(
 .chat-flow {
   flex: 1;
   overflow-y: auto;
-  padding: 18px 22px;
+  padding: 18px 20px;
   display: flex;
   flex-direction: column;
   gap: 14px;
+  background: var(--panel-soft);
 }
 </style>

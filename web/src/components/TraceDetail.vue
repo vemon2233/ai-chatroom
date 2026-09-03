@@ -17,7 +17,6 @@ const visibleTrace = computed(() => {
   return trace.slice(-8);
 });
 
-const ICON: Record<string, string> = { thinking: '💭', tool_use: '🛠', tool_result: '📋', text: '✍️' };
 const LABEL: Record<string, string> = { thinking: '思考', tool_use: '工具调用', tool_result: '结果', text: '正文' };
 
 if (!hasTrace.value && hasThinking.value) tab.value = 'thinking';
@@ -32,7 +31,7 @@ if (!hasTrace.value && !hasThinking.value) tab.value = 'usage';
       <span :class="{ on: tab === 'usage' }" @click="tab = 'usage'">用量</span>
     </div>
 
-    <!-- 工作过程时间线 -->
+    <!-- 工作过程时间线(左色条区分类型,无图标) -->
     <div v-if="tab === 'trace' && hasTrace" class="trace-line">
       <div
         v-if="collapsed && (detail.trace?.length ?? 0) > 8"
@@ -42,7 +41,7 @@ if (!hasTrace.value && !hasThinking.value) tab.value = 'usage';
         ⋯ 展开全部 {{ detail.trace!.length }} 步(当前显示最后 8 步)
       </div>
       <div v-for="(t, i) in visibleTrace" :key="i" class="trace-item" :class="t.kind">
-        <div class="tlabel">{{ ICON[t.kind] ?? '·' }} {{ t.label ? `${t.label} · ` : '' }}{{ LABEL[t.kind] ?? t.kind }}</div>
+        <div class="tlabel">{{ t.label ? `${t.label} · ` : '' }}{{ LABEL[t.kind] ?? t.kind }}</div>
         <pre>{{ t.content }}</pre>
       </div>
     </div>
@@ -76,7 +75,7 @@ if (!hasTrace.value && !hasThinking.value) tab.value = 'usage';
 .tabs span.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
 
 .block {
-  background: #f7f8fa;
+  background: var(--panel-softer);
   border-radius: 7px;
   padding: 8px;
   margin-top: 4px;
@@ -95,18 +94,18 @@ if (!hasTrace.value && !hasThinking.value) tab.value = 'usage';
   margin-top: 4px;
 }
 .trace-item {
-  border-left: 3px solid #ddd;
+  border-left: 3px solid var(--border);
   padding: 5px 8px;
-  background: #f9fafb;
+  background: var(--panel-soft);
   border-radius: 0 7px 7px 0;
 }
-.trace-item.thinking { border-left-color: #b39ddb; }
-.trace-item.tool_use { border-left-color: #4f6ef7; }
-.trace-item.tool_result { border-left-color: #9ba65d; }
-.trace-item.text { border-left-color: #30a46c; }
+.trace-item.thinking { border-left-color: #8B5CF6; }
+.trace-item.tool_use { border-left-color: #5B6AFF; }
+.trace-item.tool_result { border-left-color: #10B981; }
+.trace-item.text { border-left-color: var(--warn); }
 .tlabel { font-size: 11px; font-weight: 700; color: var(--muted); margin-bottom: 3px; }
 .trace-item pre {
-  background: #fff;
+  background: var(--panel);
   border: 1px solid var(--border-soft);
   border-radius: 5px;
   padding: 6px;

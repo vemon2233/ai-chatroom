@@ -4,7 +4,6 @@
 
 import { onMounted, ref, watch } from 'vue';
 import { store } from '../store';
-import EmojiSelect from './ui/EmojiSelect.vue';
 import type { Character } from '@server/core/types';
 
 const props = defineProps<{
@@ -14,11 +13,10 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'submit', body: Omit<Character, 'id' | 'createdAt'>): void;
-  /** 任一字段被用户改动(含 EmojiSelect 点选/select 切换——它们不冒泡 input) */
+  /** 任一字段被用户改动(select 切换/文本输入——它们不冒泡 input) */
   (e: 'touched'): void;
 }>();
 
-const emoji = ref('🙂');
 const name = ref('');
 const persona = ref('');
 const modelArg = ref('');
@@ -29,14 +27,12 @@ watch(
   () => props.character,
   (c) => {
     if (c) {
-      emoji.value = c.emoji || '🙂';
       name.value = c.name;
       persona.value = c.persona;
       modelArg.value = (c.extraArgs ?? []).join(' ').replace('--model', '').trim();
       note.value = c.note || '';
       adapter.value = c.adapter;
     } else {
-      emoji.value = '🙂';
       name.value = '';
       persona.value = '';
       modelArg.value = '';
@@ -54,7 +50,6 @@ function submit() {
   }
   emit('submit', {
     name: name.value.trim(),
-    emoji: emoji.value,
     adapter: adapter.value,
     persona: persona.value.trim(),
     extraArgs: modelArg.value.trim() ? ['--model', modelArg.value.trim()] : undefined,
@@ -63,17 +58,16 @@ function submit() {
 }
 
 // 任一字段变动 → touched(宿主手风琴互斥用;watch 覆盖一切变更源:
-// 文本输入/EmojiSelect 点选/select 切换)。挂载后才开始上报,预填/重置不误触。
+// 文本输入/select 切换)。挂载后才开始上报,预填/重置不误触。
 let armed = false;
 onMounted(() => { armed = true; });
-watch([emoji, name, persona, modelArg, note, adapter], () => {
+watch([name, persona, modelArg, note, adapter], () => {
   if (armed) emit('touched');
 });
 
 /** 供宿主:校验态(禁用提交按钮)与重置为空白 */
 const valid = () => !!name.value.trim() && !!persona.value.trim();
 function reset() {
-  emoji.value = '🙂';
   name.value = '';
   persona.value = '';
   modelArg.value = '';
@@ -86,12 +80,9 @@ defineExpose({ submit, valid, reset });
 <template>
   <!-- 单根容器:宿主的 v-show(手风琴折叠)需要唯一根元素——fragment 根会让 v-show 静默失效 -->
   <div class="char-form">
-    <div class="form-head">
-      <EmojiSelect v-model="emoji" />
-      <div class="form-row grow">
-        <label>名字</label>
-        <input v-model="name" type="text" placeholder="如:正方 / 首席架构师" />
-      </div>
+    <div class="form-row">
+      <label>名字</label>
+      <input v-model="name" type="text" placeholder="如:正方 / 首席架构师" />
     </div>
 
     <div class="form-row">
@@ -121,7 +112,5 @@ defineExpose({ submit, valid, reset });
 
 <style scoped>
 .char-form { display: flex; flex-direction: column; gap: 14px; }
-.form-head { display: flex; gap: 12px; align-items: flex-start; }
-.form-head .grow { flex: 1; }
 .grid2-eq { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 </style>

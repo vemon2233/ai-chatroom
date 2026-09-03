@@ -17,7 +17,6 @@ watch(model, (open) => {
 async function onSubmit(body: RoomFormBody) {
   const j = await api.createRoom({
     name: body.name,
-    emoji: body.emoji,
     topic: body.topic,
     speechLength: body.speechLength,
     projectPath: body.projectPath || undefined,

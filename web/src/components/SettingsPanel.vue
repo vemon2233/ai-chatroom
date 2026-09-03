@@ -16,11 +16,10 @@ watch(model, (open) => {
 
 async function onSubmit(body: RoomFormBody) {
   if (!store.currentRoom) return;
-  // 即时生效:name/emoji/topic/speechLength/chainBudget/moderatorId
+  // 即时生效:name/topic/speechLength/chainBudget/moderatorId
   // (projectPath/toolPermission 是禁用字段,原样回传也不在服务端生效)
   const state = await api.updateSettings(store.currentRoom.config.id, {
     name: body.name,
-    emoji: body.emoji,
     topic: body.topic,
     speechLength: body.speechLength,
     chainBudget: body.chainBudget,

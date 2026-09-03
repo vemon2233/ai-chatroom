@@ -2,11 +2,10 @@
 // RoomForm 原语:房间字段表单的唯一实现(新建房间 / 房间设置共用)。
 // mode='create':全部可编辑(项目目录/权限在此确定)。
 // mode='settings':项目目录/工具权限禁用(建房时锁定——历史讨论的语境依赖它们),
-//                 其余(emoji/名称/主题/长度/接棒上限/主持人)可改即时生效。
+//                 其余(名称/主题/长度/接棒上限/主持人)可改即时生效。
 
 import { ref, watch } from 'vue';
 import { store } from '../store';
-import EmojiSelect from './ui/EmojiSelect.vue';
 import type { RoomConfig } from '@server/core/types';
 
 const props = withDefaults(defineProps<{
@@ -19,7 +18,6 @@ const emit = defineEmits<{ (e: 'submit', body: RoomFormBody): void }>();
 
 export interface RoomFormBody {
   name: string;
-  emoji: string;
   topic: string;
   speechLength: 'short' | 'normal' | 'long';
   projectPath: string;
@@ -28,7 +26,6 @@ export interface RoomFormBody {
   moderatorId: string;
 }
 
-const emoji = ref('💬');
 const name = ref('');
 const topic = ref('');
 const speechLength = ref<'short' | 'normal' | 'long'>('normal');
@@ -43,7 +40,6 @@ watch(
   () => props.room,
   (r) => {
     if (r) {
-      emoji.value = r.emoji || '💬';
       name.value = r.name;
       topic.value = r.topic;
       speechLength.value = r.speechLength;
@@ -52,7 +48,6 @@ watch(
       chainBudget.value = r.chainBudget;
       moderatorId.value = r.moderatorId ?? '';
     } else {
-      emoji.value = '💬';
       name.value = '';
       topic.value = '';
       speechLength.value = 'normal';
@@ -68,7 +63,6 @@ watch(
 function submit() {
   emit('submit', {
     name: name.value.trim() || (isCreate() ? '新房间' : name.value.trim()),
-    emoji: emoji.value,
     topic: topic.value.trim() || (isCreate() ? '自由聊天' : topic.value.trim()),
     speechLength: speechLength.value,
     projectPath: projectPath.value.trim(),
@@ -79,7 +73,6 @@ function submit() {
 }
 
 function reset() {
-  emoji.value = '💬';
   name.value = '';
   topic.value = '';
   speechLength.value = 'normal';
@@ -95,12 +88,9 @@ defineExpose({ submit, reset });
 <template>
   <!-- 单根容器(宿主 v-show/布局锚点) -->
   <div class="room-form">
-    <div class="form-head">
-      <EmojiSelect v-model="emoji" :disabled="false" />
-      <div class="form-row grow">
-        <label>房间名称</label>
-        <input v-model="name" type="text" placeholder="例如:技术选型讨论" />
-      </div>
+    <div class="form-row">
+      <label>房间名称</label>
+      <input v-model="name" type="text" placeholder="例如:技术选型讨论" />
     </div>
 
     <div class="form-row">
@@ -125,7 +115,7 @@ defineExpose({ submit, reset });
 
     <!-- 建时锁定区:settings 模式禁用 -->
     <div class="form-row">
-      <label>项目目录<span v-if="!isCreate()" class="lock-tag">🔒 创建后不可改</span></label>
+      <label>项目目录<span v-if="!isCreate()" class="lock-pill">创建后不可改</span></label>
       <input
         v-model="projectPath"
         type="text"
@@ -134,7 +124,7 @@ defineExpose({ submit, reset });
       />
     </div>
     <div class="form-row" :class="{ 'row-locked': !isCreate() }">
-      <label>成员工具权限<span v-if="!isCreate()" class="lock-tag">🔒 作用于绑定项目</span></label>
+      <label>成员工具权限<span v-if="!isCreate()" class="lock-pill">作用于绑定项目</span></label>
       <div class="perm-row">
         <label class="perm" :class="{ sel: toolPermission === 'readonly', dis: !isCreate() }">
           <input v-model="toolPermission" type="radio" value="readonly" :disabled="!isCreate()" />
@@ -157,7 +147,7 @@ defineExpose({ submit, reset });
       <select v-model="moderatorId">
         <option value="">(无)</option>
         <option v-for="m in store.currentRoom?.config.members ?? []" :key="m.id" :value="m.id">
-          {{ m.emoji }} {{ m.name }}
+          {{ m.name }}
         </option>
       </select>
     </div>
@@ -168,11 +158,17 @@ defineExpose({ submit, reset });
 
 <style scoped>
 .room-form { display: flex; flex-direction: column; gap: 14px; }
-.form-head { display: flex; gap: 12px; align-items: flex-start; }
-.form-head .grow { flex: 1; }
 .grid2-eq { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .field-hint { font-size: 10.5px; font-weight: 400; color: var(--muted); margin-left: 4px; }
-.lock-tag { font-size: 10.5px; font-weight: 400; color: var(--warn); margin-left: 6px; }
+.lock-pill {
+  font-size: 10.5px;
+  font-weight: 500;
+  color: var(--muted);
+  margin-left: 6px;
+  background: var(--border-soft);
+  border-radius: 10px;
+  padding: 1px 8px;
+}
 
 .row-locked input { background: var(--border-soft); }
 .perm-row { display: flex; gap: 8px; }

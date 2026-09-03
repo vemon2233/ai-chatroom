@@ -10,8 +10,8 @@ export interface Character {
   id: string;
   /** 显示名 */
   name: string;
-  /** 头像 emoji(前端展示) */
-  emoji: string;
+  /** 头像 emoji(已废弃:前端改 initials 头像不再渲染;字段保留做数据向后兼容) */
+  emoji?: string;
   /** 适配器 key(agents.yaml 中 adapters.*) */
   adapter: string;
   /** 人设/立场 */

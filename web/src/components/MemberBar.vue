@@ -3,10 +3,18 @@ import { computed, ref } from 'vue';
 import { store } from '../store';
 import { api } from '../api';
 import { dialog } from '../composables/useDialog';
+import { initialsFor } from '../lib/avatar';
 import AddMemberPanel from './AddMemberPanel.vue';
 
 const showAdd = ref(false);
 const room = computed(() => store.currentRoom!);
+
+const STATUS_LABEL: Record<string, string> = {
+  idle: '待命',
+  thinking: '思考中',
+  streaming: '输出中',
+  error: '出错',
+};
 
 async function onChipClick(memberId: string) {
   const member = room.value.config.members.find((m) => m.id === memberId);
@@ -40,9 +48,9 @@ async function onRemove(memberId: string, name: string) {
       @click="onChipClick(m.id)"
     >
       <span class="dot" :class="room.statuses[m.id] ?? 'idle'"></span>
-      <span class="chip-emoji">{{ m.emoji || '' }}</span>
-      <span class="chip-name" :style="{ color: m.color }">{{ m.name }}</span>
-      <span class="chip-adapter">{{ m.adapter }}</span>
+      <span class="chip-avatar" :style="{ background: m.color }">{{ initialsFor(m.name) }}</span>
+      <span class="chip-name">{{ m.name }}</span>
+      <span class="chip-adapter">{{ m.adapter }} · {{ STATUS_LABEL[room.statuses[m.id] ?? 'idle'] }}</span>
       <span class="chip-remove" @click.stop="onRemove(m.id, m.name)">✕</span>
     </div>
     <button class="chip add" @click="showAdd = true">＋ 添加成员</button>
@@ -64,8 +72,8 @@ async function onRemove(memberId: string, name: string) {
 .chip {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 5px 11px;
+  gap: 7px;
+  padding: 4px 11px 4px 8px;
   border: 1px solid var(--border);
   border-radius: 18px;
   font-size: 12px;
@@ -75,20 +83,33 @@ async function onRemove(memberId: string, name: string) {
   transition: border-color 0.15s;
 }
 .chip:hover { border-color: var(--accent); }
-.dot { width: 8px; height: 8px; border-radius: 50%; background: #c4c8cf; flex-shrink: 0; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); flex-shrink: 0; }
 .dot.thinking { background: var(--warn); animation: pulse 1s infinite; }
 .dot.streaming { background: var(--ok); animation: pulse 0.6s infinite; }
 .dot.error { background: var(--danger); }
-.chip-emoji { font-size: 14px; }
-.chip-name { font-weight: 600; }
+
+/* initials 迷你圆:颜色由头像承担,名字回到墨色 */
+.chip-avatar {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 9.5px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.chip-name { font-weight: 600; color: var(--text); }
 .chip-adapter { color: var(--muted); font-size: 11px; }
 .chip-remove { color: var(--muted); font-size: 11px; padding: 0 2px; }
 .chip-remove:hover { color: var(--danger); }
 .chip.add {
   border-style: dashed;
-  color: var(--muted);
-  background: none;
+  color: var(--accent);
+  background: var(--accent-soft);
 }
-.chip.add:hover { border-color: var(--accent); color: var(--accent); }
+.chip.add:hover { border-color: var(--accent); }
 @keyframes pulse { 50% { opacity: 0.3; } }
 </style>

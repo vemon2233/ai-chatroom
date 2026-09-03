@@ -1,32 +1,35 @@
-/* AI 聊天室 v2 — 全局样式(视觉重设计:现代深浅混合,类 Linear/Slack 质感) */
+/* AI 聊天室 v2 — 全局样式(视觉重设计:对齐 agent-room,纸面质感 + 靛蓝 accent) */
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
 :root {
-  --bg: #f6f7f9;
-  --panel: #ffffff;
-  --border: #e5e7eb;
-  --border-soft: #eef0f3;
-  --text: #16181d;
-  --muted: #878e99;
-  --accent: #4f6ef7;
-  --accent-soft: #eef1fe;
-  --me-bubble: #4f6ef7;
-  --me-text: #ffffff;
-  --danger: #e5484d;
-  --ok: #30a46c;
-  --warn: #f5a623;
-  --sidebar-bg: #17181c;
-  --sidebar-text: #d4d7dd;
-  --radius: 10px;
-  --shadow-sm: 0 1px 2px rgba(20, 22, 26, 0.05);
-  --shadow-md: 0 8px 30px rgba(20, 22, 26, 0.12);
+  --bg: #F4F5F7;            /* 页面灰底 */
+  --panel: #FFFFFF;         /* 卡片/面板 */
+  --panel-soft: #FAFBFC;    /* 聊天流底 */
+  --panel-softer: #F7F8FA;  /* 输入框/嵌套块底 */
+  --border: #E5E7EB;
+  --border-soft: #EEF0F3;
+  --text: #111318;
+  --text-muted: #374151;
+  --muted: #6B7280;
+  --faint: #9CA3AF;
+  --accent: #5B6AFF;
+  --accent-soft: #EEF0FF;
+  --accent-border: #DCE1FF;
+  --accent-deep: #1E2A8C;
+  --danger: #E5484D;
+  --ok: #10B981;
+  --warn: #F59E0B;
+  --sidebar-bg: #FFFFFF;
+  --sidebar-text: #374151;
+  --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.04), 0 1px 3px rgba(16, 24, 40, 0.06);
+  --shadow-md: 0 8px 30px rgba(16, 24, 40, 0.12);
 
   /* ---- overlay 体系(全工程唯一覆盖层真源)----
    * z-index 量纲(严禁业务组件自造覆盖层级):
    *   60 模态窗口(Modal) < 90 确认对话框(Dialog,压一切)
    * 遮罩浓度/圆角/阴影一律取 token,禁止硬编码漂移。 */
-  --overlay-dim: rgba(15, 16, 20, 0.45);
+  --overlay-dim: rgba(17, 19, 24, 0.4);
   --z-modal: 60;
   --z-dialog: 90;
 }
@@ -34,11 +37,12 @@
 html, body, #app { height: 100%; }
 
 body {
-  font-family: -apple-system, "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif;
+  font-family: Inter, -apple-system, "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif;
   background: var(--bg);
   color: var(--text);
   overflow: hidden;
   font-size: 14px;
+  letter-spacing: -0.011em;
 }
 
 button {
@@ -56,9 +60,12 @@ input, textarea, select {
   border-radius: 8px;
   padding: 8px 10px;
   outline: none;
-  transition: border-color 0.15s;
+  transition: border-color 0.15s, box-shadow 0.15s;
 }
-input:focus, textarea:focus, select:focus { border-color: var(--accent); }
+input:focus, textarea:focus, select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 4px var(--accent-soft);
+}
 
 .btn {
   border-radius: 8px;
@@ -79,6 +86,30 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent); }
 .btn-danger:hover { border-color: var(--danger); }
 .btn-danger-solid { background: var(--danger); color: #fff; }
 
+/* ---- 公共小件 ----
+ * .sec-title 大写小节标题(参考项目 section label 风格)
+ * .pill    状态药丸(编排状态/锁定标签等) */
+.sec-title {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--faint);
+}
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 3px 10px;
+  border-radius: 20px;
+  background: var(--border-soft);
+  color: var(--muted);
+}
+.pill.ok { background: #ECFDF3; color: #047857; }
+.pill.warn { background: #FFFBEB; color: #B45309; }
+
 /* ---- overlay 公共层(原语 Modal/DialogHost 共用)----
  * .overlay-mask  遮罩:fixed 全屏、统一浓度;层级 token 见 :root
  * .overlay-window 窗体基座:面板质感;居中窗口形态(.modal 定宽)
@@ -96,6 +127,7 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent); }
 
 .overlay-window {
   background: var(--panel);
+  border: 1px solid var(--border-soft);
   border-radius: 14px;
   box-shadow: var(--shadow-md);
   max-width: 92vw;
