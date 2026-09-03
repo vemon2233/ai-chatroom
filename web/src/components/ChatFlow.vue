@@ -7,29 +7,11 @@ import type { ChatMessage } from '@server/core/types';
 const flowEl = ref<HTMLElement | null>(null);
 
 /** 流式占位文本:真实状态三阶——启动中(无任何输出)/推理中(有 thinking 无正文)/正文流出 */
-/** 流式占位文本:真实状态三阶——启动中(无任何输出)/推理中(思考预览)/正文流出 */
+/** 流式占位文本:启动中(无输出)/推理中(有 thinking 无正文——不播思考内容)/正文流出 */
 function streamPlaceholder(buf: StreamBuf): string {
   if (buf.text) return buf.text;
-  if (buf.thinking) {
-    return `💭 ${thinkingPreview(buf.thinking)}`;
-  }
+  if (buf.thinking) return '推理中…';
   return '启动中…';
-}
-
-/** 思考预览取尾段 120 字;但模型思考常以英文元话语收尾
- *  ("I'll just give the speech directly."之类——准备发言的自言自语),
- *  原样播出会在正文前闪一句英文。取最后一个含 CJK 的行做预览;
- *  尾部纯英文(元话语/纯英文思考)则退回中性文案,不播英文闪烁。 */
-function thinkingPreview(thinking: string): string {
-  const tail = thinking.slice(-400).trim();
-  const lines = tail.split('\n').map((l) => l.trim()).filter(Boolean);
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const line = lines[i]!;
-    if (/[一-鿿]/.test(line)) {
-      return line.length > 120 ? line.slice(-120) : line;
-    }
-  }
-  return '推理中…';
 }
 
 const renderList = computed<Array<ChatMessage | (ChatMessage & { streaming: true })>>(() => {
