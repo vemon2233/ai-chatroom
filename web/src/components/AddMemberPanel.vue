@@ -44,6 +44,12 @@ function toggleCreate() {
   if (showCreate.value) showPick.value = false;
 }
 
+/** 表单里出现真实输入(名字/人设非空)→ 用户转向新建意图,折叠选卡区。
+ *  (勾选角色会折叠表单;但表单展开着时用户可能直接打字而不点头部——此信号补上对称性) */
+function onFormInput() {
+  if (formRef.value?.dirty() && showPick.value) showPick.value = false;
+}
+
 /** 展开/收起选卡区(反向对称) */
 function togglePickSection() {
   showPick.value = !showPick.value;
@@ -110,12 +116,17 @@ async function submit() {
       </div>
     </div>
 
-    <!-- 新建区(可折叠) -->
+    <!-- 新建区(可折叠;用户开始填写即视为转向新建意图 → 折叠选卡区) -->
     <div class="sec-head" @click="toggleCreate">
       <span class="sec-title">新建角色<span class="sec-sub">保存进角色库,并立即拉入本房间</span></span>
       <span class="sec-caret" :class="{ open: showCreate }">▾</span>
     </div>
-    <CharacterForm v-show="showCreate" ref="formRef" @submit="createAndPull">
+    <CharacterForm
+      v-show="showCreate"
+      ref="formRef"
+      @submit="createAndPull"
+      @input.native="onFormInput"
+    >
       <template #footer />
     </CharacterForm>
 

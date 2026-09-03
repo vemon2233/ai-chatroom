@@ -60,6 +60,8 @@ function submit() {
 
 /** 供宿主:校验态(禁用提交按钮)与重置为空白 */
 const valid = () => !!name.value.trim() && !!persona.value.trim();
+/** 供宿主(手风琴互斥):用户是否已开始填写(任一关键字段非空) */
+const dirty = () => !!name.value.trim() || !!persona.value.trim();
 function reset() {
   emoji.value = '🙂';
   name.value = '';
@@ -68,7 +70,7 @@ function reset() {
   note.value = '';
   adapter.value = store.adapters[0]?.key ?? '';
 }
-defineExpose({ submit, valid, reset });
+defineExpose({ submit, valid, dirty, reset });
 </script>
 
 <template>
