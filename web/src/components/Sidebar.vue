@@ -44,9 +44,9 @@ async function onDeleteCharacter(id: string, name: string) {
   await refreshCharacters();
 }
 
-/** 房间卡片摘要:最近消息预览,缺省回退主题 */
+/** 房间卡片摘要:主题/讨论题目 */
 function roomSub(room: import('../api').RoomListItem): string {
-  return room.lastMessage ? `${room.lastMessage.fromName}: ${room.lastMessage.text}` : room.config.topic;
+  return room.config.topic;
 }
 </script>
 

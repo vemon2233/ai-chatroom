@@ -29,19 +29,21 @@ const emit = defineEmits<{
       <div class="card-line">
         <span class="card-title">{{ title }}</span>
         <span v-if="badge" class="card-badge">{{ badge }}</span>
-        <button class="card-remove" title="删除" @click.stop="emit('remove')">✕</button>
       </div>
       <div v-if="sub" class="card-sub">{{ sub }}</div>
     </div>
+    <!-- 删除:悬浮卡片右侧垂直居中,允许遮挡摘要文字 -->
+    <button class="card-remove" title="删除" @click.stop="emit('remove')">✕</button>
   </div>
 </template>
 
 <style scoped>
 .card {
+  position: relative; /* ✕ 悬浮锚点 */
   display: flex;
   align-items: center;
   gap: 9px;
-  padding: 9px 10px;
+  padding: 9px 14px 9px 10px; /* 右侧给悬浮 ✕ 让位 */
   border-radius: 9px;
   cursor: pointer;
   margin-bottom: 3px;
@@ -70,11 +72,16 @@ const emit = defineEmits<{
   line-height: 17px;
   flex-shrink: 0;
 }
+/* 悬浮删除:卡片右侧垂直居中,hover 出现;可遮挡摘要(卡片右 padding 已预留,
+ * 摘要超长被 ✕ 压住的是尾部省略号部分,信息损失可接受) */
 .card-remove {
-  font-size: 11px;
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 12px;
   color: #6b7078;
-  flex-shrink: 0;
-  padding: 0 3px;
+  padding: 6px 7px;
   visibility: hidden;
 }
 .card:hover .card-remove { visibility: visible; }
