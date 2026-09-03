@@ -1,12 +1,23 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue';
-import { store } from '../store';
+import { store, type StreamBuf } from '../store';
 import MessageBubble from './MessageBubble.vue';
 import type { ChatMessage } from '@server/core/types';
 
 const flowEl = ref<HTMLElement | null>(null);
 
-/** 渲染源:已落库消息 + 进行中的流式占位(合成消息) */
+/** 流式占位文本:真实状态三阶——启动中(无任何输出)/推理中(有 thinking 无正文)/正文流出 */
+/** 流式占位文本:真实状态三阶——启动中(无任何输出)/推理中(有 thinking 无正文,展示思考预览)/正文流出 */
+function streamPlaceholder(buf: StreamBuf): string {
+  if (buf.text) return buf.text;
+  if (buf.thinking) {
+    // 展示最新一段思考的尾部(截断),像"思考预览"而非空泛文案
+    const tail = buf.thinking.slice(-120).trim();
+    return `💭 ${tail || '推理中…'}`;
+  }
+  return '启动中…';
+}
+
 const renderList = computed<Array<ChatMessage | (ChatMessage & { streaming: true })>>(() => {
   const base = store.messages as ChatMessage[];
   const streaming: Array<ChatMessage & { streaming: true }> = [];
@@ -20,7 +31,7 @@ const renderList = computed<Array<ChatMessage | (ChatMessage & { streaming: true
         roomId: room.config.id,
         from: m.id,
         fromName: m.name,
-        text: buf.text || (buf.thinking ? '…(思考中)' : '正在思考…'),
+        text: streamPlaceholder(buf),
         ts: Date.now(),
         streaming: true,
       });
