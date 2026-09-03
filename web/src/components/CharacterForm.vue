@@ -72,39 +72,43 @@ defineExpose({ submit, valid, reset });
 </script>
 
 <template>
-  <div class="form-head">
-    <EmojiSelect v-model="emoji" />
-    <div class="form-row grow">
-      <label>名字</label>
-      <input v-model="name" type="text" placeholder="如:正方 / 首席架构师" />
+  <!-- 单根容器:宿主的 v-show(手风琴折叠)需要唯一根元素——fragment 根会让 v-show 静默失效 -->
+  <div class="char-form">
+    <div class="form-head">
+      <EmojiSelect v-model="emoji" />
+      <div class="form-row grow">
+        <label>名字</label>
+        <input v-model="name" type="text" placeholder="如:正方 / 首席架构师" />
+      </div>
     </div>
-  </div>
 
-  <div class="form-row">
-    <label>适配器(CLI)</label>
-    <select v-model="adapter">
-      <option v-for="a in store.adapters" :key="a.key" :value="a.key">{{ a.displayName }}</option>
-    </select>
-  </div>
-  <div class="form-row">
-    <label>人设 / 立场(注入该角色每次发言)</label>
-    <textarea v-model="persona" placeholder="这个角色是谁、什么立场、怎么说话"></textarea>
-  </div>
-  <div class="grid2-eq">
     <div class="form-row">
-      <label>model 档(可选)</label>
-      <input v-model="modelArg" type="text" placeholder="如 sonnet / haiku" />
+      <label>适配器(CLI)</label>
+      <select v-model="adapter">
+        <option v-for="a in store.adapters" :key="a.key" :value="a.key">{{ a.displayName }}</option>
+      </select>
     </div>
     <div class="form-row">
-      <label>备注(可选,仅自己可见)</label>
-      <input v-model="note" type="text" placeholder="什么时候用这个角色" />
+      <label>人设 / 立场(注入该角色每次发言)</label>
+      <textarea v-model="persona" placeholder="这个角色是谁、什么立场、怎么说话"></textarea>
     </div>
+    <div class="grid2-eq">
+      <div class="form-row">
+        <label>model 档(可选)</label>
+        <input v-model="modelArg" type="text" placeholder="如 sonnet / haiku" />
+      </div>
+      <div class="form-row">
+        <label>备注(可选,仅自己可见)</label>
+        <input v-model="note" type="text" placeholder="什么时候用这个角色" />
+      </div>
+    </div>
+    <slot name="after-form" />
+    <slot name="footer" :submit="submit" :valid="valid()" />
   </div>
-  <slot name="after-form" />
-  <slot name="footer" :submit="submit" :valid="valid()" />
 </template>
 
 <style scoped>
+.char-form { display: flex; flex-direction: column; gap: 14px; }
 .form-head { display: flex; gap: 12px; align-items: flex-start; }
 .form-head .grow { flex: 1; }
 .grid2-eq { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
