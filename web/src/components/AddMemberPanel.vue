@@ -66,19 +66,18 @@ async function submit() {
 <template>
   <Modal v-model="model" title="添加成员" width="560px">
     <div class="section-label">从角色库选择(可多选,拉入为快照):</div>
-    <div class="char-list">
+    <div class="char-grid">
       <div
         v-for="c in store.characters"
         :key="c.id"
-        class="char-pick"
+        class="char-card"
         :class="{ picked: picked.has(c.id) }"
         @click="togglePick(c.id)"
       >
-        <span class="pk">{{ picked.has(c.id) ? '●' : '○' }}</span>
-        <span>{{ c.emoji || '🙂' }}</span>
-        <span class="pick-name">{{ c.name }}</span>
-        <span class="pick-adapter">{{ c.adapter }}</span>
-        <span class="pick-persona">{{ c.persona.slice(0, 40) }}</span>
+        <span class="check">{{ picked.has(c.id) ? '✓' : '' }}</span>
+        <span class="cc-emoji">{{ c.emoji || '🙂' }}</span>
+        <span class="cc-name" :title="c.persona">{{ c.name }}</span>
+        <span class="cc-adapter">{{ c.adapter }}</span>
       </div>
     </div>
 
@@ -101,30 +100,52 @@ async function submit() {
 .section-label { font-size: 12px; color: var(--muted); margin-top: 4px; }
 .section-hint { font-size: 11px; color: var(--muted); }
 
-.char-list {
+.char-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 7px;
+  max-height: 240px;
+  overflow-y: auto;
+  padding: 2px;
+}
+.char-card {
+  position: relative;
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 6px 9px;
   display: flex;
   flex-direction: column;
-  gap: 3px;
-  max-height: 200px;
-  overflow-y: auto;
-  border: 1px solid var(--border);
-  border-radius: 9px;
-  padding: 5px;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s;
 }
-.char-pick {
+.char-card:hover { border-color: #b8c2e8; background: #f8f9fc; }
+.char-card.picked { border-color: var(--accent); background: var(--accent-soft); }
+/* 勾选角标:选中才出现,右上角实底圆 */
+.check {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  font-size: 10.5px;
+  font-weight: 700;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 9px;
-  border-radius: 7px;
-  cursor: pointer;
-  font-size: 13px;
+  justify-content: center;
 }
-.char-pick:hover { background: #f5f7fa; }
-.char-pick.picked { background: var(--accent-soft); }
-.pk { color: var(--muted); font-size: 12px; }
-.char-pick.picked .pk { color: var(--accent); font-weight: 700; }
-.pick-name { font-weight: 600; }
-.pick-adapter { color: var(--muted); font-size: 11px; flex-shrink: 0; }
-.pick-persona { color: var(--muted); font-size: 11px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cc-emoji { font-size: 23px; line-height: 1; }
+.cc-name {
+  font-size: 12.5px;
+  font-weight: 600;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cc-adapter { font-size: 10.5px; color: var(--muted); }
 </style>
