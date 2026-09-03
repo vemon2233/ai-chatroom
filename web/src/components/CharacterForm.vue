@@ -2,7 +2,7 @@
 // CharacterForm 原语:角色字段表单的唯一实现(新角色/编辑角色/添加成员内嵌共用)。
 // 只管字段编辑;提交逻辑由宿主组件决定(入库/入库+拉入房间)。
 
-import { ref, watch } from 'vue';
+import { onMounted, ref, watch } from 'vue';
 import { store } from '../store';
 import EmojiSelect from './ui/EmojiSelect.vue';
 import type { Character } from '@server/core/types';
@@ -12,7 +12,11 @@ const props = defineProps<{
   character?: Character | null;
 }>();
 
-const emit = defineEmits<{ (e: 'submit', body: Omit<Character, 'id' | 'createdAt'>): void }>();
+const emit = defineEmits<{
+  (e: 'submit', body: Omit<Character, 'id' | 'createdAt'>): void;
+  /** 任一字段被用户改动(含 EmojiSelect 点选/select 切换——它们不冒泡 input) */
+  (e: 'touched'): void;
+}>();
 
 const emoji = ref('🙂');
 const name = ref('');
@@ -58,10 +62,16 @@ function submit() {
   });
 }
 
+// 任一字段变动 → touched(宿主手风琴互斥用;watch 覆盖一切变更源:
+// 文本输入/EmojiSelect 点选/select 切换)。挂载后才开始上报,预填/重置不误触。
+let armed = false;
+onMounted(() => { armed = true; });
+watch([emoji, name, persona, modelArg, note, adapter], () => {
+  if (armed) emit('touched');
+});
+
 /** 供宿主:校验态(禁用提交按钮)与重置为空白 */
 const valid = () => !!name.value.trim() && !!persona.value.trim();
-/** 供宿主(手风琴互斥):用户是否已开始填写(任一关键字段非空) */
-const dirty = () => !!name.value.trim() || !!persona.value.trim();
 function reset() {
   emoji.value = '🙂';
   name.value = '';
@@ -70,7 +80,7 @@ function reset() {
   note.value = '';
   adapter.value = store.adapters[0]?.key ?? '';
 }
-defineExpose({ submit, valid, dirty, reset });
+defineExpose({ submit, valid, reset });
 </script>
 
 <template>
