@@ -129,5 +129,5 @@ export interface RoomState {
 }
 
 /** 运行期设置面板可改的字段(其余 RoomConfig 字段不可变) */
-export type RoomSettings = Pick<RoomConfig, 'speechLength' | 'chainBudget'>
+export type RoomSettings = Pick<RoomConfig, 'speechLength' | 'chainBudget' | 'name' | 'emoji' | 'topic'>
   & { moderatorId?: string };

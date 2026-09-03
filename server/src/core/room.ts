@@ -201,6 +201,9 @@ export class ChatRoom {
   // ---------- 运行期设置面板 ----------
 
   async updateSettings(patch: Partial<RoomSettings>): Promise<void> {
+    if (patch.name != null && patch.name.trim()) this.config.name = patch.name.trim();
+    if (patch.emoji != null && patch.emoji.trim()) this.config.emoji = patch.emoji.trim();
+    if (patch.topic != null && patch.topic.trim()) this.config.topic = patch.topic.trim();
     if (patch.speechLength != null) this.config.speechLength = patch.speechLength;
     if (patch.chainBudget != null) {
       this.config.chainBudget = patch.chainBudget;
