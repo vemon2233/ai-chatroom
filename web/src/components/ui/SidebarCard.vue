@@ -16,19 +16,22 @@ const props = defineProps<{
   sub?: string;
   /** 激活态(当前房间):左侧主题色条 + 提亮底 */
   active?: boolean;
-  /** 头像着色:'room' 灰底(房间无持久色)/'hash' 按名称哈希取色板(角色) */
-  tone?: 'room' | 'hash';
+  /** 头像自定义背景色(可选，未提供则按名称哈希取多色板) */
+  color?: string;
+  /** 是否支持编辑按钮 */
+  canEdit?: boolean;
+  /** 编辑按钮悬浮提示(默认'编辑') */
+  editTitle?: string;
 }>();
 
 const emit = defineEmits<{
   (e: 'click'): void;
   (e: 'remove'): void;
+  (e: 'edit'): void;
 }>();
 
 const initials = computed(() => initialsFor(props.title));
-const avatarColor = computed(() =>
-  props.tone === 'hash' ? colorForName(props.title) : 'var(--text-muted)',
-);
+const avatarColor = computed(() => props.color ?? colorForName(props.title));
 </script>
 
 <template>
@@ -41,7 +44,10 @@ const avatarColor = computed(() =>
       </div>
       <div class="card-sub">{{ sub }}</div>
     </div>
-    <button class="card-remove" title="删除" @click.stop="emit('remove')">删除</button>
+    <div class="card-actions">
+      <button v-if="canEdit" class="card-btn edit" :title="editTitle || '编辑'" @click.stop="emit('edit')">编辑</button>
+      <button class="card-btn remove" title="删除" @click.stop="emit('remove')">删除</button>
+    </div>
   </div>
 </template>
 
@@ -78,7 +84,7 @@ const avatarColor = computed(() =>
   font-weight: 600;
 }
 
-.card-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; padding-right: 52px; /* 删除按钮悬浮位预留 */ }
+.card-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .card-line { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
 .card-title {
   font-size: 13px;
@@ -102,24 +108,45 @@ const avatarColor = computed(() =>
   white-space: nowrap;
 }
 
-/* 悬浮删除:右侧垂直居中;实底(白,与卡片同面)+红字红框,
- * 压住摘要尾部时是"一枚按钮盖在卡上",不会红灰文字叠字 */
-.card-remove {
+/* 悬浮操作区:右侧垂直居中;实底(白,与卡片同面) */
+.card-actions {
   position: absolute;
-  right: 7px;
+  right: 6px;
   top: 50%;
   transform: translateY(-50%);
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--danger);
-  background: var(--panel);
-  border: 1px solid rgba(229, 72, 77, 0.45);
-  border-radius: 6px;
-  padding: 3.5px 10px;
+  display: flex;
+  gap: 4px;
   visibility: hidden;
   opacity: 0;
   transition: opacity 0.12s;
+  z-index: 2;
 }
-.card:hover .card-remove { visibility: visible; opacity: 1; }
-.card-remove:hover { background: var(--danger); color: #fff; }
+.card:hover .card-actions { visibility: visible; opacity: 1; }
+
+.card-btn {
+  font-size: 11px;
+  font-weight: 500;
+  background: var(--panel);
+  border-radius: 5px;
+  padding: 3px 7px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.card-btn.edit {
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+}
+.card-btn.edit:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: var(--accent-border);
+}
+.card-btn.remove {
+  color: var(--danger);
+  border: 1px solid rgba(229, 72, 77, 0.45);
+}
+.card-btn.remove:hover {
+  background: var(--danger);
+  color: #fff;
+}
 </style>

@@ -4,6 +4,7 @@
 
 import { onMounted, ref, watch } from 'vue';
 import { store } from '../store';
+import { COLOR_OPTIONS, colorForName } from '../lib/avatar';
 import type { Character } from '@server/core/types';
 
 const props = defineProps<{
@@ -18,6 +19,7 @@ const emit = defineEmits<{
 }>();
 
 const name = ref('');
+const color = ref(COLOR_OPTIONS[0]!.value);
 const persona = ref('');
 const modelArg = ref('');
 const note = ref('');
@@ -28,12 +30,14 @@ watch(
   (c) => {
     if (c) {
       name.value = c.name;
+      color.value = c.color || colorForName(c.name);
       persona.value = c.persona;
       modelArg.value = (c.extraArgs ?? []).join(' ').replace('--model', '').trim();
       note.value = c.note || '';
       adapter.value = c.adapter;
     } else {
       name.value = '';
+      color.value = COLOR_OPTIONS[0]!.value;
       persona.value = '';
       modelArg.value = '';
       note.value = '';
@@ -50,6 +54,7 @@ function submit() {
   }
   emit('submit', {
     name: name.value.trim(),
+    color: color.value,
     adapter: adapter.value,
     persona: persona.value.trim(),
     extraArgs: modelArg.value.trim() ? ['--model', modelArg.value.trim()] : undefined,
@@ -61,7 +66,7 @@ function submit() {
 // 文本输入/select 切换)。挂载后才开始上报,预填/重置不误触。
 let armed = false;
 onMounted(() => { armed = true; });
-watch([name, persona, modelArg, note, adapter], () => {
+watch([name, color, persona, modelArg, note, adapter], () => {
   if (armed) emit('touched');
 });
 
@@ -69,6 +74,7 @@ watch([name, persona, modelArg, note, adapter], () => {
 const valid = () => !!name.value.trim() && !!persona.value.trim();
 function reset() {
   name.value = '';
+  color.value = COLOR_OPTIONS[0]!.value;
   persona.value = '';
   modelArg.value = '';
   note.value = '';
@@ -81,8 +87,18 @@ defineExpose({ submit, valid, reset });
   <!-- 单根容器:宿主的 v-show(手风琴折叠)需要唯一根元素——fragment 根会让 v-show 静默失效 -->
   <div class="char-form">
     <div class="form-row">
-      <label>名字</label>
-      <input v-model="name" type="text" placeholder="如:正方 / 首席架构师" />
+      <label>名字与颜色</label>
+      <div class="name-color-row">
+        <div class="color-select-wrap">
+          <span class="color-dot" :style="{ background: color }"></span>
+          <select v-model="color" class="color-select" title="选择头像背景颜色">
+            <option v-for="opt in COLOR_OPTIONS" :key="opt.value" :value="opt.value">
+              {{ opt.label }}
+            </option>
+          </select>
+        </div>
+        <input v-model="name" type="text" class="name-input" placeholder="如:正方 / 首席架构师" />
+      </div>
     </div>
 
     <div class="form-row">
@@ -113,4 +129,42 @@ defineExpose({ submit, valid, reset });
 <style scoped>
 .char-form { display: flex; flex-direction: column; gap: 14px; }
 .grid2-eq { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+.name-color-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.color-select-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+.color-dot {
+  position: absolute;
+  left: 10px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  pointer-events: none;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  z-index: 1;
+  transition: background 0.15s;
+}
+.color-select {
+  padding-left: 30px;
+  padding-right: 18px;
+  width: 102px;
+  height: 38px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  background: var(--panel);
+}
+.name-input {
+  flex: 1;
+  min-width: 0;
+  height: 38px;
+}
 </style>

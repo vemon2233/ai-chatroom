@@ -74,6 +74,7 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
         }
         const c = await characters.create({
           name: body.name.trim(),
+          color: body.color,
           emoji: body.emoji || '🙂',
           adapter: body.adapter,
           persona: body.persona.trim(),
@@ -116,6 +117,7 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
         const added = await room.addMembers(
           inputs.map((c) => ({
             name: c.name,
+            color: c.color,
             emoji: c.emoji,
             adapter: c.adapter,
             persona: c.persona,

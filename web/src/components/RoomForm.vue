@@ -6,6 +6,7 @@
 
 import { ref, watch } from 'vue';
 import { store } from '../store';
+import { COLOR_OPTIONS, colorForName } from '../lib/avatar';
 import type { RoomConfig } from '@server/core/types';
 
 const props = withDefaults(defineProps<{
@@ -18,6 +19,7 @@ const emit = defineEmits<{ (e: 'submit', body: RoomFormBody): void }>();
 
 export interface RoomFormBody {
   name: string;
+  color: string;
   topic: string;
   speechLength: 'short' | 'normal' | 'long';
   projectPath: string;
@@ -27,6 +29,7 @@ export interface RoomFormBody {
 }
 
 const name = ref('');
+const color = ref(COLOR_OPTIONS[0]!.value);
 const topic = ref('');
 const speechLength = ref<'short' | 'normal' | 'long'>('normal');
 const projectPath = ref('');
@@ -41,6 +44,7 @@ watch(
   (r) => {
     if (r) {
       name.value = r.name;
+      color.value = r.color || colorForName(r.name);
       topic.value = r.topic;
       speechLength.value = r.speechLength;
       projectPath.value = r.projectPath ?? '';
@@ -49,6 +53,7 @@ watch(
       moderatorId.value = r.moderatorId ?? '';
     } else {
       name.value = '';
+      color.value = COLOR_OPTIONS[0]!.value;
       topic.value = '';
       speechLength.value = 'normal';
       projectPath.value = '';
@@ -63,6 +68,7 @@ watch(
 function submit() {
   emit('submit', {
     name: name.value.trim() || (isCreate() ? '新房间' : name.value.trim()),
+    color: color.value,
     topic: topic.value.trim() || (isCreate() ? '自由聊天' : topic.value.trim()),
     speechLength: speechLength.value,
     projectPath: projectPath.value.trim(),
@@ -73,13 +79,25 @@ function submit() {
 }
 
 function reset() {
-  name.value = '';
-  topic.value = '';
-  speechLength.value = 'normal';
-  projectPath.value = '';
-  toolPermission.value = 'readonly';
-  chainBudget.value = 6;
-  moderatorId.value = '';
+  if (props.room) {
+    name.value = props.room.name;
+    color.value = props.room.color || colorForName(props.room.name);
+    topic.value = props.room.topic;
+    speechLength.value = props.room.speechLength;
+    projectPath.value = props.room.projectPath ?? '';
+    toolPermission.value = props.room.toolPermission;
+    chainBudget.value = props.room.chainBudget;
+    moderatorId.value = props.room.moderatorId ?? '';
+  } else {
+    name.value = '';
+    color.value = COLOR_OPTIONS[0]!.value;
+    topic.value = '';
+    speechLength.value = 'normal';
+    projectPath.value = '';
+    toolPermission.value = 'readonly';
+    chainBudget.value = 6;
+    moderatorId.value = '';
+  }
 }
 
 defineExpose({ submit, reset });
@@ -89,8 +107,18 @@ defineExpose({ submit, reset });
   <!-- 单根容器(宿主 v-show/布局锚点) -->
   <div class="room-form">
     <div class="form-row">
-      <label>房间名称</label>
-      <input v-model="name" type="text" placeholder="例如:技术选型讨论" />
+      <label>房间名称与颜色</label>
+      <div class="name-color-row">
+        <div class="color-select-wrap">
+          <span class="color-dot" :style="{ background: color }"></span>
+          <select v-model="color" class="color-select" title="选择房间背景颜色">
+            <option v-for="opt in COLOR_OPTIONS" :key="opt.value" :value="opt.value">
+              {{ opt.label }}
+            </option>
+          </select>
+        </div>
+        <input v-model="name" type="text" class="name-input" placeholder="例如:技术选型讨论" />
+      </div>
     </div>
 
     <div class="form-row">
@@ -190,4 +218,42 @@ defineExpose({ submit, reset });
 .perm.dis.sel { border-color: var(--accent); opacity: 0.75; }
 .perm input { display: none; }
 .perm b { font-size: 12.5px; display: block; }
+
+.name-color-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.color-select-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+.color-dot {
+  position: absolute;
+  left: 10px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  pointer-events: none;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  z-index: 1;
+  transition: background 0.15s;
+}
+.color-select {
+  padding-left: 30px;
+  padding-right: 18px;
+  width: 102px;
+  height: 38px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  background: var(--panel);
+}
+.name-input {
+  flex: 1;
+  min-width: 0;
+  height: 38px;
+}
 </style>

@@ -110,7 +110,7 @@ async function submit() {
         @click="togglePick(c.id)"
       >
         <span class="check">{{ picked.has(c.id) ? '✓' : '' }}</span>
-        <span class="cc-avatar" :style="{ background: colorForName(c.name) }">{{ initialsFor(c.name) }}</span>
+        <span class="cc-avatar" :style="{ background: c.color || colorForName(c.name) }">{{ initialsFor(c.name) }}</span>
         <span class="cc-name" :title="c.persona">{{ c.name }}</span>
         <span class="cc-adapter">{{ c.adapter }}</span>
       </div>

@@ -11,6 +11,25 @@ import { connectWs } from './ws';
 
 export interface StreamBuf { text: string; thinking: string }
 
+const STORAGE_KEY_TABS = 'ai-chatroom:open-rooms';
+
+function loadOpenRoomIds(): string[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_TABS);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed.filter((x): x is string => typeof x === 'string');
+    }
+  } catch {}
+  return [];
+}
+
+function saveOpenRoomIds(ids: string[]): void {
+  try {
+    localStorage.setItem(STORAGE_KEY_TABS, JSON.stringify(ids));
+  } catch {}
+}
+
 export const store = reactive({
   adapters: [] as AdapterInfo[],
   rooms: [] as RoomListItem[],
@@ -20,6 +39,7 @@ export const store = reactive({
   /** memberId → 流式缓冲(进行中发言的占位渲染) */
   memberStream: {} as Record<string, StreamBuf>,
   sidebarTab: 'rooms' as 'rooms' | 'chars',
+  openRoomIds: loadOpenRoomIds() as string[],
 });
 
 export function currentRoomId(): string | null {
@@ -37,8 +57,54 @@ export async function enterRoom(roomId: string): Promise<void> {
   store.memberStream = {};
 }
 
+/** 打开并聚焦房间（若未在 Tab 中则追加） */
+export async function openRoom(roomId: string): Promise<void> {
+  if (!store.openRoomIds.includes(roomId)) {
+    store.openRoomIds.push(roomId);
+    saveOpenRoomIds(store.openRoomIds);
+  }
+  await enterRoom(roomId);
+}
+
+/** 关闭某个房间 Tab */
+export async function closeRoom(roomId: string): Promise<void> {
+  const idx = store.openRoomIds.indexOf(roomId);
+  if (idx === -1) return;
+
+  const isCurrent = store.currentRoom?.config.id === roomId;
+  store.openRoomIds.splice(idx, 1);
+  saveOpenRoomIds(store.openRoomIds);
+
+  if (!isCurrent) return;
+
+  if (store.openRoomIds.length > 0) {
+    const nextIdx = Math.min(idx, store.openRoomIds.length - 1);
+    const nextId = store.openRoomIds[nextIdx];
+    if (nextId) await enterRoom(nextId);
+  } else {
+    store.currentRoom = null;
+    store.messages = [];
+    store.memberStream = {};
+  }
+}
+
 export async function refreshRooms(): Promise<void> {
   store.rooms = await api.rooms();
+  const validIds = new Set(store.rooms.map((r) => r.config.id));
+  if (store.openRoomIds.some((id) => !validIds.has(id))) {
+    store.openRoomIds = store.openRoomIds.filter((id) => validIds.has(id));
+    saveOpenRoomIds(store.openRoomIds);
+    if (store.currentRoom && !validIds.has(store.currentRoom.config.id)) {
+      const firstId = store.openRoomIds[0];
+      if (firstId) {
+        await enterRoom(firstId);
+      } else {
+        store.currentRoom = null;
+        store.messages = [];
+        store.memberStream = {};
+      }
+    }
+  }
 }
 
 export async function refreshCharacters(): Promise<void> {
@@ -112,9 +178,14 @@ function onAgentEvent(ev: AgentEvent): void {
   }
 }
 
-export function initStore(): void {
+export async function initStore(): Promise<void> {
   void refreshAdapters();
-  void refreshRooms();
+  await refreshRooms();
   void refreshCharacters();
   connectWs(onWsEvent);
+
+  const firstId = store.openRoomIds[0];
+  if (firstId && !store.currentRoom) {
+    await enterRoom(firstId);
+  }
 }

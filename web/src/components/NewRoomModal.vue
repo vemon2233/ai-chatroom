@@ -2,7 +2,7 @@
 // 新建房间:RoomForm 的 create 模式壳(完整字段可编辑)。
 
 import { ref, watch } from 'vue';
-import { refreshRooms, enterRoom } from '../store';
+import { refreshRooms, openRoom } from '../store';
 import { api } from '../api';
 import Modal from './ui/Modal.vue';
 import RoomForm, { type RoomFormBody } from './RoomForm.vue';
@@ -17,6 +17,7 @@ watch(model, (open) => {
 async function onSubmit(body: RoomFormBody) {
   const j = await api.createRoom({
     name: body.name,
+    color: body.color,
     topic: body.topic,
     speechLength: body.speechLength,
     projectPath: body.projectPath || undefined,
@@ -25,7 +26,7 @@ async function onSubmit(body: RoomFormBody) {
   });
   model.value = false;
   await refreshRooms();
-  await enterRoom(j.id);
+  await openRoom(j.id);
 }
 </script>
 

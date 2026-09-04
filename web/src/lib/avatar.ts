@@ -5,10 +5,26 @@
 
 /** 前端展示色板(与 server/src/core/palette.ts 的 MEMBER_PALETTE 同值复制——
  * 纯展示用途,后端才是成员颜色分配真源;两侧改动需同步) */
-const AVATAR_PALETTE = [
+export const AVATAR_PALETTE = [
   '#5B6AFF', '#EC4899', '#F59E0B', '#8B5CF6',
   '#10B981', '#F43F5E', '#0EA5E9', '#D946EF',
 ] as const;
+
+export interface ColorOption {
+  label: string;
+  value: string;
+}
+
+export const COLOR_OPTIONS: ColorOption[] = [
+  { label: '靛蓝', value: '#5B6AFF' },
+  { label: '亮粉', value: '#EC4899' },
+  { label: '琥珀', value: '#F59E0B' },
+  { label: '紫罗兰', value: '#8B5CF6' },
+  { label: '翠绿', value: '#10B981' },
+  { label: '玫瑰红', value: '#F43F5E' },
+  { label: '天蓝', value: '#0EA5E9' },
+  { label: '洋红', value: '#D946EF' },
+];
 
 export function initialsFor(name: string): string {
   if (!name) return '?';

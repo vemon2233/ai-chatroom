@@ -93,7 +93,7 @@ const clickable = computed(() => !isMe.value && !isSystem.value && !props.msg.st
 <style scoped>
 .sysrow {
   align-self: center;
-  max-width: min(620px, 92%);
+  max-width: min(780px, 92%);
   color: var(--muted);
   font-size: 11px;
   font-weight: 600;
@@ -104,7 +104,7 @@ const clickable = computed(() => !isMe.value && !isSystem.value && !props.msg.st
   border-radius: 14px;
 }
 
-.row { display: flex; gap: 10px; max-width: min(640px, 86%); }
+.row { display: flex; gap: 10px; max-width: min(860px, 88%); }
 .row.me { align-self: flex-end; flex-direction: row-reverse; }
 
 /* initials 正圆头像(颜色 = 成员色;用户灰;侦察青) */

@@ -24,17 +24,21 @@ export interface RoomListItem {
 }
 export interface CreateRoomBody {
   name: string;
+  color?: string;
   emoji?: string;
   topic: string;
   speechLength?: 'short' | 'normal' | 'long';
   projectPath?: string;
   toolPermission?: 'readonly' | 'readwrite' | 'full';
   chainBudget?: number;
+  dmCharacterId?: string;
   members: Array<{
     name: string;
     adapter: string;
     persona: string;
+    color?: string;
     emoji?: string;
+    characterId?: string;
     extraArgs?: string[];
   }>;
 }

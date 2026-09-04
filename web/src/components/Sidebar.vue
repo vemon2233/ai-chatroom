@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { ref } from 'vue';
-import { store, refreshRooms, refreshCharacters } from '../store';
+import { computed, ref } from 'vue';
+import { store, refreshRooms, refreshCharacters, openRoom, closeRoom } from '../store';
 import { api } from '../api';
 import { dialog } from '../composables/useDialog';
 import NewRoomModal from './NewRoomModal.vue';
 import CharacterModal from './CharacterModal.vue';
+import SettingsPanel from './SettingsPanel.vue';
 import SidebarCard from './ui/SidebarCard.vue';
 import logoUrl from '../assets/icon.png';
 
@@ -13,13 +14,55 @@ const emit = defineEmits<{ (e: 'enter-room', id: string): void }>();
 const showNewRoom = ref(false);
 const showCharModal = ref(false); // "新角色"按钮用;编辑走 openEdit(内部置位)
 const charModalRef = ref<InstanceType<typeof CharacterModal> | null>(null);
+const roomSettingsRef = ref<InstanceType<typeof SettingsPanel> | null>(null);
+
+/** 仅保留群聊探讨房间，私聊房间收敛至角色 Tab */
+const groupRooms = computed(() =>
+  store.rooms.filter(
+    (r) => !r.config.dmCharacterId && !(r.config.members.length === 1 && !!r.config.members[0]?.characterId),
+  ),
+);
 
 function switchTab(tab: 'rooms' | 'chars') {
   store.sidebarTab = tab;
 }
 
+function editRoom(room: import('../api').RoomListItem) {
+  roomSettingsRef.value?.openEdit(room.config);
+}
+
 function editCharacter(c: import('@server/core/types').Character) {
   charModalRef.value?.openEdit(c);
+}
+
+/** 点击角色进入专属 1v1 私聊房间 */
+async function openDirectChat(c: import('@server/core/types').Character) {
+  let dmRoom = store.rooms.find(
+    (r) => r.config.dmCharacterId === c.id || (r.config.members.length === 1 && r.config.members[0]?.characterId === c.id),
+  );
+  if (!dmRoom) {
+    const res = await api.createRoom({
+      name: c.name,
+      color: c.color,
+      topic: c.persona,
+      speechLength: 'normal',
+      toolPermission: 'readonly',
+      dmCharacterId: c.id,
+      members: [
+        {
+          name: c.name,
+          adapter: c.adapter,
+          persona: c.persona,
+          color: c.color,
+          characterId: c.id,
+        },
+      ],
+    });
+    await refreshRooms();
+    await openRoom(res.id);
+  } else {
+    await openRoom(dmRoom.config.id);
+  }
 }
 
 async function onDeleteRoom(id: string, name: string) {
@@ -30,7 +73,7 @@ async function onDeleteRoom(id: string, name: string) {
   );
   if (!ok) return;
   await api.deleteRoom(id);
-  if (store.currentRoom?.config.id === id) store.currentRoom = null;
+  await closeRoom(id);
   await refreshRooms();
 }
 
@@ -41,8 +84,15 @@ async function onDeleteCharacter(id: string, name: string) {
     { danger: true, confirmText: '删除' },
   );
   if (!ok) return;
+  // 若有该角色的 1v1 私聊房间，一同清理
+  const dmRoom = store.rooms.find((r) => r.config.dmCharacterId === id);
+  if (dmRoom) {
+    await api.deleteRoom(dmRoom.config.id);
+    await closeRoom(dmRoom.config.id);
+  }
   await api.deleteCharacter(id);
   await refreshCharacters();
+  await refreshRooms();
 }
 
 /** 房间卡片摘要:主题/讨论题目 */
@@ -70,16 +120,20 @@ function roomSub(room: import('../api').RoomListItem): string {
       </div>
       <div class="list">
         <SidebarCard
-          v-for="room in store.rooms"
+          v-for="room in groupRooms"
           :key="room.config.id"
           :title="room.config.name"
           :badge="`${room.config.members.length}人`"
           :sub="roomSub(room)"
+          :color="room.config.color"
+          :can-edit="true"
+          edit-title="编辑房间"
           :active="store.currentRoom?.config.id === room.config.id"
           @click="emit('enter-room', room.config.id)"
+          @edit="editRoom(room)"
           @remove="onDeleteRoom(room.config.id, room.config.name)"
         />
-        <div v-if="store.rooms.length === 0" class="list-empty">还没有房间</div>
+        <div v-if="groupRooms.length === 0" class="list-empty">还没有房间</div>
       </div>
     </div>
 
@@ -94,7 +148,12 @@ function roomSub(room: import('../api').RoomListItem): string {
           :title="c.name"
           :badge="c.adapter"
           :sub="c.persona"
-          @click="editCharacter(c)"
+          :color="c.color"
+          :can-edit="true"
+          edit-title="编辑角色"
+          :active="store.currentRoom?.config.dmCharacterId === c.id"
+          @click="openDirectChat(c)"
+          @edit="editCharacter(c)"
           @remove="onDeleteCharacter(c.id, c.name)"
         />
         <div v-if="store.characters.length === 0" class="list-empty">还没有角色</div>
@@ -103,6 +162,7 @@ function roomSub(room: import('../api').RoomListItem): string {
 
     <NewRoomModal v-model="showNewRoom" />
     <CharacterModal ref="charModalRef" v-model="showCharModal" />
+    <SettingsPanel ref="roomSettingsRef" />
   </aside>
 </template>
 

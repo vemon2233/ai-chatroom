@@ -20,6 +20,7 @@ export interface RoomPersistence {
 
 export interface CreateRoomInput {
   name: string;
+  color?: string;
   emoji?: string;
   topic: string;
   projectPath?: string;
@@ -27,7 +28,8 @@ export interface CreateRoomInput {
   speechLength?: RoomConfig['speechLength'];
   chainBudget?: number;
   moderatorId?: string;
-  members: Array<Omit<MemberConfig, 'id' | 'color'>>;
+  dmCharacterId?: string;
+  members: Array<Omit<MemberConfig, 'id' | 'color'> & { color?: string }>;
 }
 
 export class ChatRoom {
@@ -106,7 +108,7 @@ export class ChatRoom {
 
   /** 添加成员;同名去重用"精确命中 + 最小空闲后缀"(修 v1 startsWith 前缀碰撞)。 */
   async addMembers(
-    inputs: Array<Omit<MemberConfig, 'id' | 'color'>>,
+    inputs: Array<Omit<MemberConfig, 'id' | 'color'> & { color?: string }>,
   ): Promise<MemberConfig[]> {
     const added: MemberConfig[] = [];
     for (const input of inputs) {
@@ -115,7 +117,7 @@ export class ChatRoom {
         ...input,
         name,
         id: `m${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
-        color: MEMBER_PALETTE[this.config.members.length % MEMBER_PALETTE.length]!,
+        color: input.color || MEMBER_PALETTE[this.config.members.length % MEMBER_PALETTE.length]!,
       };
       this.config.members.push(member);
       this.orch.memberAdded(member);
@@ -202,6 +204,7 @@ export class ChatRoom {
 
   async updateSettings(patch: Partial<RoomSettings>): Promise<void> {
     if (patch.name != null && patch.name.trim()) this.config.name = patch.name.trim();
+    if (patch.color !== undefined) this.config.color = patch.color;
     if (patch.emoji != null && patch.emoji.trim()) this.config.emoji = patch.emoji.trim();
     if (patch.topic != null && patch.topic.trim()) this.config.topic = patch.topic.trim();
     if (patch.speechLength != null) this.config.speechLength = patch.speechLength;
@@ -234,11 +237,12 @@ export function makeRoomConfig(input: CreateRoomInput): RoomConfig {
   const members: MemberConfig[] = input.members.map((m, i) => ({
     ...m,
     id: `m${i + 1}_${Math.random().toString(36).slice(2, 6)}`,
-    color: MEMBER_PALETTE[i % MEMBER_PALETTE.length]!,
+    color: m.color || MEMBER_PALETTE[i % MEMBER_PALETTE.length]!,
   }));
   return {
     id: `room_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
     name: input.name || '新房间',
+    color: input.color,
     emoji: input.emoji || '💬',
     topic: input.topic || '自由聊天',
     chainBudget: input.chainBudget ?? 6,
@@ -246,6 +250,7 @@ export function makeRoomConfig(input: CreateRoomInput): RoomConfig {
     moderatorId: input.moderatorId ? members.find((m) => m.id === input.moderatorId)?.id : undefined,
     projectPath: input.projectPath || undefined,
     toolPermission: input.toolPermission ?? 'readonly',
+    dmCharacterId: input.dmCharacterId,
     members,
     createdAt: Date.now(),
   };

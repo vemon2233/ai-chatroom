@@ -128,9 +128,14 @@ async function onStop() {
 
 <template>
   <div class="composer">
-    <!-- @语法速记:常驻可见(原 placeholder 内容上移,不再随输入消失) -->
+    <!-- @语法速记:常驻可见(私聊显示私聊指引，群聊显示接棒规则) -->
     <div class="syntax-hint">
-      无@=接棒续聊 · @成员=点名(答完指定下一位并暂停) · 接棒@成员=TA直接起头 · @allN=轮流N轮
+      <template v-if="store.currentRoom?.config.dmCharacterId || (store.currentRoom?.config.members.length === 1 && store.currentRoom?.config.members[0]?.characterId)">
+        正在与 {{ store.currentRoom.config.name }} 一对一私聊 · 直接输入消息，Enter 发送
+      </template>
+      <template v-else>
+        无@=接棒续聊 · @成员=点名(答完指定下一位并暂停) · 接棒@成员=TA直接起头 · @allN=轮流N轮
+      </template>
     </div>
 
     <div class="input-row">
