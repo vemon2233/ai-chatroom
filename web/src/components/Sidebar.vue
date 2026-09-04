@@ -35,6 +35,14 @@ function editCharacter(c: import('@server/core/types').Character) {
   charModalRef.value?.openEdit(c);
 }
 
+function onImportRoom() {
+  // 导入房间 UI 占位
+}
+
+function onImportCharacter() {
+  // 导入角色 UI 占位
+}
+
 /** 点击角色进入专属 1v1 私聊房间 */
 async function openDirectChat(c: import('@server/core/types').Character) {
   let dmRoom = store.rooms.find(
@@ -117,6 +125,7 @@ function roomSub(room: import('../api').RoomListItem): string {
     <div v-show="store.sidebarTab === 'rooms'" class="panel">
       <div class="actions">
         <button class="new-btn" @click="showNewRoom = true">＋ 新房间</button>
+        <button class="import-btn" @click="onImportRoom">导入</button>
       </div>
       <div class="list">
         <SidebarCard
@@ -140,6 +149,7 @@ function roomSub(room: import('../api').RoomListItem): string {
     <div v-show="store.sidebarTab === 'chars'" class="panel">
       <div class="actions">
         <button class="new-btn" @click="showCharModal = true">＋ 新角色</button>
+        <button class="import-btn" @click="onImportCharacter">导入</button>
       </div>
       <div class="list">
         <SidebarCard
@@ -212,18 +222,42 @@ function roomSub(room: import('../api').RoomListItem): string {
 .tab.active { color: var(--text); border-bottom-color: var(--accent); }
 
 .panel { display: flex; flex-direction: column; flex: 1; min-height: 0; }
-.actions { padding: 10px; }
-.new-btn {
+.actions {
+  padding: 10px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.new-btn,
+.import-btn {
   width: 100%;
-  background: var(--accent);
-  color: #fff;
   border-radius: 8px;
-  padding: 8px;
+  padding: 8px 0;
   font-size: 13px;
   font-weight: 500;
-  transition: opacity 0.15s;
+  cursor: pointer;
+  text-align: center;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.15s, background 0.15s, border-color 0.15s;
+}
+.new-btn {
+  background: var(--accent);
+  color: #fff;
+  border: 1px solid var(--accent);
 }
 .new-btn:hover { opacity: 0.88; }
+.import-btn {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+.import-btn:hover {
+  background: var(--panel-softer);
+  border-color: var(--accent);
+}
 
 .list { flex: 1; overflow-y: auto; padding: 0 8px 8px; }
 .list-empty { color: var(--faint); font-size: 12px; text-align: center; padding: 24px 0; }

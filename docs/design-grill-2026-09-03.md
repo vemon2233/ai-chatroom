@@ -112,21 +112,63 @@
 - **代理**:用户已有代理环境;TG 走 env 代理变量(HTTPS_PROXY,bridges/.env 不进 git),飞书直连
 - **agentEvent 不转发**:只转发最终消息(type:'message'),thinking/trace 流不进群
 
-## 七、并行发言(第三轮青问定案)
+## 七、并行发言(第三轮青问定案,后并入订阅模式——见 §7b)
 
-**语义定位**:并行 = 独立意见采集(所有成员基于同一历史快照作答,互相不可见),不是辩论的替代——辩论(看到前人发言再表态)仍走串行接棒/轮流。
+> **架构演进**:第四轮青问推翻了「并行独立成功能」的设计——并行、私聊、意愿自评统一收编进**订阅模式**(§7b)。本节保留原始决策中仍然成立的部分(波次执行基建、容错、规模上限),触发入口改为「订阅模式专属」。
 
-- **触发**:**多 @ 即并行**——一条消息命中 ≥2 个成员名(@A @B 怎么看X)→ 并行波次;单 @ 维持现有点名语义;parseUserCommand 从「只认第一个」改为「提取全部命中成员」
-- **波次执行**:单消费者循环学会波次 dispatch——`Promise.allSettled(entries.map(runOne))`,驱动权仍在循环(不违反 v1「微任务级联并发」教训:那是防意外并发,这是受控波次)
-- **状态机**:加 `'parallel'` 态;`cancelCurrent` 单数 → cancel 函数集合(stop 全杀,killTree 本就 per-process);statuses/memberStream 已是字典,UI 天然支持多成员同时 thinking/streaming
-- **波内语义**:
-  - **禁接棒**:波内成员 prompt 不带接棒规则,写了 `<接棒>` 尾行也剥掉(三人各指定下一位无法裁决)
-  - **trigger 复用现有点名文案**(不特别告知并行场景)
-  - **答完回 idle**:系统提示「N 人都已作答」,下一步由用户决定(追问/接棒/再来一轮)
-- **容错**:**波内各自容错**——某成员 error 只标记 TA(系统消息提示),其他成员照常完成;现有「error→终止本轮」是防串行链污染,波次无链可污染,不适用
-- **@allN 不动**:轮流串行维持(后发言者看得到前面的观点——那是辩论);并行轮流(投票)暂不做
-- **规模上限**:房间成员数即上限,不另加配置
-- **Scout/persistRoom/JSONL 兼容性**:Scout 幂等并发共享、store 串行写链、JSONL 原子追加——现有防御恰好都兼容并行,无需改
+**仍然成立的部分**:
+- 波次执行:单消费者循环学会波次 dispatch(`Promise.allSettled`),驱动权仍在循环
+- cancelCurrent 单数 → cancel 函数集合(stop 全杀)
+- 波内容错:各自容错(一个挂不废整波)
+- 规模上限:房间成员数即上限
+- @allN 不变:临时轮流,两模式通用
+
+**被订阅模式取代的部分**:
+- ~~多 @ 即并行~~ → 多 @ 并行仅在订阅模式下可用(串行/并行由用户在订阅模式设置中选择)
+- ~~波内禁接棒、答完回 idle~~ → 订阅模式下无接棒链概念,发言循环由意愿评估驱动
+
+## 7b. 订阅模式(第四轮青问定案,推翻私聊原设计)
+
+**核心重构:房间只有两种基础讨论模式**
+
+| | 接棒模式(默认,现状) | 订阅模式(新) |
+|---|---|---|
+| 谁决定发言 | 发言者尾行 `<接棒>@xx` 指定下一位 | 每个 agent 自评发言意愿 |
+| 并行发言 | ❌ 不引入 | ✅(多@即并行 + 意愿过阈多agent) |
+| 私聊 | ❌ 不允许 | ✅(`<私聊>@A @B` 受众尾行) |
+| @allN 临时轮流 | ✅(用完回原模式) | ✅(用完回原模式) |
+
+**订阅模式运作循环**:
+1. 每条消息(用户或 agent 发言;系统/管理员消息除外)后触发一轮全员意愿评估
+2. 每个 agent 用**自己的 CLI**(同 adapter、带 persona、轻量 one-shot、**不 resume 主 session** 防污染记忆)自问:「你是 X,看到最新讨论,你想发言吗?0-100」——只输出数字
+3. 意愿 ≥ 阈值(默认 60,可配)的 agent 发言;不过阈者沉默
+4. 发言者可带 `<私聊>@A @B` 尾行指定受众(该条发言仅受众可见);不写 = 公聊全员可见
+5. 发言后又触发下一轮评估……循环
+6. **双闸门终止**:某轮全员意愿都低于阈值(自然冷场)→ 停,回用户;**或**自动轮数硬顶(chainBudget 复用)兜底——任一先到即停
+
+**同一轮过阈者并发**:串行(按意愿强度降序,后者能看到同轮前者发言,交锋强)**或**并行(互不可见,各自表态)——**用户在订阅模式设置中选择**,默认串行
+
+**私聊 = 受众标记的发言**(不再是独立机制):
+- agent 侧:发言尾行 `<私聊>@A @B` → 仅 A、B 的 prompt 可见该消息
+- 用户侧:输入框同语法;UI 面板(勾选受众)后续迭代
+- 数据模型:`ChatMessage` 加 `audience?: string[]`(memberId 数组;空 = 公聊)——**尽先进 types.ts,JSONL 前向兼容**
+- buildPrompt 组装每个成员历史时按 audience 过滤(用户消息+系统+公聊+TA 在受众内的私聊)
+- UI:私聊消息渲染「仅 X、Y 可见」样式(折叠或标记)
+
+**意愿评估实现细节**:
+- 每次评估 = 每 agent 一次独立 CLI 调用(oneShotSpeak 同款:超时必杀+熔断闩)
+- 评估失败/超时/熔断 = 视为不过阈(保守不发言)
+- 成本提示:每条消息后 N 次评估调用,长会话累计不便宜——UI 应显示评估调用计数
+
+**模式切换**:
+- UI 显式选择器:房间设置「讨论模式」两档(接棒|订阅)——UI 动作 = 显式方法调用(v1 教训)
+- `/mode subscribe` / `/mode baton` 命令语法同步提供(桥/手机可用)
+- 切换时若编排进行中:先 stop(bump 世代)再切
+
+**状态机重构**:
+- 现有 `idle | baton | roundrobin` 之上加房间级 `mode: 'baton' | 'subscribe'` 持久化字段(RoomConfig)
+- roundrobin 结束后回到**当前 mode 的语义**(不再写死 idle→接棒)
+- 订阅模式下 `<接棒>` 尾行剥掉(无链概念);接棒模式下 `<私聊>` 尾行剥掉(不允许私聊)
 
 ## 八、实施顺序建议(更新)
 
@@ -138,7 +180,7 @@
 | B4 | 分支树(数据模型→API→气泡操作→树编辑器) | **最重**;parentMessageId 字段应尽先进 types.ts 以便 JSONL 前向兼容 |
 | B5 | i18n(共享语言包→前端 UI→后端系统消息码→prompt 模板→<pass> 双语法) | 不锁顺序;但系统消息码越早做 JSONL 存量越小;<pass> 与 B4 无耦合 |
 | B6 | bridges/(WS+REST 基建→飞书桥→Telegram 桥→限流 allowlist) | 依赖 B1 的 fromName 参数;平台应用凭证自备 |
-| B7 | 并行发言(parseUserCommand 多@提取→波次 dispatch→cancel 集合→UI parallel 态) | 改动集中在 orchestrator,与 B4 分支树都动核心,**两者串行做勿并行**;29 场景测试需加波次场景 |
+| B7 | 订阅模式(mode 字段→意愿自评循环→私聊受众→并行波次→模式选择器) | 改动集中在 orchestrator+prompt,与 B4 分支树都动核心,**两者串行做勿并行**;复用 oneShotSpeak/熔断基建;`ChatMessage.audience` 字段尽先进 types |
 
 > B1 的 `userSpeak(text, opts?: {fromName})` 是 B6 用户名透传的直接前置,做 B1 时一并参数化。
 
@@ -156,10 +198,11 @@
 - `web/src/components/`:导入导出按钮 / 树编辑器(Vue Flow)/ 成本区块 / 消息 hover 操作
 - `server/locales/{zh-CN,en}.json`:共享语言包单一真源(UI 文案+系统消息码+prompt 模板)
 - `bridges/`:独立包——config.yaml 静态绑定 / ws 客户端 / 飞书+TG 双桥 / allowlist+限流 / 长消息切分
+- 订阅模式:`RoomConfig.mode`(baton|subscribe)、意愿评估(oneShotSpeak 复用)、`ChatMessage.audience`、buildPrompt 受众过滤、`/mode` 命令解析(routes 层,非魔法文本进 orchestrator)
 
 ## 九、测试同步义务
 
-- orchestrator.test.ts:isUser 过滤场景(随机不中/@allN 不含/接棒给用户=停/切分支重算 pendingNext);**并行波次场景**(多@进波/波内禁接棒/单成员 error 不影响他人/stop 全杀波次/答完回 idle)
+- orchestrator.test.ts:isUser 过滤场景(随机不中/@allN 不含/接棒给用户=停/切分支重算 pendingNext);**订阅模式场景**(意愿过阈发言/不过阈沉默/双闸门终止(全员低阈停+轮数顶)/评估失败=不发言/串行按意愿降序/私聊受众过滤(BC 看得见 D 看不见)/接棒模式下私聊尾行被剥/@allN 用完回订阅模式/mode 切换先 stop)
 - baton.test.ts:parseBaton 匹配 isUser 成员 → 停止语义;`<pass>` 英文语法断言
 - rooms-store.test.ts:导入导出往返 / userMemberId 剥除 / parentMessageId 持久化 / 消息码落库往返
 - 分支树新测试:树重建 / graft 指针重指 / 重roll 同 trigger

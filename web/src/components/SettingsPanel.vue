@@ -48,6 +48,10 @@ async function onSubmit(body: RoomFormBody) {
   await refreshRooms();
 }
 
+function onExport() {
+  // 导出 UI 占位
+}
+
 defineExpose({ openEdit });
 </script>
 
@@ -55,8 +59,9 @@ defineExpose({ openEdit });
   <Modal v-model="model" title="房间设置" width="560px">
     <RoomForm ref="formRef" mode="settings" :room="activeRoom" @submit="onSubmit" />
     <template #footer>
+      <button class="btn btn-ghost" @click="onExport">导出</button>
       <button class="btn btn-ghost" @click="model = false">取消</button>
-      <button class="btn btn-primary" @click="formRef?.submit()">保存(即时生效)</button>
+      <button class="btn btn-primary" @click="formRef?.submit()">保存</button>
     </template>
   </Modal>
 </template>

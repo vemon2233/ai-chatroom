@@ -43,16 +43,20 @@ async function save(body: Omit<Character, 'id' | 'createdAt'>) {
   }
 }
 
+function onExport() {
+  // 导出 UI 占位
+}
+
 defineExpose({ openEdit });
 </script>
 
 <template>
   <Modal v-model="model" :title="editing ? '编辑角色' : '新角色'">
-    <CharacterForm ref="formRef" :character="editing" @submit="save">
-      <template #footer="{ submit, valid }">
-        <button class="btn btn-ghost" @click="model = false; editing = null">取消</button>
-        <button class="btn btn-primary" :disabled="!valid" @click="submit">保存</button>
-      </template>
-    </CharacterForm>
+    <CharacterForm ref="formRef" :character="editing" @submit="save" />
+    <template #footer>
+      <button v-if="editing" class="btn btn-ghost" @click="onExport">导出</button>
+      <button class="btn btn-ghost" @click="model = false; editing = null">取消</button>
+      <button class="btn btn-primary" @click="formRef?.submit()">保存</button>
+    </template>
   </Modal>
 </template>
