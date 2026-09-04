@@ -2,11 +2,11 @@
 // CharacterModal:新角色/编辑角色的 Modal 壳(字段表单在 CharacterForm——与添加成员弹窗共用)。
 
 import { ref, watch } from 'vue';
-import { store, refreshCharacters } from '../store';
-import { api } from '../api';
-import { dialog } from '../composables/useDialog';
+import { store, refreshCharacters } from '@/store';
+import { api } from '@/services/api';
+import { dialog } from '@/composables/useDialog';
 import type { Character } from '@server/core/types';
-import Modal from './ui/Modal.vue';
+import Modal from '@/components/ui/Modal.vue';
 import CharacterForm from './CharacterForm.vue';
 
 const model = defineModel<boolean>({ default: false });

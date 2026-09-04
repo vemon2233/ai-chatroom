@@ -3,7 +3,7 @@
 // 承载 useDialog 发起的 confirm/prompt/alert,压在一切覆盖层之上(--z-dialog)。
 
 import { ref, watch } from 'vue';
-import { dialogState, settleDialog } from '../../composables/useDialog';
+import { dialogState, settleDialog } from '@/composables/useDialog';
 
 const inputValue = ref('');
 const d = dialogState;

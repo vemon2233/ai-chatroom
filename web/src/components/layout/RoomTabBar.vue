@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import { store, openRoom, closeRoom } from '../store';
+import { store, openRoom, closeRoom } from '@/store';
 
 const emit = defineEmits<{ (e: 'new-room'): void }>();
 

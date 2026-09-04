@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import { store } from '../store';
-import { initialsFor } from '../lib/avatar';
+import { store } from '@/store';
+import { initialsFor } from '@/utils/avatar';
 import MemberBar from './MemberBar.vue';
 import ChatFlow from './ChatFlow.vue';
 import Composer from './Composer.vue';
-import SettingsPanel from './SettingsPanel.vue';
-import CharacterModal from './CharacterModal.vue';
+import SettingsPanel from '@/components/modals/SettingsPanel.vue';
+import CharacterModal from '@/components/modals/CharacterModal.vue';
 
 const showSettings = ref(false);
 const charModalRef = ref<InstanceType<typeof CharacterModal> | null>(null);

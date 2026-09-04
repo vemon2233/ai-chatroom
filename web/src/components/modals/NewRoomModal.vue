@@ -2,9 +2,9 @@
 // 新建房间:RoomForm 的 create 模式壳(完整字段可编辑)。
 
 import { ref, watch } from 'vue';
-import { refreshRooms, openRoom } from '../store';
-import { api } from '../api';
-import Modal from './ui/Modal.vue';
+import { refreshRooms, openRoom } from '@/store';
+import { api } from '@/services/api';
+import Modal from '@/components/ui/Modal.vue';
 import RoomForm, { type RoomFormBody } from './RoomForm.vue';
 
 const model = defineModel<boolean>({ default: false });

@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
-import { initStore, store, openRoom } from './store';
-import Sidebar from './components/Sidebar.vue';
-import RoomTabBar from './components/RoomTabBar.vue';
-import RoomView from './components/RoomView.vue';
-import NewRoomModal from './components/NewRoomModal.vue';
-import DialogHost from './components/ui/DialogHost.vue';
+import { initStore, store, openRoom } from '@/store';
+import Sidebar from '@/components/layout/Sidebar.vue';
+import RoomTabBar from '@/components/layout/RoomTabBar.vue';
+import RoomView from '@/components/chat/RoomView.vue';
+import NewRoomModal from '@/components/modals/NewRoomModal.vue';
+import DialogHost from '@/components/ui/DialogHost.vue';
 
 import logoUrl from './assets/icon.png';
 

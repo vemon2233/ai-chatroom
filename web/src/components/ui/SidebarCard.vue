@@ -5,7 +5,7 @@
 // 样式只存在这一份;业务列表只负责传数据与接事件(对齐 overlay 原语化先例)。
 
 import { computed } from 'vue';
-import { initialsFor, colorForName } from '../../lib/avatar';
+import { initialsFor, colorForName } from '@/utils/avatar';
 
 const props = defineProps<{
   /** 主行名称(initials 取字真源) */

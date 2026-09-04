@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import { store } from '../store';
-import { api } from '../api';
-import { dialog } from '../composables/useDialog';
-import { initialsFor } from '../lib/avatar';
-import AddMemberPanel from './AddMemberPanel.vue';
+import { store } from '@/store';
+import { api } from '@/services/api';
+import { dialog } from '@/composables/useDialog';
+import { initialsFor } from '@/utils/avatar';
+import AddMemberPanel from '@/components/modals/AddMemberPanel.vue';
 
 const showAdd = ref(false);
 const room = computed(() => store.currentRoom!);

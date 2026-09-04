@@ -6,12 +6,12 @@
 // 防误解:用户不会以为"勾了角色还要填表单"。取消勾选/清空表单不自动回弹(用户主导)。
 
 import { computed, ref, watch } from 'vue';
-import { store, refreshCharacters } from '../store';
-import { api } from '../api';
-import { dialog } from '../composables/useDialog';
-import { initialsFor, colorForName } from '../lib/avatar';
+import { store, refreshCharacters } from '@/store';
+import { api } from '@/services/api';
+import { dialog } from '@/composables/useDialog';
+import { initialsFor, colorForName } from '@/utils/avatar';
 import type { Character } from '@server/core/types';
-import Modal from './ui/Modal.vue';
+import Modal from '@/components/ui/Modal.vue';
 import CharacterForm from './CharacterForm.vue';
 
 const model = defineModel<boolean>({ default: false });

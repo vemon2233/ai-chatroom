@@ -1,13 +1,30 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue';
-import { store, type StreamBuf } from '../store';
+import { store, type StreamBuf } from '@/store';
 import MessageBubble from './MessageBubble.vue';
 import type { ChatMessage } from '@server/core/types';
 
 const flowEl = ref<HTMLElement | null>(null);
 
-/** 流式占位文本:真实状态三阶——启动中(无任何输出)/推理中(有 thinking 无正文)/正文流出 */
-/** 流式占位文本:启动中(无输出)/推理中(有 thinking 无正文——不播思考内容)/正文流出 */
+const PAGE_SIZE = 60;
+const visibleCount = ref(PAGE_SIZE);
+
+// 切换房间时复位展示数量
+watch(
+  () => store.currentRoom?.config.id,
+  () => {
+    visibleCount.value = PAGE_SIZE;
+  },
+);
+
+const totalBaseCount = computed(() => store.messages.length);
+const hiddenCount = computed(() => Math.max(0, totalBaseCount.value - visibleCount.value));
+
+function loadMore() {
+  visibleCount.value += PAGE_SIZE;
+}
+
+/** 流式占位文本:真实状态三阶——启动中(无输出)/推理中(有 thinking 无正文)/正文流出 */
 function streamPlaceholder(buf: StreamBuf): string {
   if (buf.text) return buf.text;
   if (buf.thinking) return '推理中…';
@@ -16,6 +33,7 @@ function streamPlaceholder(buf: StreamBuf): string {
 
 const renderList = computed<Array<ChatMessage | (ChatMessage & { streaming: true })>>(() => {
   const base = store.messages as ChatMessage[];
+  const visibleBase = hiddenCount.value > 0 ? base.slice(hiddenCount.value) : base;
   const streaming: Array<ChatMessage & { streaming: true }> = [];
   const room = store.currentRoom;
   if (room) {
@@ -33,7 +51,7 @@ const renderList = computed<Array<ChatMessage | (ChatMessage & { streaming: true
       });
     }
   }
-  return [...base, ...streaming];
+  return [...visibleBase, ...streaming];
 });
 
 /** 自动滚动:贴底时跟随,翻阅历史时不打扰 */
@@ -58,6 +76,13 @@ watch(
 
 <template>
   <div ref="flowEl" class="chat-flow">
+    <!-- 顶部历史折叠指示条 -->
+    <div v-if="hiddenCount > 0" class="load-more-wrap">
+      <button class="load-more-btn" type="button" @click="loadMore">
+        ↑ 查看更早的消息 (还有 {{ hiddenCount }} 条未展开)
+      </button>
+    </div>
+
     <MessageBubble v-for="msg in renderList" :key="msg.id" :msg="msg" />
   </div>
 </template>
@@ -71,5 +96,28 @@ watch(
   flex-direction: column;
   gap: 14px;
   background: var(--panel-soft);
+}
+
+.load-more-wrap {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 4px;
+}
+
+.load-more-btn {
+  font-size: 11.5px;
+  color: var(--muted);
+  background: var(--panel);
+  border: 1px solid var(--border-soft);
+  padding: 5px 14px;
+  border-radius: 14px;
+  transition: all 0.15s ease;
+  box-shadow: var(--shadow-sm);
+}
+
+.load-more-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent-border);
+  background: var(--panel);
 }
 </style>

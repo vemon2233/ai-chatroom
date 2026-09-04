@@ -43,13 +43,16 @@ server/src/
 └── store/                持久化(rooms.json 原子写+串行互斥、rooms/*.jsonl、characters.json)
 
 web/src/
-├── api.ts / ws.ts(/ws 路径,dev 走 vite 代理)/ store.ts(reactive 单例,消息列表权威)
-├── mentions.ts           @token 解析(⚠ 与 orchestrator.parseUserCommand 同一契约的双语言实现,双侧注释互指)
+├── main.ts / App.vue / style.css
+├── services/                 通信层(api.ts REST 请求 / ws.ts WebSocket 客户端)
+├── store/                    状态层(index.ts reactive 单例, 消息列表权威源)
+├── utils/                    工具算法层(mentions.ts @token 解析 / avatar.ts 头像色板计算)
 ├── composables/useDialog.ts  Promise 化 confirm/prompt/alert
 └── components/
-    ├── ui/               覆盖层原语:Modal(唯一覆盖形态:居中窗口)+ DialogHost(z:90 压一切)
-    ├── Sidebar / RoomView / MemberBar / ChatFlow / MessageBubble / TraceDetail / Composer
-    └── AddMemberPanel / CharacterModal / NewRoomModal / SettingsPanel(全部 = ui/Modal 实例)
+    ├── ui/                   覆盖层原语:Modal(唯一覆盖形态:居中窗口)+ DialogHost(z:90 压一切)+ SidebarCard
+    ├── layout/               布局导航:Sidebar / RoomTabBar
+    ├── chat/                 聊天舞台:RoomView / MemberBar / ChatFlow / MessageBubble / TraceDetail / Composer
+    └── modals/               业务弹窗与表单:AddMemberPanel / CharacterModal / NewRoomModal / SettingsPanel / RoomForm / CharacterForm
 ```
 
 ### 核心数据流

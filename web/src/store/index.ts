@@ -5,30 +5,16 @@
 import { reactive } from 'vue';
 import type { Character, ChatMessage, RoomState } from '@server/core/types';
 import type { AgentEvent } from '@server/adapters/base';
-import type { AdapterInfo, RoomListItem } from './api';
-import { api } from './api';
-import { connectWs } from './ws';
+import type { AdapterInfo, RoomListItem } from '@/services/api';
+import { api } from '@/services/api';
+import { connectWs } from '@/services/ws';
 
 export interface StreamBuf { text: string; thinking: string }
 
-const STORAGE_KEY_TABS = 'ai-chatroom:open-rooms';
-
-function loadOpenRoomIds(): string[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY_TABS);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) return parsed.filter((x): x is string => typeof x === 'string');
-    }
-  } catch {}
-  return [];
-}
-
-function saveOpenRoomIds(ids: string[]): void {
-  try {
-    localStorage.setItem(STORAGE_KEY_TABS, JSON.stringify(ids));
-  } catch {}
-}
+// 刷新时重置会话，清理既有缓存
+try {
+  localStorage.removeItem('ai-chatroom:open-rooms');
+} catch {}
 
 export const store = reactive({
   adapters: [] as AdapterInfo[],
@@ -39,7 +25,7 @@ export const store = reactive({
   /** memberId → 流式缓冲(进行中发言的占位渲染) */
   memberStream: {} as Record<string, StreamBuf>,
   sidebarTab: 'rooms' as 'rooms' | 'chars',
-  openRoomIds: loadOpenRoomIds() as string[],
+  openRoomIds: [] as string[],
 });
 
 export function currentRoomId(): string | null {
@@ -61,9 +47,38 @@ export async function enterRoom(roomId: string): Promise<void> {
 export async function openRoom(roomId: string): Promise<void> {
   if (!store.openRoomIds.includes(roomId)) {
     store.openRoomIds.push(roomId);
-    saveOpenRoomIds(store.openRoomIds);
   }
   await enterRoom(roomId);
+}
+
+/** 打开与指定角色的 1v1 私聊房间（不存在则自动建立） */
+export async function openDirectChat(c: Character): Promise<void> {
+  const dmRoom = store.rooms.find(
+    (r) => r.config.dmCharacterId === c.id || (r.config.members.length === 1 && r.config.members[0]?.characterId === c.id),
+  );
+  if (!dmRoom) {
+    const res = await api.createRoom({
+      name: c.name,
+      color: c.color,
+      topic: c.persona,
+      speechLength: 'normal',
+      toolPermission: 'readonly',
+      dmCharacterId: c.id,
+      members: [
+        {
+          name: c.name,
+          adapter: c.adapter,
+          persona: c.persona,
+          color: c.color,
+          characterId: c.id,
+        },
+      ],
+    });
+    await refreshRooms();
+    await openRoom(res.id);
+  } else {
+    await openRoom(dmRoom.config.id);
+  }
 }
 
 /** 关闭某个房间 Tab */
@@ -73,7 +88,6 @@ export async function closeRoom(roomId: string): Promise<void> {
 
   const isCurrent = store.currentRoom?.config.id === roomId;
   store.openRoomIds.splice(idx, 1);
-  saveOpenRoomIds(store.openRoomIds);
 
   if (!isCurrent) return;
 
@@ -93,7 +107,6 @@ export async function refreshRooms(): Promise<void> {
   const validIds = new Set(store.rooms.map((r) => r.config.id));
   if (store.openRoomIds.some((id) => !validIds.has(id))) {
     store.openRoomIds = store.openRoomIds.filter((id) => validIds.has(id));
-    saveOpenRoomIds(store.openRoomIds);
     if (store.currentRoom && !validIds.has(store.currentRoom.config.id)) {
       const firstId = store.openRoomIds[0];
       if (firstId) {
@@ -183,9 +196,4 @@ export async function initStore(): Promise<void> {
   await refreshRooms();
   void refreshCharacters();
   connectWs(onWsEvent);
-
-  const firstId = store.openRoomIds[0];
-  if (firstId && !store.currentRoom) {
-    await enterRoom(firstId);
-  }
 }

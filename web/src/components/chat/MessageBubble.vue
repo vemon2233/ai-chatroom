@@ -1,16 +1,13 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import { store } from '../store';
-import { splitMentions } from '../mentions';
-import { initialsFor } from '../lib/avatar';
+import { store } from '@/store';
+import { renderMarkdown } from '@/utils/markdown';
+import { initialsFor } from '@/utils/avatar';
 import type { ChatMessage } from '@server/core/types';
 import TraceDetail from './TraceDetail.vue';
 
 const props = defineProps<{ msg: ChatMessage & { streaming?: true } }>();
 const showDetail = ref(false);
-
-/** 正文按 @提及 切段(与输入框高亮同一解析真源) */
-const segments = computed(() => splitMentions(props.msg.text));
 
 const room = computed(() => store.currentRoom);
 const member = computed(() => room.value?.config.members.find((m) => m.id === props.msg.from));
@@ -56,6 +53,36 @@ const meta = computed(() => {
 });
 
 const clickable = computed(() => !isMe.value && !isSystem.value && !props.msg.streaming && !!props.msg.detail);
+
+/** Markdown 格式化 HTML */
+const renderedHtml = computed(() => {
+  return renderMarkdown(props.msg.text);
+});
+
+/** 气泡点击事件: 拦截代码块复制按钮，其余区域展开工作过程 */
+function onBubbleClick(e: MouseEvent) {
+  const target = e.target as HTMLElement | null;
+  if (target && target.classList.contains('copy-code-btn')) {
+    e.stopPropagation();
+    const codeEl = target.closest('.code-block-wrap')?.querySelector('code');
+    if (codeEl) {
+      const code = codeEl.textContent || '';
+      void navigator.clipboard.writeText(code).then(() => {
+        const orig = target.textContent;
+        target.textContent = '已复制!';
+        target.classList.add('copied');
+        setTimeout(() => {
+          target.textContent = orig;
+          target.classList.remove('copied');
+        }, 1500);
+      });
+    }
+    return;
+  }
+  if (clickable.value) {
+    showDetail.value = !showDetail.value;
+  }
+}
 </script>
 
 <template>
@@ -74,15 +101,10 @@ const clickable = computed(() => !isMe.value && !isSystem.value && !props.msg.st
       <div
         class="bubble"
         :class="{ clickable, streaming: msg.streaming }"
-        @click="clickable && (showDetail = !showDetail)"
+        @click="onBubbleClick"
         :title="clickable ? '点击展开工作过程 / 用量' : undefined"
       >
-        <div class="text">
-          <template v-for="(seg, i) in segments" :key="i">
-            <span v-if="seg.mention" class="mention">{{ seg.text }}</span>
-            <template v-else>{{ seg.text }}</template>
-          </template>
-        </div>
+        <div class="text markdown-body" v-html="renderedHtml"></div>
         <div v-if="meta" class="meta">{{ meta }}</div>
         <TraceDetail v-if="showDetail && msg.detail" :detail="msg.detail" />
       </div>

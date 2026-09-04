@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import { store, refreshRooms, refreshCharacters, openRoom, closeRoom } from '../store';
-import { api } from '../api';
-import { dialog } from '../composables/useDialog';
-import NewRoomModal from './NewRoomModal.vue';
-import CharacterModal from './CharacterModal.vue';
-import SettingsPanel from './SettingsPanel.vue';
-import SidebarCard from './ui/SidebarCard.vue';
-import logoUrl from '../assets/icon.png';
+import { store, refreshRooms, refreshCharacters, openRoom, closeRoom, openDirectChat } from '@/store';
+import { api, type RoomListItem } from '@/services/api';
+import { dialog } from '@/composables/useDialog';
+import NewRoomModal from '@/components/modals/NewRoomModal.vue';
+import CharacterModal from '@/components/modals/CharacterModal.vue';
+import SettingsPanel from '@/components/modals/SettingsPanel.vue';
+import SidebarCard from '@/components/ui/SidebarCard.vue';
+import logoUrl from '@/assets/icon.png';
 
 const emit = defineEmits<{ (e: 'enter-room', id: string): void }>();
 
@@ -27,7 +27,7 @@ function switchTab(tab: 'rooms' | 'chars') {
   store.sidebarTab = tab;
 }
 
-function editRoom(room: import('../api').RoomListItem) {
+function editRoom(room: RoomListItem) {
   roomSettingsRef.value?.openEdit(room.config);
 }
 
@@ -36,41 +36,11 @@ function editCharacter(c: import('@server/core/types').Character) {
 }
 
 function onImportRoom() {
-  // 导入房间 UI 占位
+  void dialog.alert('功能提示', '房间导入导出功能已定案，将在后续批次提供。');
 }
 
 function onImportCharacter() {
-  // 导入角色 UI 占位
-}
-
-/** 点击角色进入专属 1v1 私聊房间 */
-async function openDirectChat(c: import('@server/core/types').Character) {
-  let dmRoom = store.rooms.find(
-    (r) => r.config.dmCharacterId === c.id || (r.config.members.length === 1 && r.config.members[0]?.characterId === c.id),
-  );
-  if (!dmRoom) {
-    const res = await api.createRoom({
-      name: c.name,
-      color: c.color,
-      topic: c.persona,
-      speechLength: 'normal',
-      toolPermission: 'readonly',
-      dmCharacterId: c.id,
-      members: [
-        {
-          name: c.name,
-          adapter: c.adapter,
-          persona: c.persona,
-          color: c.color,
-          characterId: c.id,
-        },
-      ],
-    });
-    await refreshRooms();
-    await openRoom(res.id);
-  } else {
-    await openRoom(dmRoom.config.id);
-  }
+  void dialog.alert('功能提示', '角色导入导出功能已定案，将在后续批次提供。');
 }
 
 async function onDeleteRoom(id: string, name: string) {
@@ -104,7 +74,7 @@ async function onDeleteCharacter(id: string, name: string) {
 }
 
 /** 房间卡片摘要:主题/讨论题目 */
-function roomSub(room: import('../api').RoomListItem): string {
+function roomSub(room: RoomListItem): string {
   return room.config.topic;
 }
 </script>
@@ -128,21 +98,11 @@ function roomSub(room: import('../api').RoomListItem): string {
         <button class="import-btn" @click="onImportRoom">导入</button>
       </div>
       <div class="list">
-        <SidebarCard
-          v-for="room in groupRooms"
-          :key="room.config.id"
-          :title="room.config.name"
-          :badge="`${room.config.members.length}人`"
-          :sub="roomSub(room)"
-          :color="room.config.color"
-          :can-edit="true"
-          edit-title="编辑房间"
-          :active="store.currentRoom?.config.id === room.config.id"
-          @click="emit('enter-room', room.config.id)"
-          @edit="editRoom(room)"
-          @remove="onDeleteRoom(room.config.id, room.config.name)"
-        />
-        <div v-if="groupRooms.length === 0" class="list-empty">还没有房间</div>
+        <SidebarCard v-for="room in groupRooms" :key="room.config.id" :title="room.config.name"
+          :badge="`${room.config.members.length}人`" :sub="roomSub(room)" :color="room.config.color" :can-edit="true"
+          edit-title="编辑房间" :active="store.currentRoom?.config.id === room.config.id"
+          @click="emit('enter-room', room.config.id)" @edit="editRoom(room)"
+          @remove="onDeleteRoom(room.config.id, room.config.name)" />
       </div>
     </div>
 
@@ -152,20 +112,9 @@ function roomSub(room: import('../api').RoomListItem): string {
         <button class="import-btn" @click="onImportCharacter">导入</button>
       </div>
       <div class="list">
-        <SidebarCard
-          v-for="c in store.characters"
-          :key="c.id"
-          :title="c.name"
-          :badge="c.adapter"
-          :sub="c.persona"
-          :color="c.color"
-          :can-edit="true"
-          edit-title="编辑角色"
-          :active="store.currentRoom?.config.dmCharacterId === c.id"
-          @click="openDirectChat(c)"
-          @edit="editCharacter(c)"
-          @remove="onDeleteCharacter(c.id, c.name)"
-        />
+        <SidebarCard v-for="c in store.characters" :key="c.id" :title="c.name" :badge="c.adapter" :sub="c.persona"
+          :color="c.color" :can-edit="true" edit-title="编辑角色" :active="store.currentRoom?.config.dmCharacterId === c.id"
+          @click="openDirectChat(c)" @edit="editCharacter(c)" @remove="onDeleteCharacter(c.id, c.name)" />
         <div v-if="store.characters.length === 0" class="list-empty">还没有角色</div>
       </div>
     </div>
@@ -193,6 +142,7 @@ function roomSub(room: import('../api').RoomListItem): string {
   gap: 10px;
   padding: 14px 14px 10px;
 }
+
 /* logo:512 PNG(圆形徽标),28px 渲染 */
 .brand-mark {
   width: 28px;
@@ -201,6 +151,7 @@ function roomSub(room: import('../api').RoomListItem): string {
   flex-shrink: 0;
   display: block;
 }
+
 .brand-name {
   font-size: 14.5px;
   font-weight: 700;
@@ -211,6 +162,7 @@ function roomSub(room: import('../api').RoomListItem): string {
   display: flex;
   border-bottom: 1px solid var(--border-soft);
 }
+
 .tab {
   flex: 1;
   padding: 10px;
@@ -219,15 +171,26 @@ function roomSub(room: import('../api').RoomListItem): string {
   border-bottom: 2px solid transparent;
   transition: color 0.15s, border-color 0.15s;
 }
-.tab.active { color: var(--text); border-bottom-color: var(--accent); }
 
-.panel { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.tab.active {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
 .actions {
   padding: 10px;
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 8px;
 }
+
 .new-btn,
 .import-btn {
   width: 100%;
@@ -243,22 +206,38 @@ function roomSub(room: import('../api').RoomListItem): string {
   justify-content: center;
   transition: opacity 0.15s, background 0.15s, border-color 0.15s;
 }
+
 .new-btn {
   background: var(--accent);
   color: #fff;
   border: 1px solid var(--accent);
 }
-.new-btn:hover { opacity: 0.88; }
+
+.new-btn:hover {
+  opacity: 0.88;
+}
+
 .import-btn {
   background: var(--panel);
   border: 1px solid var(--border);
   color: var(--text);
 }
+
 .import-btn:hover {
   background: var(--panel-softer);
   border-color: var(--accent);
 }
 
-.list { flex: 1; overflow-y: auto; padding: 0 8px 8px; }
-.list-empty { color: var(--faint); font-size: 12px; text-align: center; padding: 24px 0; }
+.list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 8px 8px;
+}
+
+.list-empty {
+  color: var(--faint);
+  font-size: 12px;
+  text-align: center;
+  padding: 24px 0;
+}
 </style>

@@ -2,10 +2,10 @@
 // 房间设置:RoomForm 的 settings 模式壳——完整房间字段,项目目录/工具权限建时锁定(禁用)。
 
 import { ref, watch, computed } from 'vue';
-import { store, refreshRooms } from '../store';
-import { api } from '../api';
+import { store, refreshRooms } from '@/store';
+import { api } from '@/services/api';
 import type { RoomConfig } from '@server/core/types';
-import Modal from './ui/Modal.vue';
+import Modal from '@/components/ui/Modal.vue';
 import RoomForm, { type RoomFormBody } from './RoomForm.vue';
 
 const model = defineModel<boolean>({ default: false });

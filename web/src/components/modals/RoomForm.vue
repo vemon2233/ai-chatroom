@@ -5,8 +5,8 @@
 //                 其余(名称/主题/长度/接棒上限/主持人)可改即时生效。
 
 import { ref, watch } from 'vue';
-import { store } from '../store';
-import { COLOR_OPTIONS, colorForName } from '../lib/avatar';
+import { store } from '@/store';
+import { COLOR_OPTIONS, colorForName } from '@/utils/avatar';
 import type { RoomConfig } from '@server/core/types';
 
 const props = withDefaults(defineProps<{

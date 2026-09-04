@@ -3,8 +3,8 @@
 // 只管字段编辑;提交逻辑由宿主组件决定(入库/入库+拉入房间)。
 
 import { onMounted, ref, watch } from 'vue';
-import { store } from '../store';
-import { COLOR_OPTIONS, colorForName } from '../lib/avatar';
+import { store } from '@/store';
+import { COLOR_OPTIONS, colorForName } from '@/utils/avatar';
 import type { Character } from '@server/core/types';
 
 const props = defineProps<{

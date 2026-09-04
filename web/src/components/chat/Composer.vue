@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue';
-import { store } from '../store';
-import { api } from '../api';
-import { detectMention, type TextSegment } from '../mentions';
+import { store } from '@/store';
+import { api } from '@/services/api';
+import { detectMention, type TextSegment } from '@/utils/mentions';
 
 const text = ref('');
 const inputEl = ref<HTMLTextAreaElement | null>(null);

@@ -184,3 +184,107 @@ input:focus, textarea:focus, select:focus {
 .form-row textarea { resize: vertical; min-height: 54px; }
 
 .hidden { display: none !important; }
+
+/* ---- Markdown 渲染与代码块排版 ---- */
+.markdown-body {
+  word-break: break-word;
+  line-height: 1.6;
+}
+.markdown-body p {
+  margin: 4px 0;
+}
+.markdown-body p:first-child { margin-top: 0; }
+.markdown-body p:last-child { margin-bottom: 0; }
+
+.markdown-body ul, .markdown-body ol {
+  margin: 6px 0 6px 20px;
+  padding: 0;
+}
+.markdown-body li {
+  margin-bottom: 2px;
+}
+
+.markdown-body h1, .markdown-body h2, .markdown-body h3, .markdown-body h4 {
+  margin: 10px 0 4px;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.markdown-body blockquote {
+  margin: 6px 0;
+  padding: 4px 10px;
+  border-left: 3px solid var(--accent);
+  color: var(--muted);
+  background: var(--panel-soft);
+  border-radius: 0 4px 4px 0;
+}
+
+.markdown-body :not(pre) > code {
+  background: var(--panel-softer);
+  border: 1px solid var(--border-soft);
+  padding: 1.5px 5px;
+  border-radius: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  color: var(--accent-deep);
+}
+
+.row.me .markdown-body :not(pre) > code {
+  background: rgba(255, 255, 255, 0.6);
+  border-color: rgba(91, 106, 255, 0.2);
+}
+
+/* 现代暗调代码块 */
+.code-block-wrap {
+  margin: 8px 0;
+  border-radius: 8px;
+  background: #181A20;
+  color: #E2E8F0;
+  overflow: hidden;
+  font-size: 12px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+}
+.code-block-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  user-select: none;
+}
+.code-lang {
+  font-size: 11px;
+  font-weight: 600;
+  color: #94A3B8;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.copy-code-btn {
+  font-size: 11px;
+  color: #94A3B8;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  cursor: pointer;
+  padding: 2px 8px;
+  border-radius: 4px;
+  transition: all 0.15s ease;
+}
+.copy-code-btn:hover {
+  color: #FFFFFF;
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+.copy-code-btn.copied {
+  color: #10B981;
+  border-color: rgba(16, 185, 129, 0.4);
+  background: rgba(16, 185, 129, 0.1);
+}
+.code-pre {
+  margin: 0;
+  padding: 10px 12px;
+  overflow-x: auto;
+  line-height: 1.5;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+

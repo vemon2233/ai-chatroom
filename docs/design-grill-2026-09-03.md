@@ -61,27 +61,34 @@
 - **后端零改动**,不落 data/exports/
 - 与「房间导出(JSON,只导配置)」是**两个独立功能**:前者导聊天记录文档,后者导房间配置
 
-### 6. 分支树(重roll/编辑/graft)★ 最大工程
+### 6. 简易重roll与回溯编辑(原 B4 分支树暂缓,采用轻量截断方案)
 
-**数据模型:git 式分支树**
-- `ChatMessage` 加 `parentMessageId`(指向父消息;同一父的多个子 = 多个版本/分支)
-- 当前分支头指针(activeBranchHead,独立持久化文件或 RoomConfig 字段)
-- JSONL 保持追加写(新消息永远 append;分支/切链/graft 只改指针或加节点,不重写历史行)
-- 加载时按 parent 链重建线性视图
+> **决策变更(2026-09-04)**: 原定基于 Vue Flow 的完整 Git 式分支树(多分支并行、树编辑器、拖拽 graft 嫁接)暂缓搁置，优先落地**简易重roll与回溯编辑**，满足最核心的“悔棋修话、截断重跑”诉求。
 
-**操作语义**:
-- **重roll**(仅 agent 消息):删尾?不——**新建兄弟节点**(同 parent 新子),用**原消息的 trigger** 重新调用;旧版本保留
-- **编辑**(除系统消息外所有消息):= 手写分支,同管道新建节点
-- **graft 嫁接**:B 改为 F 后,可把原链后续 D→E 整块重指 parent 接到 F 后(主链 A→B(F)→D→E,C 留旁分支)——重指指针,不复制消息体
-- **重roll/编辑后的选择**:弹「从此重说(断链等驱动)」vs「接上原后续(graft)」
-- **互斥**:**仅编排 idle 时可操作**(编排中按钮置灰;与 stop 语义一致,编排器不加新入口)
+**交互与 UI**:
+- 每个对话气泡(MessageBubble)增加编辑/重roll icon 按钮。
+- 点击按钮后，该条消息进入编辑状态(或填入输入区域进行修改)。
+- 触发动作时，**舍弃该条消息之后的所有对话**(单线性截断，彻底回溯)。
 
-**接棒交互**:切分支后 pendingNextId **重算**(= 当前链尾消息的接棒解析结果或空),不随分支持久化(与现状「重启即丢」一致)
+**编辑与发送语义**:
+- **用户消息编辑重发**: 舍弃后续消息后，以新内容重新作为用户发言发送，正常驱动编排状态机。
+- **AI Agent 消息编辑重发**: 
+  - **允许用户直接编辑 Agent 发送的内容**。
+  - 用户确认修改并发送后，该消息**依旧显示由原 Agent 发送**(保留原 `from` 和 `fromName`)，文本替换为编辑后的内容。
+  - 舍弃后续所有消息后，更新该条记录，按该发言的接棒尾行(若有)重算或等待后续指令。
+- **编排互斥**: 仅编排处于 `idle` 状态时允许操作(编排中按钮置灰，防止并发写穿与竞态冲突)。
 
-**UI:双视图**
-- 主聊天流:纯阅读 + hover 快捷操作(编辑/重roll → 弹选择)
-- **树编辑器**:独立面板,消息=树节点,**可拖拽**改变结构(重指/graft);技术选型 **Vue Flow**(@vue-flow/core,新依赖)
-- 两视图共享同一树数据
+**后端与持久化存储**:
+- 单线性截断与更新: 内存 `messages` 截断至目标位置(或替换目标位置消息并截断其后)，持久化 JSONL 同步重写该房间的历史记录。
+- WebSocket 广播: 广播消息列表更新/重置事件，前端权威列表同步更新。
+
+---
+
+### 6b. [暂缓] 完整分支树(Git 式分支树与树编辑器)
+
+> 暂缓实施，待简易重roll满足不了复杂平行推演诉求时再行重启。原设计保留备查：
+- `ChatMessage` 加 `parentMessageId`，通过 parent 链重建视图。
+- 独立 Vue Flow 树状图拖拽面板，支持重指与 graft 嫁接。
 
 ### 7. 成本仪表盘(轻量版)
 
@@ -177,25 +184,25 @@
 | B1 | 导入导出(角色/房间)+ 用户人设绑定(isUser 全链路过滤)+ userSpeak fromName 参数化(桥友透传复用) | 无;types.ts 加字段先行 |
 | B2 | Scout→管理员改名 + 讨论摘要(自动+手动) | B1 无依赖可并行;复用 admin 基建 |
 | B3 | markdown 导出(前端 Blob)+ 成本仪表盘 | 零依赖,随时可插 |
-| B4 | 分支树(数据模型→API→气泡操作→树编辑器) | **最重**;parentMessageId 字段应尽先进 types.ts 以便 JSONL 前向兼容 |
-| B5 | i18n(共享语言包→前端 UI→后端系统消息码→prompt 模板→<pass> 双语法) | 不锁顺序;但系统消息码越早做 JSONL 存量越小;<pass> 与 B4 无耦合 |
+| B4 | 简易重roll与回溯编辑(气泡操作icon→单线性截断→编辑重发/替换原Agent发言) | 原复杂分支树暂缓;轻量快速落地 |
+| B5 | i18n(共享语言包→前端 UI→后端系统消息码→prompt 模板→<pass> 双语法) | 不锁顺序;但系统消息码越早做 JSONL 存量越小 |
 | B6 | bridges/(WS+REST 基建→飞书桥→Telegram 桥→限流 allowlist) | 依赖 B1 的 fromName 参数;平台应用凭证自备 |
-| B7 | 订阅模式(mode 字段→意愿自评循环→私聊受众→并行波次→模式选择器) | 改动集中在 orchestrator+prompt,与 B4 分支树都动核心,**两者串行做勿并行**;复用 oneShotSpeak/熔断基建;`ChatMessage.audience` 字段尽先进 types |
+| B7 | 订阅模式(mode 字段→意愿自评循环→私聊受众→并行波次→模式选择器) | 改动集中在 orchestrator+prompt,复用 oneShotSpeak/熔断基建;`ChatMessage.audience` 字段尽先进 types |
 
 > B1 的 `userSpeak(text, opts?: {fromName})` 是 B6 用户名透传的直接前置,做 B1 时一并参数化。
 
 ## 八、关键文件落点(实施时对照)
 
-- `server/src/core/types.ts`:MemberConfig.isUser / RoomConfig.userMemberId / ChatMessage.parentMessageId
-- `server/src/core/room.ts`:userSpeak fromName 分支 / 绑定解绑方法 / dedupeName 复用(导入)
+- `server/src/core/types.ts`:MemberConfig.isUser / RoomConfig.userMemberId
+- `server/src/core/room.ts`:userSpeak fromName 分支 / 绑定解绑方法 / dedupeName 复用(导入) / 消息截断与重发接口
 - `server/src/core/orchestrator.ts`:选人过滤(随机/@allN/parseBaton 待命)/ 接棒给用户=停止
 - `server/src/core/prompt.ts`:参与者列表(用户成员混入)/ 摘要注入(仿侦察报告段)
 - `server/src/core/scout.ts` → `admin.ts`:改名+摘要职责+熔断复用
 - `server/src/server/config.ts` + `config/agents.yaml`:scout 段→admin 段
-- `server/src/server/routes.ts`:导入导出 REST / @管理员 特判 / 分支操作 API / 重roll API
-- `server/src/store/transcript.ts`:parentMessageId 读写 / 分支指针持久化 / (JSONL 仍追加)
+- `server/src/server/routes.ts`:导入导出 REST / @管理员 特判 / 回溯截断与编辑重发 API
+- `server/src/store/transcript.ts`:截断后重写该房间 JSONL
 - `web/src/mentions.ts` + orchestrator.parseUserCommand:@候选排除 isUser(双侧契约同步改)
-- `web/src/components/`:导入导出按钮 / 树编辑器(Vue Flow)/ 成本区块 / 消息 hover 操作
+- `web/src/components/`:导入导出按钮 / 成本区块 / 消息气泡编辑/重roll icon 按钮与编辑态
 - `server/locales/{zh-CN,en}.json`:共享语言包单一真源(UI 文案+系统消息码+prompt 模板)
 - `bridges/`:独立包——config.yaml 静态绑定 / ws 客户端 / 飞书+TG 双桥 / allowlist+限流 / 长消息切分
 - 订阅模式:`RoomConfig.mode`(baton|subscribe)、意愿评估(oneShotSpeak 复用)、`ChatMessage.audience`、buildPrompt 受众过滤、`/mode` 命令解析(routes 层,非魔法文本进 orchestrator)
@@ -208,3 +215,40 @@
 - 分支树新测试:树重建 / graft 指针重指 / 重roll 同 trigger
 - bridges 测试:回环过滤(用户自己那条不转发)/ 限流窗口 / 长消息切分边界(4096)
 - 语言包键完整性:缺键检测(zh/en 键集一致,CI 可查)
+
+## 十、后端架构优化演进规范(2026-09-04 架构审计定案)
+
+> **原则**: 核心状态机与进程管控底座扎实，**严禁推倒式重构**。在后续业务批次(B1/B4)推进过程中，以“顺手微创演进”的方式逐步落地以下 4 项优化，消除隐性架构债务。
+
+### 1. 路由解耦与控制器拆分(Eliminate God Router)
+- **现状**: `server/src/server/routes.ts` 集中平铺了所有模块的裸正则匹配与参数提取，随功能增加极易迅速恶化。
+- **演进目标**:
+  - 抽取统一的错误处理、请求解析与 JSON 响应封装中间件。
+  - 按业务域拆解控制器: `controllers/room.controller.ts`、`character.controller.ts`、`adapter.controller.ts`、`message.controller.ts`。
+  - 路由定义结构化，参数合法性集中校验，消除重复的手写判空与 400 响应。
+- **建议落地时机**: 配合 **B1**(导入导出/用户绑定)与 **B4**(回溯截断 API)共同重构。
+
+### 2. 存储层分片写锁与内存分页(Sharded Isolation & Memory Hygiene)
+- **现状**: 
+  - `store/rooms.ts` 共用单模块级 `writeChain`，所有房间的配置与 sessionIds 写穿互锁阻塞。
+  - `ChatRoom.messages` 启动全量加载并永久驻留内存，无法应对超长会话。
+- **演进目标**:
+  - **按房间分片互斥锁(Keyed Mutex)**: `withRoomLock(roomId, fn)`，房间 A 写穿不阻塞房间 B。
+  - **内存热数据分页**: 内存仅驻留最新 $K$ 条热记录(满足实时流展示与 40 条 Prompt 上下文裁剪)，更早历史按需从 JSONL 流式读取。
+- **建议落地时机**: 配合 **B4**(简易回溯截断与 JSONL 重写)一同落地。
+
+### 3. WebSocket 广播由“全量扇出”升级为“房间频道订阅”(Channeling)
+- **现状**: `MessageBus.broadcast` 对所有在线连接无差别发包，导致挂在房间 A 的客户端频繁收到房间 B 产生的高频 `agentEvent` 流式增量包，浪费网络带宽与主线程算力。
+- **演进目标**:
+  - 客户端连接后发送 `{ action: 'subscribe', roomId }` 进行频道订阅。
+  - 全局事件(`rooms` 列表变更等)全员广播; 房间私有事件(`agentEvent`、`message`、`roomState`)**仅推送给订阅了该 roomId 的客户端**。
+- **建议落地时机**: 配合 **B6**(外部桥接开发时对 WebSocket 性能要求提升)或作为独立质量优化项。
+
+### 4. 适配器启动期探针与跨端共享契约(Health Check & Parity)
+- **现状**:
+  - `agents.yaml` 中配置的 CLI 若未安装在系统 PATH 中，服务启动不报警，直到 Agent 第一次发言 spawn 失败才暴露。
+  - 前端 `mentions.ts` 与后端 `orchestrator.ts` 的 `@` 解析正则为双侧独立维护，存在漂移隐患。
+- **演进目标**:
+  - **启动期探针**: `server/src/server/index.ts` 启动时对已启用的适配器执行轻量 `--version` 探针检查，不可用时提前警告并置灰。
+  - **跨端共享契约**: 提取纯数据模型与正则规范，保证前后端对 `@` 指令与接棒语法的解析单一真源。
+- **建议落地时机**: 配合 **B5**(i18n 多语言语法对齐)一并固化。
