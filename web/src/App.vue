@@ -4,6 +4,7 @@ import { initStore, store, openRoom } from '@/store';
 import Sidebar from '@/components/layout/Sidebar.vue';
 import RoomTabBar from '@/components/layout/RoomTabBar.vue';
 import RoomView from '@/components/chat/RoomView.vue';
+import DirectChatView from '@/components/chat/DirectChatView.vue';
 import NewRoomModal from '@/components/modals/NewRoomModal.vue';
 import DialogHost from '@/components/ui/DialogHost.vue';
 
@@ -19,7 +20,9 @@ onMounted(() => initStore());
     <Sidebar @enter-room="openRoom" />
     <main class="main">
       <RoomTabBar @new-room="showNewRoom = true" />
-      <div v-if="!store.currentRoom" class="empty-wrap">
+      <DirectChatView v-if="store.activeSession?.type === 'direct' && store.currentDirectChar" />
+      <RoomView v-else-if="store.activeSession?.type === 'room' && store.currentRoom" />
+      <div v-else class="empty-wrap">
         <div class="empty-content">
           <img class="empty-logo" :src="logoUrl" alt="AI 聊天室 logo" />
           <div class="empty-title">AI 聊天室</div>
@@ -27,10 +30,9 @@ onMounted(() => initStore());
           <button class="empty-action-btn" type="button" @click="showNewRoom = true">
             ＋ 新建房间
           </button>
-          <div class="empty-hint">或从左侧房间列表中选择已有房间进入</div>
+          <div class="empty-hint">从左侧选择群聊房间或在角色列表中发起专属私聊</div>
         </div>
       </div>
-      <RoomView v-else />
     </main>
     <NewRoomModal v-model="showNewRoom" />
     <DialogHost />

@@ -92,4 +92,48 @@ describe('rooms store', () => {
     const content = await readFile(real, 'utf8').catch(() => '');
     expect(content).not.toContain('room_iso');
   });
+
+  it('clearMessages 清空消息并清除全部成员 sessionIds 且写穿持久化', async () => {
+    const { ChatRoom, makeRoomConfig } = await import('../src/core/room');
+    const { MessageBus } = await import('../src/core/bus');
+    const bus = new MessageBus();
+    const cfg = {
+      id: 'room_clear_test',
+      name: '测试房',
+      topic: '测试话题',
+      members: [
+        { id: 'm1', name: '甲', adapter: 'claude', persona: 'p', color: '#111', sessionIds: { claude: 'sess-1' } },
+        { id: 'm2', name: '乙', adapter: 'claude', persona: 'p', color: '#222', sessionIds: { claude: 'sess-2' } },
+      ],
+      createdAt: 123,
+    };
+    const roomConfig = makeRoomConfig(cfg);
+    const persistence = {
+      persistRoom: (c: any) => store.persistRoom(c),
+      loadMessages: async () => [],
+      rewriteMessages: async () => {},
+    };
+    const room = new ChatRoom(
+      roomConfig,
+      bus,
+      { claude: { kind: 'claude', command: 'echo', args: [] } },
+      { adapter: 'claude', model: 'haiku', allowedTools: '', timeoutMs: 1000, maxRetries: 1 },
+      persistence,
+    );
+    await store.persistRoom(roomConfig);
+
+    await room.clearMessages();
+
+    expect(roomConfig.members[0]!.sessionIds).toBeUndefined();
+    expect(roomConfig.members[1]!.sessionIds).toBeUndefined();
+
+    // 验证重新从存储加载，sessionIds 确实已被写穿清除
+    const loaded = await store.loadAllRooms();
+    const found = loaded.find((r) => r.id === roomConfig.id);
+    expect(found).toBeDefined();
+    expect(found!.members[0]!.sessionIds).toBeUndefined();
+    expect(found!.members[1]!.sessionIds).toBeUndefined();
+  });
 });
+
+

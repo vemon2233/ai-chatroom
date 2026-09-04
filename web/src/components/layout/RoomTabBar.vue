@@ -1,40 +1,66 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import { store, openRoom, closeRoom } from '@/store';
+import { store, enterRoom, openDirectChat, closeSession, type Session } from '@/store';
 
 const emit = defineEmits<{ (e: 'new-room'): void }>();
 
 interface TabItem {
-  id: string;
+  key: string;
+  session: Session;
   name: string;
   isCurrent: boolean;
   live: boolean;
 }
 
 const tabs = computed<TabItem[]>(() => {
-  return store.openRoomIds.map((id) => {
-    const roomInList = store.rooms.find((r) => r.config.id === id);
-    const isCurrent = store.currentRoom?.config.id === id;
-    const name = isCurrent
-      ? store.currentRoom!.config.name
-      : roomInList?.config.name ?? '新房间';
-    const live = isCurrent
-      ? store.currentRoom!.orchestration !== 'idle'
-      : false;
-
-    return { id, name, isCurrent, live };
+  return store.openSessions.map((s) => {
+    if (s.type === 'room') {
+      const roomInList = store.rooms.find((r) => r.config.id === s.id);
+      const isCurrent = store.activeSession?.type === 'room' && store.activeSession.id === s.id;
+      const name = isCurrent && store.currentRoom ? store.currentRoom.config.name : roomInList?.config.name ?? '新房间';
+      const live = isCurrent && store.currentRoom ? store.currentRoom.orchestration !== 'idle' : false;
+      return {
+        key: `room:${s.id}`,
+        session: s,
+        name,
+        isCurrent,
+        live,
+      };
+    } else {
+      const char = store.characters.find((c) => c.id === s.characterId);
+      const isCurrent =
+        store.activeSession?.type === 'direct' && store.activeSession.characterId === s.characterId;
+      const name = char ? char.name : '私聊';
+      const live = isCurrent ? store.directStatus !== 'idle' : false;
+      return {
+        key: `direct:${s.characterId}`,
+        session: s,
+        name,
+        isCurrent,
+        live,
+      };
+    }
   });
 });
 
-function onTabClick(id: string) {
-  if (store.currentRoom?.config.id !== id) {
-    void openRoom(id);
+async function onTabClick(item: TabItem) {
+  if (item.session.type === 'room') {
+    const rid = item.session.id;
+    if (!store.activeSession || store.activeSession.type !== 'room' || store.activeSession.id !== rid) {
+      await enterRoom(rid);
+    }
+  } else {
+    const cid = item.session.characterId;
+    if (!store.activeSession || store.activeSession.type !== 'direct' || store.activeSession.characterId !== cid) {
+      const char = store.characters.find((c) => c.id === cid);
+      if (char) await openDirectChat(char);
+    }
   }
 }
 
-function onCloseClick(e: MouseEvent, id: string) {
+function onCloseClick(e: MouseEvent, s: Session) {
   e.stopPropagation();
-  void closeRoom(id);
+  void closeSession(s);
 }
 </script>
 
@@ -43,19 +69,19 @@ function onCloseClick(e: MouseEvent, id: string) {
     <div class="tabs-scroll">
       <div
         v-for="tab in tabs"
-        :key="tab.id"
+        :key="tab.key"
         class="tab-item"
         :class="{ active: tab.isCurrent }"
         :title="tab.name"
-        @click="onTabClick(tab.id)"
+        @click="onTabClick(tab)"
       >
-        <span v-if="tab.live" class="tab-live-dot" title="正在编排讨论"></span>
+        <span v-if="tab.live" class="tab-live-dot" title="活跃中"></span>
         <span class="tab-title">{{ tab.name }}</span>
         <button
           class="tab-close"
           type="button"
           title="关闭标签页"
-          @click="onCloseClick($event, tab.id)"
+          @click="onCloseClick($event, tab.session)"
         >
           ✕
         </button>

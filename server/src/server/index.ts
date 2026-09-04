@@ -12,7 +12,7 @@ import { REPO_ROOT } from '../paths';
 import { MessageBus } from '../core/bus';
 import { ChatRoom } from '../core/room';
 import { loadAllRooms, persistRoom } from '../store/rooms';
-import { loadRoomMessages } from '../store/transcript';
+import { loadRoomMessages, rewriteRoomMessages } from '../store/transcript';
 import { createRoutes } from './routes';
 import { setupWs } from './ws';
 
@@ -20,6 +20,8 @@ import { setupWs } from './ws';
 const roomPersistence = {
   persistRoom,
   loadMessages: (roomId: string) => loadRoomMessages(roomId),
+  rewriteMessages: (roomId: string, messages: import('../core/types').ChatMessage[]) =>
+    rewriteRoomMessages(roomId, messages),
 };
 
 const MIME: Record<string, string> = {

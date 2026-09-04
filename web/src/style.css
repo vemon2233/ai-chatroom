@@ -85,6 +85,9 @@ input:focus, textarea:focus, select:focus {
 .btn-danger { color: var(--danger); border: 1px solid var(--border); background: var(--panel); }
 .btn-danger:hover { border-color: var(--danger); }
 .btn-danger-solid { background: var(--danger); color: #fff; }
+.btn-ghost.btn-danger { color: var(--text); }
+.btn-ghost.btn-danger:hover { border-color: var(--danger); color: var(--danger); }
+
 
 /* ---- 公共小件 ----
  * .sec-title 大写小节标题(参考项目 section label 风格)

@@ -9,8 +9,13 @@ import { appendMessage } from '../store/transcript';
 /** 推送给前端的事件包 */
 export type WsEvent =
   | { type: 'message'; message: ChatMessage }
+  | { type: 'roomMessages'; roomId: string; messages: ChatMessage[] }
   | { type: 'agentEvent'; roomId: string; event: AgentEvent }
   | { type: 'roomState'; roomId: string; state: RoomState }
+  | { type: 'directMessage'; characterId: string; message: ChatMessage }
+  | { type: 'directMessages'; characterId: string; messages: ChatMessage[] }
+  | { type: 'directEvent'; characterId: string; event: AgentEvent }
+  | { type: 'directReset'; characterId: string }
   | { type: 'rooms' }
   | { type: 'error'; message: string };
 
@@ -37,6 +42,10 @@ export class MessageBus {
     this.broadcast({ type: 'message', message: msg });
   }
 
+  emitRoomMessages(roomId: string, messages: ChatMessage[]) {
+    this.broadcast({ type: 'roomMessages', roomId, messages });
+  }
+
   /** 适配器原始事件(思考中/增量流),只广播不持久化。 */
   emitAgentEvent(roomId: string, event: AgentEvent) {
     this.broadcast({ type: 'agentEvent', roomId, event });
@@ -44,5 +53,21 @@ export class MessageBus {
 
   emitRoomState(state: RoomState) {
     this.broadcast({ type: 'roomState', roomId: state.config.id, state });
+  }
+
+  emitDirectMessage(characterId: string, message: ChatMessage) {
+    this.broadcast({ type: 'directMessage', characterId, message });
+  }
+
+  emitDirectMessages(characterId: string, messages: ChatMessage[]) {
+    this.broadcast({ type: 'directMessages', characterId, messages });
+  }
+
+  emitDirectEvent(characterId: string, event: AgentEvent) {
+    this.broadcast({ type: 'directEvent', characterId, event });
+  }
+
+  emitDirectReset(characterId: string) {
+    this.broadcast({ type: 'directReset', characterId });
   }
 }

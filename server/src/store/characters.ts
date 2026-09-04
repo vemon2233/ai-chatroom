@@ -15,38 +15,32 @@ const FILE = path.join(DATA_DIR, 'characters.json');
 const SEEDS: Array<Omit<Character, 'id' | 'createdAt'>> = [
   {
     name: '正方',
-    emoji: '🗣️',
     adapter: 'claude',
     persona: '你是辩论正方。坚定主张讨论题目中的前者,提供论据,直接反驳反方。',
   },
   {
     name: '反方',
-    emoji: '🎯',
     adapter: 'claude',
     persona: '你是辩论反方。坚定主张讨论题目中的后者,提供论据,直接反驳正方。',
   },
   {
     name: '主持人',
-    emoji: '⚖️',
     adapter: 'claude',
     persona: '你是主持人。保持中立,归纳各方观点与分歧,引导讨论聚焦,不站队。',
     extraArgs: ['--model', 'haiku'],
   },
   {
     name: '产品经理',
-    emoji: '📋',
     adapter: 'claude',
     persona: '你是产品经理。从用户价值、产品定位和商业角度发言。',
   },
   {
     name: '工程师',
-    emoji: '🔧',
     adapter: 'claude',
     persona: '你是资深工程师。从技术可行性、实现成本和风险角度发言。',
   },
   {
     name: '自由人',
-    emoji: '💬',
     adapter: 'claude',
     persona: '你是一般讨论者。观点中立,就事论事,哪里有价值就支持哪里。',
   },

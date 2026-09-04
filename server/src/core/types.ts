@@ -12,8 +12,6 @@ export interface Character {
   name: string;
   /** 头像背景颜色(CSS 颜色) */
   color?: string;
-  /** 头像 emoji(已废弃:前端改 initials 头像不再渲染;字段保留做数据向后兼容) */
-  emoji?: string;
   /** 适配器 key(agents.yaml 中 adapters.*) */
   adapter: string;
   /** 人设/立场 */
@@ -31,8 +29,6 @@ export interface MemberConfig {
   id: string;
   /** 显示名 */
   name: string;
-  /** 头像 emoji(前端展示) */
-  emoji?: string;
   /** 适配器 key(agents.yaml 中 adapters.* ) */
   adapter: string;
   /** 人设/立场 system prompt(拼进每次发言的 prompt 开头) */
@@ -93,8 +89,6 @@ export interface RoomConfig {
   name: string;
   /** 房间背景颜色(CSS 颜色) */
   color?: string;
-  /** 头像 emoji(侧栏卡片展示;建房可选,默认 💬;旧数据无此字段前端兜底) */
-  emoji?: string;
   /** 房间主题/讨论题目(注入每个成员的 prompt) */
   topic: string;
   /** 连续自动接棒上限(防失控烧 token;默认 6,用户新消息重置;设置面板运行期可改) */
@@ -108,8 +102,6 @@ export interface RoomConfig {
   /** 工具权限档位(房间级) */
   toolPermission: ToolPermission;
   members: MemberConfig[];
-  /** 若为与特定角色的一对一单聊房间，记录该角色 id */
-  dmCharacterId?: string;
   createdAt: number;
 }
 
@@ -135,5 +127,5 @@ export interface RoomState {
 }
 
 /** 运行期设置面板可改的字段(其余 RoomConfig 字段不可变) */
-export type RoomSettings = Pick<RoomConfig, 'speechLength' | 'chainBudget' | 'name' | 'color' | 'emoji' | 'topic'>
+export type RoomSettings = Pick<RoomConfig, 'speechLength' | 'chainBudget' | 'name' | 'color' | 'topic'>
   & { moderatorId?: string };

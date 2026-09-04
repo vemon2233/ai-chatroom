@@ -8,8 +8,18 @@ import type { AgentEvent } from '@server/adapters/base';
 import type { AdapterInfo, RoomListItem } from '@/services/api';
 import { api } from '@/services/api';
 import { connectWs } from '@/services/ws';
-
 export interface StreamBuf { text: string; thinking: string }
+
+export interface EditingContext {
+  messageId: string;
+  from: string;
+  fromName: string;
+  text: string;
+}
+
+export type Session =
+  | { type: 'room'; id: string }
+  | { type: 'direct'; characterId: string };
 
 // 刷新时重置会话，清理既有缓存
 try {
@@ -20,13 +30,29 @@ export const store = reactive({
   adapters: [] as AdapterInfo[],
   rooms: [] as RoomListItem[],
   characters: [] as Character[],
+  
+  /** 当前激活会话类型与标识 */
+  activeSession: null as Session | null,
+
+  // 群聊房间相关状态
   currentRoom: null as RoomState | null,
   messages: [] as ChatMessage[],
-  /** memberId → 流式缓冲(进行中发言的占位渲染) */
+  editingContext: null as EditingContext | null,
   memberStream: {} as Record<string, StreamBuf>,
+
+  // 角色专属 1v1 私聊状态
+  currentDirectChar: null as Character | null,
+  directMessages: [] as ChatMessage[],
+  directStream: null as StreamBuf | null,
+  directStatus: 'idle' as 'idle' | 'thinking' | 'streaming' | 'error',
+
   sidebarTab: 'rooms' as 'rooms' | 'chars',
-  openRoomIds: [] as string[],
+  openSessions: [] as Session[],
 });
+
+export function setEditingMessage(ctx: EditingContext | null): void {
+  store.editingContext = ctx;
+}
 
 export function currentRoomId(): string | null {
   return store.currentRoom?.config.id ?? null;
@@ -38,80 +64,181 @@ export async function enterRoom(roomId: string): Promise<void> {
     api.roomState(roomId),
     api.messages(roomId),
   ]);
+  store.activeSession = { type: 'room', id: roomId };
   store.currentRoom = state;
   store.messages = msgs;
+  store.editingContext = null;
   store.memberStream = {};
+  store.currentDirectChar = null;
 }
 
 /** 打开并聚焦房间（若未在 Tab 中则追加） */
 export async function openRoom(roomId: string): Promise<void> {
-  if (!store.openRoomIds.includes(roomId)) {
-    store.openRoomIds.push(roomId);
+  const exists = store.openSessions.some((s) => s.type === 'room' && s.id === roomId);
+  if (!exists) {
+    store.openSessions.push({ type: 'room', id: roomId });
   }
   await enterRoom(roomId);
 }
 
-/** 打开与指定角色的 1v1 私聊房间（不存在则自动建立） */
+/** 打开与指定角色的 1v1 纯粹私聊（独立历史，绝不污染群聊房间） */
 export async function openDirectChat(c: Character): Promise<void> {
-  const dmRoom = store.rooms.find(
-    (r) => r.config.dmCharacterId === c.id || (r.config.members.length === 1 && r.config.members[0]?.characterId === c.id),
-  );
-  if (!dmRoom) {
-    const res = await api.createRoom({
-      name: c.name,
-      color: c.color,
-      topic: c.persona,
-      speechLength: 'normal',
-      toolPermission: 'readonly',
-      dmCharacterId: c.id,
-      members: [
-        {
-          name: c.name,
-          adapter: c.adapter,
-          persona: c.persona,
-          color: c.color,
-          characterId: c.id,
-        },
-      ],
-    });
-    await refreshRooms();
-    await openRoom(res.id);
-  } else {
-    await openRoom(dmRoom.config.id);
+  const exists = store.openSessions.some((s) => s.type === 'direct' && s.characterId === c.id);
+  if (!exists) {
+    store.openSessions.push({ type: 'direct', characterId: c.id });
   }
+  store.activeSession = { type: 'direct', characterId: c.id };
+  store.currentDirectChar = c;
+  store.currentRoom = null;
+  store.directStream = null;
+  store.directStatus = 'idle';
+  store.directMessages = await api.directMessages(c.id);
 }
 
-/** 关闭某个房间 Tab */
-export async function closeRoom(roomId: string): Promise<void> {
-  const idx = store.openRoomIds.indexOf(roomId);
-  if (idx === -1) return;
+/** 1v1 私聊用户发言 */
+export async function sayDirect(text: string): Promise<void> {
+  if (!store.currentDirectChar || !text.trim()) return;
+  await api.sayDirect(store.currentDirectChar.id, text.trim());
+}
 
-  const isCurrent = store.currentRoom?.config.id === roomId;
-  store.openRoomIds.splice(idx, 1);
+/** 1v1 私聊停止输出 */
+export async function stopDirect(): Promise<void> {
+  if (!store.currentDirectChar) return;
+  await api.stopDirect(store.currentDirectChar.id);
+  store.directStatus = 'idle';
+}
 
-  if (!isCurrent) return;
+/** 1v1 私聊清空重置对话 */
+export async function resetDirect(): Promise<void> {
+  if (!store.currentDirectChar) return;
+  await api.resetDirect(store.currentDirectChar.id);
+  store.directMessages = [];
+  store.directStream = null;
+  store.directStatus = 'idle';
+}
 
-  if (store.openRoomIds.length > 0) {
-    const nextIdx = Math.min(idx, store.openRoomIds.length - 1);
-    const nextId = store.openRoomIds[nextIdx];
-    if (nextId) await enterRoom(nextId);
-  } else {
-    store.currentRoom = null;
+/** 清空指定群聊房间的全部聊天消息 */
+export async function clearRoomMessages(roomId: string): Promise<void> {
+  await api.clearRoomMessages(roomId);
+  if (store.currentRoom?.config.id === roomId) {
     store.messages = [];
     store.memberStream = {};
   }
 }
 
+/**
+ * 统一会话操作门面 (Session Actions Facade)
+ * 让 UI 组件(MessageBubble/Composer)与具体的会话模型彻底解耦，统一处理重roll、截断与编辑。
+ */
+export const sessionActions = {
+  /** 统一重roll指定发言 */
+  async reroll(messageId: string): Promise<void> {
+    const s = store.activeSession;
+    if (!s) return;
+    if (s.type === 'room') {
+      await api.rerollMessage(s.id, messageId);
+    } else {
+      await api.rerollDirectMessage(s.characterId, messageId);
+    }
+  },
+
+  /** 统一截断指定消息之后的对话记录 */
+  async truncateAfter(messageId: string): Promise<void> {
+    const s = store.activeSession;
+    if (!s) return;
+    if (s.type === 'room') {
+      await api.truncateAfterMessage(s.id, messageId);
+    } else {
+      const res = await api.truncateAfterDirectMessage(s.characterId, messageId);
+      store.directMessages = res.messages;
+      store.directStream = null;
+    }
+  },
+
+  /** 统一保存编辑文本 */
+  async saveEdit(messageId: string, text: string): Promise<void> {
+    const s = store.activeSession;
+    if (!s) return;
+    if (s.type === 'room') {
+      await api.saveEditMessage(s.id, messageId, text);
+    } else {
+      await api.saveEditDirectMessage(s.characterId, messageId, text);
+    }
+  },
+};
+
+
+/** 关闭某个会话 Tab */
+export async function closeSession(session: Session): Promise<void> {
+  const idx = store.openSessions.findIndex((s) => {
+    if (s.type !== session.type) return false;
+    if (s.type === 'room' && session.type === 'room') return s.id === session.id;
+    if (s.type === 'direct' && session.type === 'direct') return s.characterId === session.characterId;
+    return false;
+  });
+  if (idx === -1) return;
+
+  let isCurrent = false;
+  if (store.activeSession && store.activeSession.type === session.type) {
+    if (store.activeSession.type === 'room' && session.type === 'room') {
+      isCurrent = store.activeSession.id === session.id;
+    } else if (store.activeSession.type === 'direct' && session.type === 'direct') {
+      isCurrent = store.activeSession.characterId === session.characterId;
+    }
+  }
+
+  store.openSessions.splice(idx, 1);
+
+  if (!isCurrent) return;
+
+  if (store.openSessions.length > 0) {
+    const nextIdx = Math.min(idx, store.openSessions.length - 1);
+    const nextSession = store.openSessions[nextIdx];
+    if (nextSession) {
+      if (nextSession.type === 'room') {
+        await enterRoom(nextSession.id);
+      } else {
+        const char = store.characters.find((c) => c.id === nextSession.characterId);
+        if (char) {
+          await openDirectChat(char);
+        } else {
+          store.activeSession = null;
+          store.currentDirectChar = null;
+        }
+      }
+    }
+  } else {
+    store.activeSession = null;
+    store.currentRoom = null;
+    store.messages = [];
+    store.memberStream = {};
+    store.currentDirectChar = null;
+    store.directMessages = [];
+    store.directStream = null;
+  }
+}
+
+/** 向后兼容老调用的 closeRoom */
+export async function closeRoom(roomId: string): Promise<void> {
+  await closeSession({ type: 'room', id: roomId });
+}
+
 export async function refreshRooms(): Promise<void> {
   store.rooms = await api.rooms();
-  const validIds = new Set(store.rooms.map((r) => r.config.id));
-  if (store.openRoomIds.some((id) => !validIds.has(id))) {
-    store.openRoomIds = store.openRoomIds.filter((id) => validIds.has(id));
-    if (store.currentRoom && !validIds.has(store.currentRoom.config.id)) {
-      const firstId = store.openRoomIds[0];
-      if (firstId) {
-        await enterRoom(firstId);
+  const validRoomIds = new Set(store.rooms.map((r) => r.config.id));
+  const removed = store.openSessions.filter((s) => s.type === 'room' && !validRoomIds.has(s.id));
+  if (removed.length > 0) {
+    store.openSessions = store.openSessions.filter((s) => s.type !== 'room' || validRoomIds.has(s.id));
+    if (store.activeSession?.type === 'room' && !validRoomIds.has(store.activeSession.id)) {
+      const first = store.openSessions[0];
+      if (first) {
+        if (first.type === 'room') await enterRoom(first.id);
+        else {
+          const c = store.characters.find((char) => char.id === first.characterId);
+          if (c) await openDirectChat(c);
+        }
       } else {
+        store.activeSession = null;
         store.currentRoom = null;
         store.messages = [];
         store.memberStream = {};
@@ -144,6 +271,13 @@ function onWsEvent(ev: import('@server/core/bus').WsEvent): void {
       }
       return;
     }
+    case 'roomMessages': {
+      const rid = currentRoomId();
+      if (rid != null && ev.roomId === rid) {
+        store.messages = ev.messages;
+      }
+      return;
+    }
     case 'agentEvent': {
       const rid = currentRoomId();
       if (rid === ev.roomId) onAgentEvent(ev.event);
@@ -153,8 +287,7 @@ function onWsEvent(ev: import('@server/core/bus').WsEvent): void {
       const rid = currentRoomId();
       if (rid === ev.roomId) {
         store.currentRoom = ev.state; // 整快照替换,不 merge
-        // 状态归位的成员清理流式缓冲(正常完成由 message 事件清;stop/error 等
-        // 无最终消息的路径在此兜底,防止"正在思考…"占位气泡永久悬挂)
+        // 状态归位的成员清理流式缓冲
         for (const [mid, status] of Object.entries(ev.state.statuses)) {
           if (status === 'idle' || status === 'error') delete store.memberStream[mid];
         }
@@ -163,6 +296,46 @@ function onWsEvent(ev: import('@server/core/bus').WsEvent): void {
     }
     case 'rooms': {
       void refreshRooms();
+      return;
+    }
+    case 'directMessage': {
+      if (store.currentDirectChar && store.currentDirectChar.id === ev.characterId) {
+        store.directMessages.push(ev.message);
+        store.directStream = null;
+        store.directStatus = 'idle';
+      }
+      return;
+    }
+    case 'directEvent': {
+      if (store.currentDirectChar && store.currentDirectChar.id === ev.characterId) {
+        if (ev.event.phase === 'thinking') {
+          store.directStatus = 'thinking';
+          store.directStream ??= { text: '', thinking: '' };
+          if (ev.event.thinkingDelta) store.directStream.thinking += ev.event.thinkingDelta;
+        } else if (ev.event.phase === 'streaming') {
+          store.directStatus = 'streaming';
+          store.directStream ??= { text: '', thinking: '' };
+          if (ev.event.textDelta) store.directStream.text += ev.event.textDelta;
+        } else if (ev.event.phase === 'done' || ev.event.phase === 'error') {
+          store.directStatus = 'idle';
+          if (ev.event.phase === 'error') store.directStream = null;
+        }
+      }
+      return;
+    }
+    case 'directMessages': {
+      if (store.currentDirectChar && store.currentDirectChar.id === ev.characterId) {
+        store.directMessages = ev.messages;
+        store.directStream = null;
+      }
+      return;
+    }
+    case 'directReset': {
+      if (store.currentDirectChar && store.currentDirectChar.id === ev.characterId) {
+        store.directMessages = [];
+        store.directStream = null;
+        store.directStatus = 'idle';
+      }
       return;
     }
     case 'error': {

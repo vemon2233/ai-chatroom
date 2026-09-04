@@ -46,6 +46,7 @@ function highlightMentions(html: string): string {
  */
 export function renderMarkdown(content: string): string {
   if (!content) return '';
-  const rawHtml = md.render(content);
+  const rawHtml = md.render(content).trim();
   return highlightMentions(rawHtml);
 }
+

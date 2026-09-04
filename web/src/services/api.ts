@@ -25,19 +25,16 @@ export interface RoomListItem {
 export interface CreateRoomBody {
   name: string;
   color?: string;
-  emoji?: string;
   topic: string;
   speechLength?: 'short' | 'normal' | 'long';
   projectPath?: string;
   toolPermission?: 'readonly' | 'readwrite' | 'full';
   chainBudget?: number;
-  dmCharacterId?: string;
   members: Array<{
     name: string;
     adapter: string;
     persona: string;
     color?: string;
-    emoji?: string;
     characterId?: string;
     extraArgs?: string[];
   }>;
@@ -53,12 +50,31 @@ export const api = {
     req<Character>(`/api/characters/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
   deleteCharacter: (id: string) => req<{ ok: true }>(`/api/characters/${id}`, { method: 'DELETE' }),
 
+  directMessages: (characterId: string) => req<ChatMessage[]>(`/api/characters/${characterId}/messages`),
+  sayDirect: (characterId: string, text: string) =>
+    req<{ ok: true }>(`/api/characters/${characterId}/say`, { method: 'POST', body: JSON.stringify({ text }) }),
+  stopDirect: (characterId: string) =>
+    req<{ ok: true }>(`/api/characters/${characterId}/stop`, { method: 'POST' }),
+  resetDirect: (characterId: string) =>
+    req<{ ok: true }>(`/api/characters/${characterId}/reset`, { method: 'POST' }),
+  rerollDirectMessage: (characterId: string, messageId: string) =>
+    req<{ ok: true }>(`/api/characters/${characterId}/messages/${messageId}/reroll`, { method: 'POST' }),
+  truncateAfterDirectMessage: (characterId: string, messageId: string) =>
+    req<{ ok: true; messages: ChatMessage[] }>(`/api/characters/${characterId}/messages/${messageId}/truncate`, { method: 'POST' }),
+  saveEditDirectMessage: (characterId: string, messageId: string, text: string) =>
+    req<{ ok: true }>(`/api/characters/${characterId}/messages/${messageId}/edit`, {
+      method: 'POST',
+      body: JSON.stringify({ text }),
+    }),
+
   rooms: () => req<RoomListItem[]>('/api/rooms'),
   createRoom: (body: CreateRoomBody) =>
     req<{ id: string; state: RoomState }>('/api/rooms', { method: 'POST', body: JSON.stringify(body) }),
   deleteRoom: (id: string) => req<{ ok: true }>(`/api/rooms/${id}`, { method: 'DELETE' }),
   roomState: (id: string) => req<RoomState>(`/api/rooms/${id}`),
   messages: (id: string) => req<ChatMessage[]>(`/api/rooms/${id}/messages`),
+  clearRoomMessages: (roomId: string) =>
+    req<{ ok: true }>(`/api/rooms/${roomId}/clear`, { method: 'POST' }),
 
   say: (roomId: string, text: string) =>
     req<{ ok: true }>(`/api/rooms/${roomId}/say`, { method: 'POST', body: JSON.stringify({ text }) }),
@@ -81,4 +97,14 @@ export const api = {
     }),
   removeMember: (roomId: string, memberId: string) =>
     req<{ ok: true }>(`/api/rooms/${roomId}/members/${memberId}`, { method: 'DELETE' }),
+
+  rerollMessage: (roomId: string, messageId: string) =>
+    req<{ ok: true; state: RoomState }>(`/api/rooms/${roomId}/messages/${messageId}/reroll`, { method: 'POST' }),
+  truncateAfterMessage: (roomId: string, messageId: string) =>
+    req<{ ok: true; state: RoomState }>(`/api/rooms/${roomId}/messages/${messageId}/truncate`, { method: 'POST' }),
+  saveEditMessage: (roomId: string, messageId: string, text: string) =>
+    req<{ ok: true; state: RoomState }>(`/api/rooms/${roomId}/messages/${messageId}/edit`, {
+      method: 'POST',
+      body: JSON.stringify({ text }),
+    }),
 };

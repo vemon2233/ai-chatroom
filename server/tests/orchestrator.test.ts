@@ -532,4 +532,22 @@ describe('编排器状态机:杂项入口', () => {
     expect(h.orch.state).toBe('idle');
     expect(h.fake.callCount()).toBe(0);
   });
+
+  it('rerollAgent:单次发言后强制进入 idle，且不接棒', async () => {
+    const members = makeMembers(2, ['甲', '乙']);
+    const h = makeHarness([
+      { result: '甲重新发言的内容<接棒>@乙' },
+    ], {}, members);
+
+    h.orch.rerollAgent('m1');
+    await settle(150);
+
+    // 甲已发言
+    const m1Msgs = h.messages.filter((m) => m.from === 'm1');
+    expect(m1Msgs.length).toBe(1);
+    expect(m1Msgs[0]!.text).toBe('甲重新发言的内容'); // 尾行接棒标记已被剥除
+    // 编排器处于 idle，没有传棒给乙
+    expect(h.orch.state).toBe('idle');
+    expect(h.fake.callCount()).toBe(1);
+  });
 });

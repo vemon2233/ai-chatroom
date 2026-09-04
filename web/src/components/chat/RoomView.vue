@@ -1,26 +1,19 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import { store } from '@/store';
+import { store, clearRoomMessages } from '@/store';
 import { initialsFor } from '@/utils/avatar';
+import { streamPlaceholder } from '@/utils/chat';
+import { dialog } from '@/composables/useDialog';
+import ChatHeader from './ChatHeader.vue';
 import MemberBar from './MemberBar.vue';
 import ChatFlow from './ChatFlow.vue';
 import Composer from './Composer.vue';
 import SettingsPanel from '@/components/modals/SettingsPanel.vue';
-import CharacterModal from '@/components/modals/CharacterModal.vue';
+import type { ChatMessage } from '@server/core/types';
 
 const showSettings = ref(false);
-const charModalRef = ref<InstanceType<typeof CharacterModal> | null>(null);
 
 const room = computed(() => store.currentRoom!);
-
-const isDm = computed(() =>
-  !!room.value.config.dmCharacterId ||
-  (room.value.config.members.length === 1 && !!room.value.config.members[0]?.characterId),
-);
-const dmChar = computed(() => {
-  const cid = room.value.config.dmCharacterId || room.value.config.members[0]?.characterId;
-  return store.characters.find((c) => c.id === cid);
-});
 
 const permName = computed(() =>
   ({ readonly: '只读', readwrite: '读写', full: '完全' } as Record<string, string>)[room.value.config.toolPermission] ?? '只读',
@@ -28,12 +21,9 @@ const permName = computed(() =>
 const projName = computed(() =>
   room.value.config.projectPath ? room.value.config.projectPath.split(/[\\/]/).pop() : '',
 );
-const orchName = computed(() => {
-  if (isDm.value) {
-    return live.value ? '回复中' : '待命';
-  }
-  return ({ idle: '待命', baton: '自由讨论', roundrobin: '轮流发言' } as Record<string, string>)[room.value.orchestration] ?? '';
-});
+const orchName = computed(() =>
+  ({ idle: '待命', baton: '自由讨论', roundrobin: '轮流发言' } as Record<string, string>)[room.value.orchestration] ?? '',
+);
 /** 副行「绿点」:编排进行中(baton/roundrobin)= ok 绿;待命 = 灰 */
 const live = computed(() => room.value.orchestration !== 'idle');
 /** 顶栏头像堆:前 5 个成员,超出 +N 灰圆 */
@@ -41,51 +31,86 @@ const stackMembers = computed(() => room.value.config.members.slice(0, 5));
 const stackOverflow = computed(() => room.value.config.members.length - 5);
 const memberCount = computed(() => room.value.config.members.length);
 
-function onActionClick() {
-  if (isDm.value && dmChar.value) {
-    charModalRef.value?.openEdit(dmChar.value);
-  } else {
-    showSettings.value = true;
+const renderList = computed<Array<ChatMessage | (ChatMessage & { streaming: true })>>(() => {
+  const list: Array<ChatMessage | (ChatMessage & { streaming: true })> = [
+    ...(store.messages as ChatMessage[]),
+  ];
+  if (room.value) {
+    for (const m of room.value.config.members) {
+      const buf = store.memberStream[m.id];
+      if (!buf) continue;
+      list.push({
+        id: `stream_${m.id}`,
+        roomId: room.value.config.id,
+        from: m.id,
+        fromName: m.name,
+        text: streamPlaceholder(buf),
+        ts: Date.now(),
+        streaming: true,
+      });
+    }
   }
+  return list;
+});
+
+function onActionClick() {
+  showSettings.value = true;
+}
+
+async function handleClear() {
+  const ok = await dialog.confirm(
+    '清空聊天记录',
+    `确认清空房间「${room.value.config.name}」的全部聊天记录吗？此操作无法撤销。`,
+    { danger: true, confirmText: '清空' },
+  );
+  if (!ok) return;
+  await clearRoomMessages(room.value.config.id);
 }
 </script>
 
 <template>
   <div class="room-wrap">
     <div class="room-card">
-      <header class="topbar">
-        <div class="title-wrap">
-          <span class="title">{{ room.config.name }}</span>
-          <span class="sub">
-            <span class="live-dot" :class="{ on: live }"></span>
-            <template v-if="isDm">
-              {{ dmChar?.adapter ?? 'CLI' }} · {{ dmChar?.persona || '一对一私聊' }}
-            </template>
-            <template v-else>
-              {{ memberCount }} 成员 · {{ orchName }}{{ projName ? ` · ${projName}(${permName})` : '' }}
-            </template>
-          </span>
-        </div>
-        <div class="topbar-right">
-          <div v-if="!isDm" class="avatar-stack">
-            <span v-for="(m, i) in stackMembers" :key="m.id" class="stack-avatar"
-              :style="{ background: m.color, zIndex: stackMembers.length - i }" :title="m.name">{{ initialsFor(m.name)
-              }}</span>
+      <ChatHeader
+        :title="room.config.name"
+        :subtitle="`${memberCount} 成员 · ${orchName}${projName ? ` · ${projName}(${permName})` : ''}`"
+        :live="live"
+        :status-text="orchName"
+        :status-kind="room.orchestration"
+      >
+        <template #prefix>
+          <div class="avatar-stack">
+            <span
+              v-for="(m, i) in stackMembers"
+              :key="m.id"
+              class="stack-avatar"
+              :style="{ background: m.color, zIndex: stackMembers.length - i }"
+              :title="m.name"
+            >
+              {{ initialsFor(m.name) }}
+            </span>
             <span v-if="stackOverflow > 0" class="stack-avatar more">+{{ stackOverflow }}</span>
           </div>
-          <span class="pill orch" :class="room.orchestration">{{ orchName }}</span>
-          <button class="btn btn-ghost" @click="onActionClick">
-            {{ '设置' }}
+        </template>
+        <template #actions>
+          <button class="btn btn-ghost" type="button" @click="onActionClick">
+            设置
           </button>
-        </div>
-      </header>
+          <button class="btn btn-ghost btn-danger" type="button" @click="handleClear">
+            清空
+          </button>
+        </template>
+      </ChatHeader>
 
-      <MemberBar v-if="!isDm" />
-      <ChatFlow />
-      <Composer />
+      <MemberBar />
+      <ChatFlow
+        :messages="renderList"
+        :empty-title="`欢迎来到 ${room.config.name}`"
+        empty-sub="输入消息开始讨论，可使用 @ 呼叫成员参与交流。"
+      />
+      <Composer mode="room" />
 
       <SettingsPanel v-model="showSettings" />
-      <CharacterModal ref="charModalRef" />
     </div>
   </div>
 </template>
@@ -110,74 +135,25 @@ function onActionClick() {
   overflow: hidden;
 }
 
-.topbar {
-  padding: 11px 18px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  border-bottom: 1px solid var(--border-soft);
-}
-
-.title-wrap {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
-.title {
-  font-size: 15px;
-  font-weight: 650;
-}
-
-.sub {
-  font-size: 11.5px;
-  color: var(--muted);
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.live-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--faint);
-  flex-shrink: 0;
-}
-
-.live-dot.on {
-  background: var(--ok);
-}
-
-.topbar-right {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-shrink: 0;
-}
-
-/* 成员头像堆:20px 正圆重叠,右往左压盖 */
 .avatar-stack {
   display: flex;
+  align-items: center;
+  margin-right: 2px;
 }
 
 .stack-avatar {
   width: 22px;
   height: 22px;
   border-radius: 50%;
-  border: 2px solid var(--panel);
+  border: 1.5px solid var(--panel);
   display: flex;
   align-items: center;
   justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
   color: #fff;
-  font-size: 9px;
-  font-weight: 600;
   margin-left: -6px;
+  flex-shrink: 0;
 }
 
 .stack-avatar:first-child {
@@ -185,18 +161,8 @@ function onActionClick() {
 }
 
 .stack-avatar.more {
-  background: var(--border-soft);
-  color: var(--muted);
-}
-
-/* 编排药丸:三色语义(默认灰 / baton 绿 / roundrobin 琥珀) */
-.pill.orch.baton {
-  background: #ECFDF3;
-  color: #047857;
-}
-
-.pill.orch.roundrobin {
-  background: #FFFBEB;
-  color: #B45309;
+  background: var(--muted);
+  font-size: 9px;
+  font-weight: 600;
 }
 </style>

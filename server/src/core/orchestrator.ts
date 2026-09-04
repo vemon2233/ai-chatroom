@@ -76,6 +76,7 @@ export class Orchestrator {
   private budget: number;
   private loopRunning = false;
   private cancelCurrent: (() => void) | null = null;
+  private currentRunPromise: Promise<void> | null = null;
 
   constructor(private deps: OrchestratorDeps) {
     this.budget = deps.room.chainBudget;
@@ -134,7 +135,12 @@ export class Orchestrator {
         // 幽灵成员防御(已移除/适配器未配置)
         const member = this.deps.room.members.find((m) => m.id === entry.memberId);
         if (!member) continue;
-        await this.runOne(member, entry);
+        this.currentRunPromise = this.runOne(member, entry);
+        try {
+          await this.currentRunPromise;
+        } finally {
+          this.currentRunPromise = null;
+        }
       }
     } finally {
       this.loopRunning = false;
@@ -243,7 +249,34 @@ export class Orchestrator {
   async stop(): Promise<void> {
     this.bumpGeneration();
     this.cancelCurrent?.();
+    if (this.currentRunPromise) {
+      try {
+        await this.currentRunPromise;
+      } catch {
+        // 忽略已取消抛出的异常
+      }
+    }
     this.setState('idle');
+  }
+
+  /** 单次发言重roll:清除当前队列与正在进行的发言,直接让该成员重新说一次,且发完强制回到 idle 态(不传棒) */
+  rerollAgent(memberId: string): void {
+    const member = this.deps.room.members.find((m) => m.id === memberId);
+    if (!member) {
+      this.sysNotice(`找不到重roll成员: ${memberId}`);
+      this.setState('idle');
+      return;
+    }
+    this.bumpGeneration();
+    this.cancelCurrent?.();
+    this.pendingNextId = undefined;
+    this.setState('idle');
+    this.onStatuses();
+    this.enqueue({
+      memberId,
+      trigger: '请重新生成你的发言。针对上述讨论发表你的观点。',
+      batonMode: undefined, // 不传棒,发完直接 idle
+    });
   }
 
   /** 用户给成员直接下指令(同 @点名语义:回应 + 指定待命接棒者) */

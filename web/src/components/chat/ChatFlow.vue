@@ -1,57 +1,48 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue';
-import { store, type StreamBuf } from '@/store';
 import MessageBubble from './MessageBubble.vue';
 import type { ChatMessage } from '@server/core/types';
+
+export type FlowMessage = ChatMessage | (ChatMessage & { streaming: true });
+
+const props = withDefaults(
+  defineProps<{
+    messages: FlowMessage[];
+    emptyTitle?: string;
+    emptySub?: string;
+  }>(),
+  {
+    emptyTitle: '',
+    emptySub: '',
+  },
+);
 
 const flowEl = ref<HTMLElement | null>(null);
 
 const PAGE_SIZE = 60;
 const visibleCount = ref(PAGE_SIZE);
 
-// 切换房间时复位展示数量
-watch(
-  () => store.currentRoom?.config.id,
-  () => {
-    visibleCount.value = PAGE_SIZE;
-  },
+// 历史落定消息与流式占位分离处理，保证分页只截断历史，不吞没活跃生成
+const nonStreamingMessages = computed(() =>
+  props.messages.filter((m) => !('streaming' in m && m.streaming)),
+);
+const streamingMessages = computed(() =>
+  props.messages.filter((m) => 'streaming' in m && m.streaming),
 );
 
-const totalBaseCount = computed(() => store.messages.length);
+const totalBaseCount = computed(() => nonStreamingMessages.value.length);
 const hiddenCount = computed(() => Math.max(0, totalBaseCount.value - visibleCount.value));
 
 function loadMore() {
   visibleCount.value += PAGE_SIZE;
 }
 
-/** 流式占位文本:真实状态三阶——启动中(无输出)/推理中(有 thinking 无正文)/正文流出 */
-function streamPlaceholder(buf: StreamBuf): string {
-  if (buf.text) return buf.text;
-  if (buf.thinking) return '推理中…';
-  return '启动中…';
-}
-
-const renderList = computed<Array<ChatMessage | (ChatMessage & { streaming: true })>>(() => {
-  const base = store.messages as ChatMessage[];
-  const visibleBase = hiddenCount.value > 0 ? base.slice(hiddenCount.value) : base;
-  const streaming: Array<ChatMessage & { streaming: true }> = [];
-  const room = store.currentRoom;
-  if (room) {
-    for (const m of room.config.members) {
-      const buf = store.memberStream[m.id];
-      if (!buf) continue;
-      streaming.push({
-        id: `stream_${m.id}`,
-        roomId: room.config.id,
-        from: m.id,
-        fromName: m.name,
-        text: streamPlaceholder(buf),
-        ts: Date.now(),
-        streaming: true,
-      });
-    }
-  }
-  return [...visibleBase, ...streaming];
+const renderList = computed<FlowMessage[]>(() => {
+  const visibleHistory =
+    hiddenCount.value > 0
+      ? nonStreamingMessages.value.slice(hiddenCount.value)
+      : nonStreamingMessages.value;
+  return [...visibleHistory, ...streamingMessages.value];
 });
 
 /** 自动滚动:贴底时跟随,翻阅历史时不打扰 */
@@ -62,7 +53,7 @@ function isNearBottom(): boolean {
 }
 
 watch(
-  () => [store.messages.length, Object.keys(store.memberStream).length, renderList.value.map(m => m.text.length).join(',')],
+  () => [renderList.value.length, renderList.value.map((m) => m.text.length).join(',')],
   async () => {
     const stick = isNearBottom();
     await nextTick();
@@ -76,6 +67,14 @@ watch(
 
 <template>
   <div ref="flowEl" class="chat-flow">
+    <!-- 空状态插槽:支持具名插槽自由定制或默认两行式 -->
+    <div v-if="renderList.length === 0" class="empty-hint">
+      <slot name="empty">
+        <div v-if="emptyTitle" class="empty-title">{{ emptyTitle }}</div>
+        <div v-if="emptySub" class="empty-sub">{{ emptySub }}</div>
+      </slot>
+    </div>
+
     <!-- 顶部历史折叠指示条 -->
     <div v-if="hiddenCount > 0" class="load-more-wrap">
       <button class="load-more-btn" type="button" @click="loadMore">
@@ -116,8 +115,27 @@ watch(
 }
 
 .load-more-btn:hover {
-  color: var(--accent);
-  border-color: var(--accent-border);
-  background: var(--panel);
+  background: var(--bg);
+  color: var(--text);
+  border-color: var(--border);
+}
+
+.empty-hint {
+  margin: auto;
+  text-align: center;
+  padding: 40px 20px;
+  user-select: none;
+}
+
+.empty-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 6px;
+}
+
+.empty-sub {
+  font-size: 13px;
+  color: var(--muted);
 }
 </style>

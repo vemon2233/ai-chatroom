@@ -9,6 +9,7 @@ import { Scout, type ScoutConfig } from './scout';
 import { MEMBER_PALETTE } from './palette';
 import type { ChatMessage, MemberConfig, RoomConfig, RoomSettings, RoomState } from './types';
 import { getAdapter as getAdapterByKind } from '../adapters/index';
+import { truncateMessages, prepareReroll, prepareEdit } from './historyOps';
 
 /** ChatRoom 的持久化接缝(构造注入,core 层不 import store——依赖保持单向:server→core→adapters)。 */
 export interface RoomPersistence {
@@ -16,19 +17,19 @@ export interface RoomPersistence {
   persistRoom(cfg: RoomConfig): Promise<void>;
   /** JSONL 历史加载(重启复活) */
   loadMessages(roomId: string): Promise<ChatMessage[]>;
+  /** JSONL 历史全量重写(截断/编辑/回溯) */
+  rewriteMessages(roomId: string, messages: ChatMessage[]): Promise<void>;
 }
 
 export interface CreateRoomInput {
   name: string;
   color?: string;
-  emoji?: string;
   topic: string;
   projectPath?: string;
   toolPermission?: RoomConfig['toolPermission'];
   speechLength?: RoomConfig['speechLength'];
   chainBudget?: number;
   moderatorId?: string;
-  dmCharacterId?: string;
   members: Array<Omit<MemberConfig, 'id' | 'color'> & { color?: string }>;
 }
 
@@ -200,12 +201,65 @@ export class ChatRoom {
     await this.orch.stop();
   }
 
+  /** 截断指定消息之后的所有后续消息(点击编辑时截断) */
+  async truncateAfter(messageId: string): Promise<void> {
+    if (this.orch.state !== 'idle' || this.orch.currentSpeaker != null) {
+      await this.stop();
+    }
+    this.messages = truncateMessages(this.messages, messageId);
+    await this.persistence.rewriteMessages(this.config.id, this.messages);
+    this.bus.emitRoomMessages(this.config.id, this.messages);
+  }
+
+  /** 重roll:停止进行中任务,清除该条及后续消息,重新调度该 Agent 发言(发完进入 idle) */
+  async reroll(messageId: string): Promise<void> {
+    if (this.orch.state !== 'idle' || this.orch.currentSpeaker != null) {
+      await this.stop();
+    }
+    const { remaining, targetSpeaker } = prepareReroll(this.messages, messageId);
+    this.messages = remaining;
+    await this.persistence.rewriteMessages(this.config.id, this.messages);
+    this.bus.emitRoomMessages(this.config.id, this.messages);
+    this.orch.rerollAgent(targetSpeaker);
+  }
+
+  /** 保存编辑:更新该消息文本,若是 Agent 保持原身份且留于 idle;若是用户则驱动后续讨论 */
+  async saveEdit(messageId: string, newText: string): Promise<void> {
+    if (this.orch.state !== 'idle' || this.orch.currentSpeaker != null) {
+      await this.stop();
+    }
+    const { remaining, isUser } = prepareEdit(this.messages, messageId, newText);
+    this.messages = remaining;
+    await this.persistence.rewriteMessages(this.config.id, this.messages);
+    this.bus.emitRoomMessages(this.config.id, this.messages);
+    if (isUser) {
+      await this.orch.onUserMessage(newText);
+    }
+  }
+
+  /** 清空房间内全部聊天记录并重置所有成员的会话状态 */
+  async clearMessages(): Promise<void> {
+    if (this.orch.state !== 'idle' || this.orch.currentSpeaker != null) {
+      await this.stop();
+    }
+    this.messages = [];
+    await this.persistence.rewriteMessages(this.config.id, []);
+    this.bus.emitRoomMessages(this.config.id, []);
+
+    // 彻底清除所有成员绑定的底层 CLI 会话记忆 (sessionIds) 并写穿持久化
+    for (const m of this.config.members) {
+      delete m.sessionIds;
+    }
+    await this.persistence.persistRoom(this.config);
+    this.bus.emitRoomState(this.getState());
+  }
+
+
   // ---------- 运行期设置面板 ----------
 
   async updateSettings(patch: Partial<RoomSettings>): Promise<void> {
     if (patch.name != null && patch.name.trim()) this.config.name = patch.name.trim();
     if (patch.color !== undefined) this.config.color = patch.color;
-    if (patch.emoji != null && patch.emoji.trim()) this.config.emoji = patch.emoji.trim();
     if (patch.topic != null && patch.topic.trim()) this.config.topic = patch.topic.trim();
     if (patch.speechLength != null) this.config.speechLength = patch.speechLength;
     if (patch.chainBudget != null) {
@@ -243,14 +297,12 @@ export function makeRoomConfig(input: CreateRoomInput): RoomConfig {
     id: `room_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
     name: input.name || '新房间',
     color: input.color,
-    emoji: input.emoji || '💬',
     topic: input.topic || '自由聊天',
     chainBudget: input.chainBudget ?? 6,
     speechLength: input.speechLength ?? 'normal',
     moderatorId: input.moderatorId ? members.find((m) => m.id === input.moderatorId)?.id : undefined,
     projectPath: input.projectPath || undefined,
     toolPermission: input.toolPermission ?? 'readonly',
-    dmCharacterId: input.dmCharacterId,
     members,
     createdAt: Date.now(),
   };

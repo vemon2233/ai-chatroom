@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
-import { store, refreshRooms, refreshCharacters, openRoom, closeRoom, openDirectChat } from '@/store';
+import { ref } from 'vue';
+import { store, refreshRooms, refreshCharacters, openRoom, closeRoom, closeSession, openDirectChat } from '@/store';
 import { api, type RoomListItem } from '@/services/api';
 import { dialog } from '@/composables/useDialog';
 import NewRoomModal from '@/components/modals/NewRoomModal.vue';
@@ -15,13 +15,6 @@ const showNewRoom = ref(false);
 const showCharModal = ref(false); // "新角色"按钮用;编辑走 openEdit(内部置位)
 const charModalRef = ref<InstanceType<typeof CharacterModal> | null>(null);
 const roomSettingsRef = ref<InstanceType<typeof SettingsPanel> | null>(null);
-
-/** 仅保留群聊探讨房间，私聊房间收敛至角色 Tab */
-const groupRooms = computed(() =>
-  store.rooms.filter(
-    (r) => !r.config.dmCharacterId && !(r.config.members.length === 1 && !!r.config.members[0]?.characterId),
-  ),
-);
 
 function switchTab(tab: 'rooms' | 'chars') {
   store.sidebarTab = tab;
@@ -58,19 +51,13 @@ async function onDeleteRoom(id: string, name: string) {
 async function onDeleteCharacter(id: string, name: string) {
   const ok = await dialog.confirm(
     '删除角色',
-    `删除角色「${name}」?已拉进房间的成员不受影响。`,
+    `删除角色「${name}」?已拉进房间的成员不受影响，专属私聊记录将被清理。`,
     { danger: true, confirmText: '删除' },
   );
   if (!ok) return;
-  // 若有该角色的 1v1 私聊房间，一同清理
-  const dmRoom = store.rooms.find((r) => r.config.dmCharacterId === id);
-  if (dmRoom) {
-    await api.deleteRoom(dmRoom.config.id);
-    await closeRoom(dmRoom.config.id);
-  }
+  await closeSession({ type: 'direct', characterId: id });
   await api.deleteCharacter(id);
   await refreshCharacters();
-  await refreshRooms();
 }
 
 /** 房间卡片摘要:主题/讨论题目 */
@@ -98,11 +85,11 @@ function roomSub(room: RoomListItem): string {
         <button class="import-btn" @click="onImportRoom">导入</button>
       </div>
       <div class="list">
-        <SidebarCard v-for="room in groupRooms" :key="room.config.id" :title="room.config.name"
-          :badge="`${room.config.members.length}人`" :sub="roomSub(room)" :color="room.config.color" :can-edit="true"
-          edit-title="编辑房间" :active="store.currentRoom?.config.id === room.config.id"
-          @click="emit('enter-room', room.config.id)" @edit="editRoom(room)"
-          @remove="onDeleteRoom(room.config.id, room.config.name)" />
+        <SidebarCard v-for="r in store.rooms" :key="r.config.id" :title="r.config.name" :badge="`${r.config.members.length}人`"
+          :sub="roomSub(r)" :color="r.config.color" :active="store.activeSession?.type === 'room' && store.activeSession.id === r.config.id"
+          :can-edit="true" edit-title="房间设置" @click="openRoom(r.config.id)" @edit="editRoom(r)"
+          @remove="onDeleteRoom(r.config.id, r.config.name)" />
+        <div v-if="store.rooms.length === 0" class="list-empty">还没有房间</div>
       </div>
     </div>
 
@@ -113,7 +100,7 @@ function roomSub(room: RoomListItem): string {
       </div>
       <div class="list">
         <SidebarCard v-for="c in store.characters" :key="c.id" :title="c.name" :badge="c.adapter" :sub="c.persona"
-          :color="c.color" :can-edit="true" edit-title="编辑角色" :active="store.currentRoom?.config.dmCharacterId === c.id"
+          :color="c.color" :can-edit="true" edit-title="编辑角色" :active="store.activeSession?.type === 'direct' && store.activeSession.characterId === c.id"
           @click="openDirectChat(c)" @edit="editCharacter(c)" @remove="onDeleteCharacter(c.id, c.name)" />
         <div v-if="store.characters.length === 0" class="list-empty">还没有角色</div>
       </div>

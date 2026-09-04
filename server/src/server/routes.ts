@@ -5,8 +5,10 @@ import { existsSync } from 'node:fs';
 import { ChatRoom, makeRoomConfig, type CreateRoomInput } from '../core/room';
 import type { MessageBus } from '../core/bus';
 import { deleteRoom, persistRoom } from '../store/rooms';
-import { loadRoomMessages } from '../store/transcript';
+import { loadRoomMessages, rewriteRoomMessages } from '../store/transcript';
 import { CharacterStore } from '../store/characters';
+import { DirectChatService } from '../core/direct';
+import { getAdapter as getAdapterByKind } from '../adapters/index';
 import type { Character, RoomSettings } from '../core/types';
 import type { AdapterConfig, AppConfig } from './config';
 
@@ -14,6 +16,8 @@ import type { AdapterConfig, AppConfig } from './config';
 const roomPersistence = {
   persistRoom,
   loadMessages: (roomId: string) => loadRoomMessages(roomId),
+  rewriteMessages: (roomId: string, messages: import('../core/types').ChatMessage[]) =>
+    rewriteRoomMessages(roomId, messages),
 };
 
 function readBody(req: IncomingMessage): Promise<any> {
@@ -40,6 +44,15 @@ function json(res: ServerResponse, code: number, body: unknown) {
 export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string, ChatRoom>) {
   const adapterConfigs = cfg.adapters;
   const characters = new CharacterStore();
+  const directChat = new DirectChatService({
+    bus,
+    adapterConfigs,
+    resolveAdapter: (adapterKey: string) => {
+      const entry = adapterConfigs[adapterKey];
+      if (!entry) throw new Error(`未知适配器配置: ${adapterKey}`);
+      return getAdapterByKind(entry.kind);
+    },
+  });
 
   return {
     rooms,
@@ -59,7 +72,7 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
         return json(res, 200, { adapters });
       }
 
-      // ---- 角色库 CRUD ----
+      // ---- 角色库 CRUD & 专属 1v1 私聊 ----
       if (p === '/api/characters' && method === 'GET') {
         await characters.ensureLoaded();
         return json(res, 200, characters.list());
@@ -75,7 +88,6 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
         const c = await characters.create({
           name: body.name.trim(),
           color: body.color,
-          emoji: body.emoji || '🙂',
           adapter: body.adapter,
           persona: body.persona.trim(),
           extraArgs: body.extraArgs,
@@ -83,10 +95,72 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
         });
         return json(res, 201, c);
       }
-      const charMatch = p.match(/^\/api\/characters\/([^/]+)$/);
+      const charMatch = p.match(/^\/api\/characters\/([^/]+)(?:\/(.+))?$/);
       if (charMatch) {
         const id = decodeURIComponent(charMatch[1]!);
-        if (method === 'PUT' || method === 'PATCH') {
+        const sub = charMatch[2];
+
+        // 1v1 私聊历史
+        if (sub === 'messages' && method === 'GET') {
+          const msgs = await directChat.getMessages(id);
+          return json(res, 200, msgs);
+        }
+
+        // 1v1 私聊用户发言
+        if (sub === 'say' && method === 'POST') {
+          await characters.ensureLoaded();
+          const char = characters.get(id);
+          if (!char) return json(res, 404, { error: '角色不存在' });
+          const { text } = await readBody(req);
+          if (!text?.trim()) return json(res, 400, { error: '空消息' });
+          await directChat.userSpeak(char, text.trim());
+          return json(res, 200, { ok: true });
+        }
+
+        // 1v1 私聊停止输出
+        if (sub === 'stop' && method === 'POST') {
+          await directChat.stop(id);
+          return json(res, 200, { ok: true });
+        }
+
+        // 1v1 私聊清空重置
+        if (sub === 'reset' && method === 'POST') {
+          await directChat.reset(id);
+          return json(res, 200, { ok: true });
+        }
+
+        // 1v1 私聊消息重roll / 截断 / 回溯编辑
+        const charMsgActionMatch = sub?.match(/^messages\/([^/]+)\/(reroll|truncate|edit)$/);
+        if (charMsgActionMatch && method === 'POST') {
+          await characters.ensureLoaded();
+          const char = characters.get(id);
+          if (!char) return json(res, 404, { error: '角色不存在' });
+          const msgId = decodeURIComponent(charMsgActionMatch[1]!);
+          const action = charMsgActionMatch[2];
+          try {
+            if (action === 'reroll') {
+              await directChat.reroll(char, msgId);
+              return json(res, 200, { ok: true });
+            }
+            if (action === 'truncate') {
+              const remaining = await directChat.truncateAfter(id, msgId);
+              return json(res, 200, { ok: true, messages: remaining });
+            }
+            if (action === 'edit') {
+              const body = await readBody(req);
+              if (typeof body.text !== 'string' || !body.text.trim()) {
+                return json(res, 400, { error: '编辑文本不能为空' });
+              }
+              await directChat.saveEdit(char, msgId, body.text.trim());
+              return json(res, 200, { ok: true });
+            }
+          } catch (e: any) {
+            return json(res, 400, { error: e.message || String(e) });
+          }
+        }
+
+
+        if (!sub && (method === 'PUT' || method === 'PATCH')) {
           const body = await readBody(req);
           if (body.adapter && !adapterConfigs[body.adapter]) {
             return json(res, 400, { error: `未知适配器: ${body.adapter}` });
@@ -95,9 +169,10 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
           if (!updated) return json(res, 404, { error: '角色不存在' });
           return json(res, 200, updated);
         }
-        if (method === 'DELETE') {
+        if (!sub && method === 'DELETE') {
           const ok = await characters.remove(id);
           if (!ok) return json(res, 404, { error: '角色不存在' });
+          await directChat.delete(id);
           return json(res, 200, { ok: true });
         }
       }
@@ -118,7 +193,6 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
           inputs.map((c) => ({
             name: c.name,
             color: c.color,
-            emoji: c.emoji,
             adapter: c.adapter,
             persona: c.persona,
             extraArgs: c.extraArgs,
@@ -187,6 +261,39 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
           if (!text?.trim()) return json(res, 400, { error: '空消息' });
           await room!.userSpeak(text.trim());
           return json(res, 200, { ok: true });
+        }
+
+        // 清空房间消息
+        if (sub === 'clear' && method === 'POST') {
+          await room!.clearMessages();
+          return json(res, 200, { ok: true });
+        }
+
+        // 消息重roll / 截断 / 回溯编辑
+        const msgActionMatch = sub?.match(/^messages\/([^/]+)\/(reroll|truncate|edit)$/);
+        if (msgActionMatch && method === 'POST') {
+          const msgId = decodeURIComponent(msgActionMatch[1]!);
+          const action = msgActionMatch[2];
+          try {
+            if (action === 'reroll') {
+              await room!.reroll(msgId);
+              return json(res, 200, { ok: true, state: room!.getState() });
+            }
+            if (action === 'truncate') {
+              await room!.truncateAfter(msgId);
+              return json(res, 200, { ok: true, state: room!.getState() });
+            }
+            if (action === 'edit') {
+              const body = await readBody(req);
+              if (typeof body.text !== 'string' || !body.text.trim()) {
+                return json(res, 400, { error: '编辑文本不能为空' });
+              }
+              await room!.saveEdit(msgId, body.text.trim());
+              return json(res, 200, { ok: true, state: room!.getState() });
+            }
+          } catch (e: any) {
+            return json(res, 400, { error: e.message || String(e) });
+          }
         }
 
         // 给指定成员直接下指令

@@ -1,17 +1,52 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue';
-import { store } from '@/store';
+import { setEditingMessage, sessionActions, store, sayDirect, stopDirect } from '@/store';
 import { api } from '@/services/api';
 import { detectMention, type TextSegment } from '@/utils/mentions';
+
+const props = withDefaults(
+  defineProps<{
+    mode?: 'room' | 'direct';
+  }>(),
+  { mode: 'room' },
+);
 
 const text = ref('');
 const inputEl = ref<HTMLTextAreaElement | null>(null);
 
 const busy = computed(() => {
+  if (props.mode === 'direct') {
+    return store.directStatus === 'thinking' || store.directStatus === 'streaming';
+  }
   const room = store.currentRoom;
   if (!room) return false;
   return Object.values(room.statuses).some((s) => s === 'thinking' || s === 'streaming');
 });
+
+// 监听编辑态进入，填充文本并自动聚焦
+watch(
+  () => store.editingContext,
+  (ctx) => {
+    if (ctx) {
+      text.value = ctx.text;
+      nextTick(() => {
+        autoGrow();
+        if (inputEl.value) {
+          inputEl.value.focus();
+          const len = text.value.length;
+          inputEl.value.setSelectionRange(len, len);
+        }
+      });
+    }
+  },
+  { immediate: true },
+);
+
+function cancelEdit() {
+  setEditingMessage(null);
+  text.value = '';
+  nextTick(() => autoGrow());
+}
 
 // ---------- 微信式 @ 弹选 ----------
 
@@ -22,7 +57,7 @@ const popup = ref<{ start: number; query: string } | null>(null);
 const activeIdx = ref(0);
 
 const candidates = computed<Candidate[]>(() => {
-  if (!popup.value) return [];
+  if (props.mode !== 'room' || !popup.value) return [];
   const q = popup.value.query.toLowerCase();
   const list: Candidate[] = [];
   if ('all'.startsWith(q) || q === '') {
@@ -41,11 +76,10 @@ watch(candidates, (list) => {
 });
 
 function refreshPopup() {
+  if (props.mode !== 'room') return;
   const el = inputEl.value;
   if (!el) return;
   const pos = el.selectionStart ?? text.value.length;
-  // 检测到激活 @token 即弹(无候选也保持打开——用户正在输入过滤词;
-  // token 终止/误触邮箱等情况由 detectMention 的行首/空白前置条件排除)
   popup.value = detectMention(text.value.slice(0, pos));
 }
 
@@ -113,14 +147,38 @@ function pickCandidate(idx: number) {
 
 async function send() {
   const t = text.value.trim();
-  if (!t || !store.currentRoom) return;
+  if (!t) return;
+
   text.value = '';
   nextTick(() => autoGrow()); // 清空后回缩到单行高
   popup.value = null;
-  await api.say(store.currentRoom.config.id, t);
+
+  const editCtx = store.editingContext;
+  if (editCtx) {
+    setEditingMessage(null);
+    try {
+      await sessionActions.saveEdit(editCtx.messageId, t);
+    } catch (err: any) {
+      console.error('保存编辑失败:', err);
+    }
+    return;
+  }
+
+  if (props.mode === 'direct') {
+    await sayDirect(t);
+    return;
+  }
+
+  if (!store.currentRoom) return;
+  const roomId = store.currentRoom.config.id;
+  await api.say(roomId, t);
 }
 
 async function onStop() {
+  if (props.mode === 'direct') {
+    await stopDirect();
+    return;
+  }
   if (!store.currentRoom) return;
   await api.stop(store.currentRoom.config.id);
 }
@@ -128,10 +186,21 @@ async function onStop() {
 
 <template>
   <div class="composer">
-    <!-- @语法速记:常驻可见(私聊显示私聊指引，群聊显示接棒规则) -->
-    <div class="syntax-hint">
-      <template v-if="store.currentRoom?.config.dmCharacterId || (store.currentRoom?.config.members.length === 1 && store.currentRoom?.config.members[0]?.characterId)">
-        正在与 {{ store.currentRoom.config.name }} 一对一私聊 · 直接输入消息，Enter 发送
+    <!-- 编辑模式提示条 -->
+    <div v-if="store.editingContext" class="editing-banner">
+      <div class="editing-info">
+        <span class="editing-badge">✏️ 编辑模式</span>
+        <span class="editing-desc">
+          正在修改 <strong>{{ store.editingContext.fromName }}</strong> 的发言（后续对话已清除）
+        </span>
+      </div>
+      <button class="cancel-edit-btn" type="button" @click="cancelEdit">✕ 取消编辑</button>
+    </div>
+
+    <!-- 语法提示:常驻可见 -->
+    <div v-else class="syntax-hint">
+      <template v-if="mode === 'direct'">
+        正在与 {{ store.currentDirectChar?.name || '角色' }} 一对一私聊 · Enter 发送，Shift+Enter 换行
       </template>
       <template v-else>
         无@=接棒续聊 · @成员=点名(答完指定下一位并暂停) · 接棒@成员=TA直接起头 · @allN=轮流N轮
@@ -174,7 +243,9 @@ async function onStop() {
         </div>
       </div>
 
-      <button v-if="!busy" class="btn btn-primary send" @click="send">发送</button>
+      <button v-if="!busy" class="btn btn-primary send" @click="send">
+        {{ store.editingContext ? '更新' : '发送' }}
+      </button>
       <button v-else class="btn stop send" @click="onStop">停止</button>
     </div>
   </div>
@@ -188,6 +259,52 @@ async function onStop() {
   display: flex;
   flex-direction: column;
   gap: 7px;
+}
+
+/* 编辑模式提示条 */
+.editing-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-border);
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 12px;
+  color: var(--accent-deep);
+}
+.editing-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.editing-badge {
+  font-weight: 700;
+  font-size: 11.5px;
+  flex-shrink: 0;
+}
+.editing-desc {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cancel-edit-btn {
+  background: transparent;
+  border: none;
+  color: var(--accent-deep);
+  font-size: 11.5px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  opacity: 0.8;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+}
+.cancel-edit-btn:hover {
+  opacity: 1;
+  background: rgba(0, 0, 0, 0.05);
 }
 
 /* 语法速记:常驻小灰字 */
