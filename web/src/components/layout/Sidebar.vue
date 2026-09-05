@@ -1,31 +1,30 @@
 <script setup lang="ts">
 import { onUnmounted, ref } from 'vue';
-import { store, refreshRooms, refreshCharacters, openRoom, closeRoom, closeSession, openDirectChat } from '@/store';
+import { store, refreshRooms, refreshCharacters, openRoom, closeRoom, closeSession, openDirectChat, openInspector } from '@/store';
 import { api, type RoomListItem } from '@/services/api';
 import { dialog } from '@/composables/useDialog';
 import NewRoomModal from '@/components/modals/NewRoomModal.vue';
 import CharacterModal from '@/components/modals/CharacterModal.vue';
-import SettingsPanel from '@/components/modals/SettingsPanel.vue';
 import SidebarCard from '@/components/ui/SidebarCard.vue';
 import logoUrl from '@/assets/icon.png';
 
 const emit = defineEmits<{ (e: 'enter-room', id: string): void }>();
 
 const showNewRoom = ref(false);
-const showCharModal = ref(false); // "新角色"按钮用;编辑走 openEdit(内部置位)
-const charModalRef = ref<InstanceType<typeof CharacterModal> | null>(null);
-const roomSettingsRef = ref<InstanceType<typeof SettingsPanel> | null>(null);
+const showCharModal = ref(false);
 
 function switchTab(tab: 'rooms' | 'chars') {
   store.sidebarTab = tab;
 }
 
-function editRoom(room: RoomListItem) {
-  roomSettingsRef.value?.openEdit(room.config);
+async function editRoom(room: RoomListItem) {
+  await openRoom(room.config.id);
+  openInspector('manage');
 }
 
-function editCharacter(c: import('@server/core/types').Character) {
-  charModalRef.value?.openEdit(c);
+async function editCharacter(c: import('@server/core/types').Character) {
+  await openDirectChat(c);
+  openInspector('manage');
 }
 
 function onImportRoom() {
@@ -155,7 +154,7 @@ onUnmounted(() => {
       <div class="list">
         <SidebarCard v-for="r in store.rooms" :key="r.config.id" :title="r.config.name" :badge="`${r.config.members.length}人`"
           :sub="roomSub(r)" :color="r.config.color" :active="store.activeSession?.type === 'room' && store.activeSession.id === r.config.id"
-          :can-edit="true" edit-title="房间设置" @click="openRoom(r.config.id)" @edit="editRoom(r)"
+          :can-edit="true" edit-title="管理房间" @click="openRoom(r.config.id)" @edit="editRoom(r)"
           @remove="onDeleteRoom(r.config.id, r.config.name)" />
         <div v-if="store.rooms.length === 0" class="list-empty">还没有房间</div>
       </div>
@@ -168,15 +167,14 @@ onUnmounted(() => {
       </div>
       <div class="list">
         <SidebarCard v-for="c in store.characters" :key="c.id" :title="c.name" :badge="c.adapter" :sub="c.persona"
-          :color="c.color" :can-edit="true" edit-title="编辑角色" :active="store.activeSession?.type === 'direct' && store.activeSession.characterId === c.id"
+          :color="c.color" :can-edit="true" edit-title="管理角色" :active="store.activeSession?.type === 'direct' && store.activeSession.characterId === c.id"
           @click="openDirectChat(c)" @edit="editCharacter(c)" @remove="onDeleteCharacter(c.id, c.name)" />
         <div v-if="store.characters.length === 0" class="list-empty">还没有角色</div>
       </div>
     </div>
 
     <NewRoomModal v-model="showNewRoom" />
-    <CharacterModal ref="charModalRef" v-model="showCharModal" />
-    <SettingsPanel ref="roomSettingsRef" />
+    <CharacterModal v-model="showCharModal" />
 
     <!-- 右侧可拖拽分割线 -->
     <div

@@ -113,11 +113,11 @@ defineExpose({ submit, valid, reset });
     </div>
     <div class="grid2-eq">
       <div class="form-row">
-        <label>model 档(可选)</label>
+        <label class="nowrap-label">model 档 (可选)</label>
         <input v-model="modelArg" type="text" placeholder="如 sonnet / haiku" />
       </div>
       <div class="form-row">
-        <label>备注(可选,仅自己可见)</label>
+        <label class="nowrap-label" title="仅自己可见，方便区分不同角色的使用场景">备注 (可选)</label>
         <input v-model="note" type="text" placeholder="什么时候用这个角色" />
       </div>
     </div>
@@ -128,7 +128,24 @@ defineExpose({ submit, valid, reset });
 
 <style scoped>
 .char-form { display: flex; flex-direction: column; gap: 14px; }
-.grid2-eq { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.grid2-eq {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.grid2-eq > .form-row {
+  min-width: 0;
+}
+.grid2-eq input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+.nowrap-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 .name-color-row {
   display: flex;

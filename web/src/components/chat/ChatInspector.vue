@@ -5,15 +5,17 @@ import { store } from '@/store';
 import { renderMarkdown } from '@/utils/markdown';
 import type { AgentTraceLog, DiscussionSummary } from '@server/core/types';
 import type { TraceSummaryItem } from '@server/store/trace';
+import InspectorRoomManage from './inspector/InspectorRoomManage.vue';
+import InspectorDirectManage from './inspector/InspectorDirectManage.vue';
 
 const props = defineProps<{
-  activeTab: 'summary' | 'logs';
+  activeTab: 'summary' | 'logs' | 'manage';
   sessionType: 'room' | 'direct';
   sessionId: string;
 }>();
 
 const emit = defineEmits<{
-  (e: 'update:activeTab', tab: 'summary' | 'logs'): void;
+  (e: 'update:activeTab', tab: 'summary' | 'logs' | 'manage'): void;
   (e: 'close'): void;
 }>();
 
@@ -338,6 +340,7 @@ onUnmounted(() => {
     >
       <div class="resizer-line"></div>
     </div>
+
     <!-- Tab 1: 讨论摘要视图 -->
     <div v-if="activeTab === 'summary'" class="tab-content summary-view">
       <div class="summary-subbar">
@@ -399,7 +402,7 @@ onUnmounted(() => {
 
     <!-- Tab 2: 调用日志视图 (分栏列表 + 详情) -->
     <div
-      v-else
+      v-else-if="activeTab === 'logs'"
       class="tab-content logs-view"
       :class="{ 'is-timeline-dragging': isTimelineDragging }"
     >
@@ -560,6 +563,12 @@ onUnmounted(() => {
         </div>
       </div>
     </div>
+
+    <!-- Tab 3: 管理视图 (房间管理 / 角色管理) -->
+    <div v-else-if="activeTab === 'manage'" class="tab-content manage-tab-view">
+      <InspectorRoomManage v-if="sessionType === 'room'" />
+      <InspectorDirectManage v-else />
+    </div>
   </aside>
 </template>
 
@@ -576,6 +585,13 @@ onUnmounted(() => {
   position: relative;
   z-index: 10;
   flex-shrink: 0;
+}
+
+.manage-tab-view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 /* 拖拽把手与分割线高光 */

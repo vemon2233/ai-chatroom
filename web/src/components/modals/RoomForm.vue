@@ -172,15 +172,15 @@ defineExpose({ submit, reset });
 
     <div class="grid2-eq">
       <div class="form-row">
-        <label>发言长度<span v-if="isCreate()" class="field-hint">(进房后可随时改)</span></label>
+        <label class="nowrap-label">发言长度<span v-if="isCreate()" class="field-hint">(进房可改)</span></label>
         <select v-model="speechLength">
-          <option value="short">简短(300字内,快节奏交锋)</option>
-          <option value="normal">标准(600字内,论证完整)</option>
-          <option value="long">详尽(不限长,充分展开论述)</option>
+          <option value="short" title="300字内，快节奏交锋">简短 (约300字)</option>
+          <option value="normal" title="600字内，论证完整">标准 (约600字)</option>
+          <option value="long" title="不限长，充分展开论述">详尽 (不限长)</option>
         </select>
       </div>
       <div class="form-row">
-        <label title="所有讨论模式通用，达到上限后自动暂停讨论，发新消息继续">发言上限 (轮次)<span v-if="!isCreate()" class="field-hint">(即时生效)</span></label>
+        <label class="nowrap-label" title="所有讨论模式通用，达到上限后自动暂停讨论，发新消息继续">发言上限 (轮次)<span v-if="!isCreate()" class="field-hint">(即时生效)</span></label>
         <input v-model.number="chainBudget" type="number" min="1" max="50" />
       </div>
     </div>
@@ -230,7 +230,25 @@ defineExpose({ submit, reset });
 
 <style scoped>
 .room-form { display: flex; flex-direction: column; gap: 14px; }
-.grid2-eq { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.grid2-eq {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.grid2-eq > .form-row {
+  min-width: 0;
+}
+.grid2-eq select,
+.grid2-eq input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+.nowrap-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .field-hint { font-size: 10.5px; font-weight: 400; color: var(--muted); margin-left: 4px; }
 .lock-pill {
   font-size: 10.5px;

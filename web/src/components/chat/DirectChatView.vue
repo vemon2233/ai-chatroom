@@ -1,30 +1,18 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
-import { store, resetDirect } from '@/store';
+import { computed } from 'vue';
+import { store, resetDirect, toggleInspector } from '@/store';
 import { streamPlaceholder } from '@/utils/chat';
 import { dialog } from '@/composables/useDialog';
 import ChatHeader from './ChatHeader.vue';
 import ChatFlow from './ChatFlow.vue';
 import Composer from './Composer.vue';
 import ChatInspector from './ChatInspector.vue';
-import CharacterModal from '@/components/modals/CharacterModal.vue';
 import type { ChatMessage } from '@server/core/types';
 
 const char = computed(() => {
   if (!store.currentDirectChar) return null as any;
   return store.characters.find((c) => c.id === store.currentDirectChar?.id) ?? store.currentDirectChar;
 });
-const charModalRef = ref<InstanceType<typeof CharacterModal> | null>(null);
-const showCharModal = ref(false);
-const activeInspectorTab = ref<'summary' | 'logs' | null>(null);
-
-function toggleInspector(tab: 'summary' | 'logs') {
-  if (activeInspectorTab.value === tab) {
-    activeInspectorTab.value = null;
-  } else {
-    activeInspectorTab.value = tab;
-  }
-}
 
 const isGenerating = computed(() =>
   store.directStatus === 'thinking' || store.directStatus === 'streaming',
@@ -55,10 +43,6 @@ async function handleReset() {
   if (!ok) return;
   await resetDirect();
 }
-
-function openEditChar() {
-  charModalRef.value?.openEdit(char.value);
-}
 </script>
 
 <template>
@@ -74,7 +58,7 @@ function openEditChar() {
         <template #actions>
           <button
             class="btn btn-ghost btn-panel-toggle"
-            :class="{ active: activeInspectorTab === 'summary' }"
+            :class="{ active: store.activeInspectorTab === 'summary' }"
             type="button"
             title="查看或刷新讨论摘要"
             @click="toggleInspector('summary')"
@@ -83,15 +67,21 @@ function openEditChar() {
           </button>
           <button
             class="btn btn-ghost btn-panel-toggle"
-            :class="{ active: activeInspectorTab === 'logs' }"
+            :class="{ active: store.activeInspectorTab === 'logs' }"
             type="button"
             title="查看 Agent 调用输入输出日志"
             @click="toggleInspector('logs')"
           >
             日志
           </button>
-          <button class="btn btn-ghost" type="button" @click="openEditChar">
-            设置
+          <button
+            class="btn btn-ghost btn-panel-toggle"
+            :class="{ active: store.activeInspectorTab === 'manage' }"
+            type="button"
+            title="管理角色人设与参数"
+            @click="toggleInspector('manage')"
+          >
+            管理
           </button>
           <button class="btn btn-ghost btn-danger" type="button" @click="handleReset">
             清空
@@ -110,16 +100,14 @@ function openEditChar() {
         </div>
 
         <ChatInspector
-          v-if="activeInspectorTab"
-          :active-tab="activeInspectorTab"
+          v-if="store.activeInspectorTab"
+          :active-tab="store.activeInspectorTab"
           session-type="direct"
           :session-id="char.id"
-          @update:active-tab="activeInspectorTab = $event"
-          @close="activeInspectorTab = null"
+          @update:active-tab="store.activeInspectorTab = $event"
+          @close="store.activeInspectorTab = null"
         />
       </div>
-
-      <CharacterModal ref="charModalRef" v-model="showCharModal" />
     </div>
   </div>
 </template>

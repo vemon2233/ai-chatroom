@@ -51,7 +51,28 @@ export const store = reactive({
 
   sidebarTab: 'rooms' as 'rooms' | 'chars',
   openSessions: [] as Session[],
+
+  // 右侧边栏 Inspector 统一激活 Tab ('summary' | 'logs' | 'manage' | null)
+  activeInspectorTab: null as 'summary' | 'logs' | 'manage' | null,
 });
+
+export type InspectorTab = 'summary' | 'logs' | 'manage';
+
+export function toggleInspector(tab: InspectorTab): void {
+  if (store.activeInspectorTab === tab) {
+    store.activeInspectorTab = null;
+  } else {
+    store.activeInspectorTab = tab;
+  }
+}
+
+export function openInspector(tab: InspectorTab): void {
+  store.activeInspectorTab = tab;
+}
+
+export function closeInspector(): void {
+  store.activeInspectorTab = null;
+}
 
 export function setEditingMessage(ctx: EditingContext | null): void {
   store.editingContext = ctx;
