@@ -1,5 +1,3 @@
-// HTTP 路由:REST API(角色 CRUD、房间 CRUD+复活、发消息、成员指令、编排控制、运行期设置)。
-
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { existsSync } from 'node:fs';
 import { ChatRoom, makeRoomConfig, type CreateRoomInput } from '../core/room';
@@ -9,6 +7,8 @@ import { loadRoomMessages, rewriteRoomMessages } from '../store/transcript';
 import { CharacterStore } from '../store/characters';
 import { DirectChatService } from '../core/direct';
 import { getAdapter as getAdapterByKind } from '../adapters/index';
+import { Admin } from '../core/admin';
+import { getTrace, listTraces } from '../store/trace';
 import type { Character, RoomSettings } from '../core/types';
 import type { AdapterConfig, AppConfig } from './config';
 
@@ -44,6 +44,20 @@ function json(res: ServerResponse, code: number, body: unknown) {
 export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string, ChatRoom>) {
   const adapterConfigs = cfg.adapters;
   const characters = new CharacterStore();
+
+  const adminAdapterEntry = adapterConfigs[cfg.admin.adapter];
+  const adminInstance = adminAdapterEntry
+    ? new Admin(
+        cfg.admin,
+        (key) => {
+          const entry = adapterConfigs[key];
+          if (!entry) throw new Error(`管理员/侦察适配器未配置: ${key}`);
+          return getAdapterByKind(entry.kind);
+        },
+        { command: adminAdapterEntry.command, args: adminAdapterEntry.args },
+      )
+    : undefined;
+
   const directChat = new DirectChatService({
     bus,
     adapterConfigs,
@@ -52,6 +66,7 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
       if (!entry) throw new Error(`未知适配器配置: ${adapterKey}`);
       return getAdapterByKind(entry.kind);
     },
+    admin: adminInstance,
   });
 
   return {
@@ -159,6 +174,31 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
           }
         }
 
+        // 1v1 私聊 Trace 列表与详情
+        if (sub === 'traces' && method === 'GET') {
+          const list = await listTraces('direct', id);
+          return json(res, 200, list);
+        }
+        const charTraceMatch = sub?.match(/^traces\/([^/]+)$/);
+        if (charTraceMatch && method === 'GET') {
+          const msgId = decodeURIComponent(charTraceMatch[1]!);
+          const trace = await getTrace('direct', id, msgId);
+          if (!trace) return json(res, 404, { error: '未找到调用日志' });
+          return json(res, 200, trace);
+        }
+
+        // 1v1 私聊讨论摘要获取与刷新
+        if (sub === 'summary' && method === 'GET') {
+          const sum = await directChat.getSummary(id);
+          return json(res, 200, sum || { text: '', updatedAt: 0, messageCount: 0 });
+        }
+        if (sub === 'summary/refresh' && method === 'POST') {
+          await characters.ensureLoaded();
+          const char = characters.get(id);
+          if (!char) return json(res, 404, { error: '角色不存在' });
+          const sum = await directChat.refreshSummary(id, char);
+          return json(res, 200, sum || { text: '', updatedAt: Date.now(), messageCount: 0 });
+        }
 
         if (!sub && (method === 'PUT' || method === 'PATCH')) {
           const body = await readBody(req);
@@ -294,6 +334,29 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
           } catch (e: any) {
             return json(res, 400, { error: e.message || String(e) });
           }
+        }
+
+        // 房间 Trace 列表与详情
+        if (sub === 'traces' && method === 'GET') {
+          const list = await listTraces('room', roomId);
+          return json(res, 200, list);
+        }
+        const roomTraceMatch = sub?.match(/^traces\/([^/]+)$/);
+        if (roomTraceMatch && method === 'GET') {
+          const msgId = decodeURIComponent(roomTraceMatch[1]!);
+          const trace = await getTrace('room', roomId, msgId);
+          if (!trace) return json(res, 404, { error: '未找到调用日志' });
+          return json(res, 200, trace);
+        }
+
+        // 房间讨论摘要获取与刷新
+        if (sub === 'summary' && method === 'GET') {
+          const sum = await room!.getSummary();
+          return json(res, 200, sum || { text: '', updatedAt: 0, messageCount: 0 });
+        }
+        if (sub === 'summary/refresh' && method === 'POST') {
+          const sum = await room!.refreshSummary();
+          return json(res, 200, sum || { text: '', updatedAt: Date.now(), messageCount: 0 });
         }
 
         // 给指定成员直接下指令

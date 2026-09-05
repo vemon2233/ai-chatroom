@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { onUnmounted, ref } from 'vue';
 import { store, refreshRooms, refreshCharacters, openRoom, closeRoom, closeSession, openDirectChat } from '@/store';
 import { api, type RoomListItem } from '@/services/api';
 import { dialog } from '@/composables/useDialog';
@@ -64,10 +64,78 @@ async function onDeleteCharacter(id: string, name: string) {
 function roomSub(room: RoomListItem): string {
   return room.config.topic;
 }
+
+// ---------- 拖拽调节侧边栏宽度逻辑 ----------
+const SIDEBAR_WIDTH_KEY = 'ai-chatroom:sidebar-width';
+const DEFAULT_SIDEBAR_WIDTH = 250;
+const MIN_SIDEBAR_WIDTH = 200;
+
+function getInitialSidebarWidth(): number {
+  try {
+    const saved = localStorage.getItem(SIDEBAR_WIDTH_KEY);
+    if (saved) {
+      const parsed = parseInt(saved, 10);
+      if (!Number.isNaN(parsed) && parsed >= MIN_SIDEBAR_WIDTH) {
+        return Math.min(parsed, 480);
+      }
+    }
+  } catch {}
+  return DEFAULT_SIDEBAR_WIDTH;
+}
+
+const sidebarWidth = ref<number>(getInitialSidebarWidth());
+const isDragging = ref(false);
+let startX = 0;
+let startWidth = 0;
+
+function onMouseDown(e: MouseEvent) {
+  isDragging.value = true;
+  startX = e.clientX;
+  startWidth = sidebarWidth.value;
+
+  document.body.style.userSelect = 'none';
+  document.body.style.cursor = 'col-resize';
+
+  window.addEventListener('mousemove', onMouseMove);
+  window.addEventListener('mouseup', onMouseUp);
+}
+
+function onMouseMove(e: MouseEvent) {
+  if (!isDragging.value) return;
+  const delta = e.clientX - startX;
+  const maxAllowed = Math.min(480, Math.round(window.innerWidth * 0.4));
+  const newWidth = Math.max(MIN_SIDEBAR_WIDTH, Math.min(maxAllowed, startWidth + delta));
+  sidebarWidth.value = newWidth;
+}
+
+function onMouseUp() {
+  if (!isDragging.value) return;
+  isDragging.value = false;
+  document.body.style.userSelect = '';
+  document.body.style.cursor = '';
+
+  window.removeEventListener('mousemove', onMouseMove);
+  window.removeEventListener('mouseup', onMouseUp);
+
+  try {
+    localStorage.setItem(SIDEBAR_WIDTH_KEY, sidebarWidth.value.toString());
+  } catch {}
+}
+
+onUnmounted(() => {
+  window.removeEventListener('mousemove', onMouseMove);
+  window.removeEventListener('mouseup', onMouseUp);
+  document.body.style.userSelect = '';
+  document.body.style.cursor = '';
+});
 </script>
 
 <template>
-  <aside class="sidebar">
+  <aside
+    class="sidebar"
+    :style="{ width: `${sidebarWidth}px` }"
+    :class="{ 'is-dragging': isDragging }"
+  >
     <!-- 顶部品牌区:logo + 项目名 -->
     <header class="brand">
       <img class="brand-mark" :src="logoUrl" alt="AI 聊天室 logo" />
@@ -109,18 +177,61 @@ function roomSub(room: RoomListItem): string {
     <NewRoomModal v-model="showNewRoom" />
     <CharacterModal ref="charModalRef" v-model="showCharModal" />
     <SettingsPanel ref="roomSettingsRef" />
+
+    <!-- 右侧可拖拽分割线 -->
+    <div
+      class="sidebar-resizer"
+      title="按住左右拖动调节侧边栏宽度"
+      @mousedown.prevent="onMouseDown"
+    >
+      <div class="resizer-line"></div>
+    </div>
   </aside>
 </template>
 
 <style scoped>
 .sidebar {
-  width: 250px;
+  min-width: 200px;
+  max-width: 480px;
   flex-shrink: 0;
   background: var(--sidebar-bg);
   border-right: 1px solid var(--border-soft);
   color: var(--sidebar-text);
   display: flex;
   flex-direction: column;
+  position: relative;
+}
+
+/* 拖拽把手与分割线高光 */
+.sidebar-resizer {
+  position: absolute;
+  right: -3px;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s ease;
+}
+
+.sidebar-resizer .resizer-line {
+  width: 2px;
+  height: 100%;
+  background: transparent;
+  transition: background 0.15s ease;
+}
+
+.sidebar-resizer:hover .resizer-line,
+.sidebar.is-dragging .resizer-line {
+  background: var(--accent);
+}
+
+.sidebar-resizer:hover,
+.sidebar.is-dragging .sidebar-resizer {
+  background: var(--accent-soft);
 }
 
 .brand {

@@ -55,7 +55,12 @@ export async function buildPrompt(
   room: RoomConfig,
   member: MemberConfig,
   history: ChatMessage[],
-  opts: { trigger?: string; instruction?: string; batonMode?: 'chain' | 'callout' } = {},
+  opts: {
+    trigger?: string;
+    instruction?: string;
+    batonMode?: 'chain' | 'callout';
+    summary?: string;
+  } = {},
 ): Promise<string> {
   const others = room.members
     .filter((m) => m.id !== member.id)
@@ -66,7 +71,7 @@ export async function buildPrompt(
 
   parts.push(`# 你的角色\n${member.persona}`);
 
-  parts.push(`# 房间:${room.name}\n讨论主题:${room.topic}`);
+  parts.push(`# 房间:${room.name}\n讨论主题:${room.topic || '自由讨论'}`);
 
   if (others) {
     parts.push(`# 其他参与者\n${others}`);
@@ -97,10 +102,17 @@ export async function buildPrompt(
     }
   }
 
-  // 聊天记录注入: 根据受众可见性过滤(保证私聊消息不泄露给非受众 Agent)
+  // 聊天记录与前置摘要注入: 根据受众可见性过滤(保证私聊消息不泄露给非受众 Agent)
   const visibleHistory = filterHistoryForViewer(history, member.id);
-  if (visibleHistory.length > 0) {
-    parts.push(`# 聊天记录(按时间顺序,最新在最后)\n${historyText(visibleHistory)}`);
+  if (opts.summary || visibleHistory.length > 0) {
+    const historySections: string[] = [];
+    if (opts.summary && opts.summary.trim()) {
+      historySections.push(`【前期讨论摘要】\n${opts.summary.trim()}`);
+    }
+    if (visibleHistory.length > 0) {
+      historySections.push(`【近期讨论发言(按时间顺序,最新在后)】\n${historyText(visibleHistory)}`);
+    }
+    parts.push(`# 聊天记录与讨论背景\n${historySections.join('\n\n')}`);
   }
 
   const instructions: string[] = [];

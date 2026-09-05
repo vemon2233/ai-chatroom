@@ -12,9 +12,11 @@ export type WsEvent =
   | { type: 'roomMessages'; roomId: string; messages: ChatMessage[] }
   | { type: 'agentEvent'; roomId: string; event: AgentEvent }
   | { type: 'roomState'; roomId: string; state: RoomState }
+  | { type: 'roomSummary'; roomId: string; summary: import('./types').DiscussionSummary }
   | { type: 'directMessage'; characterId: string; message: ChatMessage }
   | { type: 'directMessages'; characterId: string; messages: ChatMessage[] }
   | { type: 'directEvent'; characterId: string; event: AgentEvent }
+  | { type: 'directSummary'; characterId: string; summary: import('./types').DiscussionSummary }
   | { type: 'directReset'; characterId: string }
   | { type: 'rooms' }
   | { type: 'error'; message: string };
@@ -55,6 +57,10 @@ export class MessageBus {
     this.broadcast({ type: 'roomState', roomId: state.config.id, state });
   }
 
+  emitRoomSummary(roomId: string, summary: import('./types').DiscussionSummary) {
+    this.broadcast({ type: 'roomSummary', roomId, summary });
+  }
+
   emitDirectMessage(characterId: string, message: ChatMessage) {
     this.broadcast({ type: 'directMessage', characterId, message });
   }
@@ -65,6 +71,10 @@ export class MessageBus {
 
   emitDirectEvent(characterId: string, event: AgentEvent) {
     this.broadcast({ type: 'directEvent', characterId, event });
+  }
+
+  emitDirectSummary(characterId: string, summary: import('./types').DiscussionSummary) {
+    this.broadcast({ type: 'directSummary', characterId, summary });
   }
 
   emitDirectReset(characterId: string) {

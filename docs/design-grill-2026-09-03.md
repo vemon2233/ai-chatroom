@@ -195,12 +195,12 @@
 | 批次 | 内容 | 依赖 | 状态 |
 |---|---|---|---|
 | B1 | 导入导出(角色/房间)+ 用户人设绑定(isUser 全链路过滤)+ userSpeak fromName 参数化(桥友透传复用) | 无;types.ts 加字段先行 | 待办 |
-| B2 | Scout→管理员改名 + 讨论摘要(自动+手动) | B1 无依赖可并行;复用 admin 基建 | 待办 |
+| B2 | Scout→管理员改名 + 讨论摘要(结构化Markdown独立看板+Prompt前置注入)+ Agent调用输入输出Trace日志 | B1 无依赖可并行;复用 admin 基建 | **已完成 ✅ (2026-09-05)** |
 | B3 | markdown 导出(前端 Blob)+ 成本仪表盘 | 零依赖,随时可插 | 待办 |
 | B4 | 简易重roll与回溯编辑(气泡操作icon→单线性截断→编辑重发/替换原Agent发言) | 原复杂分支树暂缓;轻量快速落地 | **已完成 ✅ (2026-09-04)** |
 | B5 | i18n(共享语言包→前端 UI→后端系统消息码→prompt 模板→<pass> 双语法) | 不锁顺序;但系统消息码越早做 JSONL 存量越小 | 待办 |
 | B6 | bridges/(WS+REST 基建→飞书桥→Telegram 桥→限流 allowlist) | 依赖 B1 的 fromName 参数;平台应用凭证自备 | 待办 |
-| B7 | 订阅模式 v2:心跳式自主群聊(心跳循环→沉默标记→私聊握手协议→3条硬闸→同agent互斥;废弃旧评估循环实现) | 依赖 audience 基建(已在);心跳 timer 生命周期与世代防御是难点;orchestrator.test.ts + subscribe.test.ts 重写 | 待办 |
+| B7 | 订阅模式 v2:心跳式自主群聊(心跳循环→沉默标记→私聊握手协议→3条硬闸→同agent互斥;废弃旧评估循环实现) | 依赖 audience 基建(已在);心跳 timer 生命周期与世代防御是难点;orchestrator.test.ts + subscribe.test.ts 重写 | **已完成 ✅** |
 
 
 > B1 的 `userSpeak(text, opts?: {fromName})` 是 B6 用户名透传的直接前置,做 B1 时一并参数化。

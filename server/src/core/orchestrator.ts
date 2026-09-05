@@ -34,7 +34,9 @@ import {
 } from './modes/subscribe/audience';
 import { isSilentDecision } from './modes/subscribe/prompt';
 import { SubscribeEngine } from './modes/subscribe/engine';
+import { saveTrace } from '../store/trace';
 import type {
+  AgentTraceLog,
   ChatMessage,
   MemberConfig,
   MemberStatus,
@@ -58,12 +60,14 @@ export interface OrchestratorDeps {
   onStatuses: () => void;
   /** rooms.json 写穿(成员消息完成后;带最新 sessionIds) */
   persistRoom: () => Promise<void>;
-  /** Scout 预检:返回侦察消息(若该跑) */
+  /** Scout/Admin 预检:返回侦察消息(若该跑) */
   runScout: () => Promise<ChatMessage | null>;
   /** 聊天历史快照(prompt 组装用) */
   getHistory: () => ChatMessage[];
   /** 适配器事件转发(WS 实时流) */
   pushAgentEvent: (ev: AgentEvent) => void;
+  /** 获取当前讨论摘要纯文本(若有) */
+  getSummary?: () => string | undefined;
 }
 
 /** 队列条目 */
@@ -124,8 +128,34 @@ export class Orchestrator {
         }
       },
       publishMessage: async (msg) => {
+        const msgId = randomUUID();
+        const member = this.deps.room.members.find((m) => m.id === msg.from);
+        if (member) {
+          const traceLog: AgentTraceLog = {
+            messageId: msgId,
+            roomId: this.deps.room.id,
+            memberId: member.id,
+            memberName: member.name,
+            adapter: member.adapter,
+            ts: Date.now(),
+            durationMs: msg.detail?.durationMs ?? 0,
+            status: 'ok',
+            trigger: '心跳自主发言',
+            input: {
+              prompt: msg.text,
+            },
+            output: {
+              result: msg.text,
+              thinking: msg.detail?.thinking,
+              trace: msg.detail?.trace ?? [],
+              usage: msg.detail?.usage,
+            },
+          };
+          void saveTrace('room', this.deps.room.id, traceLog);
+        }
+
         await this.deps.pushMessage({
-          id: randomUUID(),
+          id: msgId,
           roomId: this.deps.room.id,
           from: msg.from,
           fromName: msg.fromName,
@@ -141,8 +171,9 @@ export class Orchestrator {
             thinking: msg.detail?.thinking,
             usage: msg.detail?.usage,
             durationMs: msg.detail?.durationMs,
-            adapter: this.deps.room.members.find((m) => m.id === msg.from)?.adapter ?? 'unknown',
+            adapter: member?.adapter ?? 'unknown',
             trigger: '心跳自主发言',
+            hasTrace: true,
           },
         });
         await this.deps.persistRoom();
@@ -528,9 +559,39 @@ export class Orchestrator {
       trigger: entry.trigger,
       instruction: entry.instruction,
       batonMode: entry.batonMode,
+      summary: this.deps.getSummary?.(),
     });
 
-    const { outcome, trace, thinking, usage } = await this.invokeWithRetry(member, prompt);
+    const { outcome, trace, thinking, usage, req } = await this.invokeWithRetry(member, prompt);
+
+    const recordTrace = (messageId: string, outputText: string) => {
+      const traceLog: AgentTraceLog = {
+        messageId,
+        roomId: this.deps.room.id,
+        memberId: member.id,
+        memberName: member.name,
+        adapter: member.adapter,
+        ts: Date.now(),
+        durationMs: outcome.durationMs,
+        status: outcome.status,
+        error: outcome.error,
+        trigger: entry.trigger,
+        input: {
+          prompt,
+          command: req.command,
+          args: req.args,
+          cwd: req.cwd,
+          resumeSessionId: req.resumeSessionId,
+        },
+        output: {
+          result: outputText,
+          thinking: thinking || undefined,
+          trace: trace ?? [],
+          usage,
+        },
+      };
+      void saveTrace('room', this.deps.room.id, traceLog);
+    };
 
     switch (outcome.status) {
       case 'cancelled': {
@@ -539,12 +600,15 @@ export class Orchestrator {
           .filter((t) => t.kind === 'text')
           .map((t) => t.content)
           .join('');
+        const text = streamed.trim() || '(已停止思考)';
+        const msgId = randomUUID();
+        recordTrace(msgId, text);
         await this.deps.pushMessage({
-          id: randomUUID(),
+          id: msgId,
           roomId: this.deps.room.id,
           from: member.id,
           fromName: member.name,
-          text: streamed.trim() || '(已停止思考)',
+          text,
           ts: Date.now(),
           detail: {
             trace,
@@ -552,6 +616,7 @@ export class Orchestrator {
             durationMs: outcome.durationMs,
             adapter: member.adapter,
             trigger: entry.trigger,
+            hasTrace: true,
           },
         });
         this.onStatuses();
@@ -592,8 +657,10 @@ export class Orchestrator {
 
       // 6.1 发布公聊消息 (全员可见气泡)
       if (split.publicText) {
+        const msgId = randomUUID();
+        recordTrace(msgId, split.publicText);
         await this.deps.pushMessage({
-          id: randomUUID(),
+          id: msgId,
           roomId: this.deps.room.id,
           from: member.id,
           fromName: member.name,
@@ -607,6 +674,7 @@ export class Orchestrator {
             durationMs: outcome.durationMs,
             adapter: member.adapter,
             trigger: entry.trigger,
+            hasTrace: true,
           },
         });
       }
@@ -618,8 +686,10 @@ export class Orchestrator {
           if (!primaryTarget || !block.privateText) continue;
 
           const meta = this.subscribeEngine.resolvePrivateMeta(member.id, primaryTarget, block.handshake);
+          const msgId = randomUUID();
+          recordTrace(msgId, block.privateText);
           await this.deps.pushMessage({
-            id: randomUUID(),
+            id: msgId,
             roomId: this.deps.room.id,
             from: member.id,
             fromName: member.name,
@@ -636,6 +706,7 @@ export class Orchestrator {
               durationMs: outcome.durationMs,
               adapter: member.adapter,
               trigger: entry.trigger,
+              hasTrace: true,
             },
           });
         }
@@ -661,8 +732,10 @@ export class Orchestrator {
         finalText = stripBatonLine(finalText);
       }
 
+      const msgId = randomUUID();
+      recordTrace(msgId, finalText);
       await this.deps.pushMessage({
-        id: randomUUID(),
+        id: msgId,
         roomId: this.deps.room.id,
         from: member.id,
         fromName: member.name,
@@ -676,6 +749,7 @@ export class Orchestrator {
           durationMs: outcome.durationMs,
           adapter: member.adapter,
           trigger: entry.trigger,
+          hasTrace: true,
         },
       });
       await this.deps.persistRoom();
@@ -748,12 +822,14 @@ export class Orchestrator {
     trace: import('./types').TraceEntry[];
     thinking: string;
     usage: NonNullable<ChatMessage['detail']>['usage'];
+    req: import('../adapters/base').SpeakRequest;
   }> {
     const acfg = this.deps.adapterConfigs[member.adapter];
     if (!acfg) {
       return {
         outcome: { status: 'error', result: '', durationMs: 0, error: `适配器未配置: ${member.adapter}` },
         trace: [], thinking: '', usage: undefined,
+        req: { member: member.id, prompt, command: '', args: [] },
       };
     }
     const adapter = this.deps.resolveAdapter(member.adapter);
@@ -806,7 +882,7 @@ export class Orchestrator {
 
     try {
       const outcome = await handle.done;
-      return { outcome, trace, thinking, usage };
+      return { outcome, trace, thinking, usage, req };
     } finally {
       this.activeCancels.delete(cancelFn);
       if (this.currentSpeaker === member.id) {

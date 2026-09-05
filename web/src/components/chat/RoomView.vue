@@ -8,10 +8,20 @@ import ChatHeader from './ChatHeader.vue';
 import MemberBar from './MemberBar.vue';
 import ChatFlow from './ChatFlow.vue';
 import Composer from './Composer.vue';
+import ChatInspector from './ChatInspector.vue';
 import SettingsPanel from '@/components/modals/SettingsPanel.vue';
 import type { ChatMessage } from '@server/core/types';
 
 const showSettings = ref(false);
+const activeInspectorTab = ref<'summary' | 'logs' | null>(null);
+
+function toggleInspector(tab: 'summary' | 'logs') {
+  if (activeInspectorTab.value === tab) {
+    activeInspectorTab.value = null;
+  } else {
+    activeInspectorTab.value = tab;
+  }
+}
 
 const room = computed(() => store.currentRoom!);
 
@@ -93,6 +103,24 @@ async function handleClear() {
           </div>
         </template>
         <template #actions>
+          <button
+            class="btn btn-ghost btn-panel-toggle"
+            :class="{ active: activeInspectorTab === 'summary' }"
+            type="button"
+            title="查看或刷新讨论摘要"
+            @click="toggleInspector('summary')"
+          >
+            摘要
+          </button>
+          <button
+            class="btn btn-ghost btn-panel-toggle"
+            :class="{ active: activeInspectorTab === 'logs' }"
+            type="button"
+            title="查看 Agent 调用输入输出日志"
+            @click="toggleInspector('logs')"
+          >
+            日志
+          </button>
           <button class="btn btn-ghost" type="button" @click="onActionClick">
             设置
           </button>
@@ -102,13 +130,26 @@ async function handleClear() {
         </template>
       </ChatHeader>
 
-      <MemberBar />
-      <ChatFlow
-        :messages="renderList"
-        :empty-title="`欢迎来到 ${room.config.name}`"
-        empty-sub="输入消息开始讨论，可使用 @ 呼叫成员参与交流。"
-      />
-      <Composer mode="room" />
+      <div class="room-split-layout">
+        <div class="room-chat-column">
+          <MemberBar />
+          <ChatFlow
+            :messages="renderList"
+            :empty-title="`欢迎来到 ${room.config.name}`"
+            empty-sub="输入消息开始讨论，可使用 @ 呼叫成员参与交流。"
+          />
+          <Composer mode="room" />
+        </div>
+
+        <ChatInspector
+          v-if="activeInspectorTab"
+          :active-tab="activeInspectorTab"
+          session-type="room"
+          :session-id="room.config.id"
+          @update:active-tab="activeInspectorTab = $event"
+          @close="activeInspectorTab = null"
+        />
+      </div>
 
       <SettingsPanel v-model="showSettings" />
     </div>
@@ -133,6 +174,29 @@ async function handleClear() {
   position: relative;
   background: var(--panel);
   overflow: hidden;
+}
+
+.room-split-layout {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: row;
+  overflow: hidden;
+}
+
+.room-chat-column {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.btn-panel-toggle.active {
+  background: var(--accent-soft);
+  color: var(--accent-deep);
+  border-color: var(--accent-border);
+  font-weight: 600;
 }
 
 .avatar-stack {

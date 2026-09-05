@@ -5,11 +5,12 @@
 import { randomUUID } from 'node:crypto';
 import type { MessageBus } from './bus';
 import { Orchestrator } from './orchestrator';
-import { Scout, type ScoutConfig } from './scout';
+import { Admin, type AdminConfig, type ScoutConfig } from './admin';
 import { MEMBER_PALETTE } from './palette';
-import type { ChatMessage, MemberConfig, RoomConfig, RoomSettings, RoomState } from './types';
+import type { ChatMessage, DiscussionSummary, MemberConfig, RoomConfig, RoomSettings, RoomState } from './types';
 import { getAdapter as getAdapterByKind } from '../adapters/index';
 import { truncateMessages, prepareReroll, prepareEdit } from './historyOps';
+import { getSummary, saveSummary } from '../store/summary';
 
 /** ChatRoom 的持久化接缝(构造注入,core 层不 import store——依赖保持单向:server→core→adapters)。 */
 export interface RoomPersistence {
@@ -39,28 +40,29 @@ export class ChatRoom {
   readonly config: RoomConfig;
   private messages: ChatMessage[] = [];
   private orch: Orchestrator;
-  private scout: Scout;
+  private admin: Admin;
+  private currentSummary: DiscussionSummary | null = null;
 
   constructor(
     cfg: RoomConfig,
     private bus: MessageBus,
     adapterConfigs: Record<string, { kind: string; command: string; args: string[] }>,
-    scoutCfg: ScoutConfig,
+    adminCfg: AdminConfig,
     private persistence: RoomPersistence,
   ) {
     this.config = cfg;
-    const scoutAdapterEntry = adapterConfigs[scoutCfg.adapter];
-    if (!scoutAdapterEntry) {
-      throw new Error(`侦察适配器未配置: ${scoutCfg.adapter}(检查 config/agents.yaml 的 scout.adapter 与 adapters 是否一致)`);
+    const adminAdapterEntry = adapterConfigs[adminCfg.adapter];
+    if (!adminAdapterEntry) {
+      throw new Error(`管理员/侦察适配器未配置: ${adminCfg.adapter}(检查 config/agents.yaml 的 admin.adapter 与 adapters 是否一致)`);
     }
-    this.scout = new Scout(
-      scoutCfg,
+    this.admin = new Admin(
+      adminCfg,
       (key) => {
         const entry = adapterConfigs[key];
-        if (!entry) throw new Error(`侦察适配器未配置: ${key}`);
+        if (!entry) throw new Error(`管理员/侦察适配器未配置: ${key}`);
         return getAdapterByKind(entry.kind);
       },
-      { command: scoutAdapterEntry.command, args: scoutAdapterEntry.args },
+      { command: adminAdapterEntry.command, args: adminAdapterEntry.args },
     );
     this.orch = new Orchestrator({
       room: cfg,
@@ -74,7 +76,7 @@ export class ChatRoom {
       onStatuses: () => this.bus.emitRoomState(this.getState()),
       persistRoom: () => this.persistence.persistRoom(this.config),
       runScout: async () => {
-        const report = await this.scout.ensure(this.config.projectPath);
+        const report = await this.admin.ensureScout(this.config.projectPath);
         if (report) {
           await this.pushMessage({ ...report, roomId: this.config.id });
         }
@@ -82,12 +84,33 @@ export class ChatRoom {
       },
       getHistory: () => this.messages,
       pushAgentEvent: (ev) => this.bus.emitAgentEvent(this.config.id, ev),
+      getSummary: () => this.currentSummary?.text,
     });
   }
 
-  /** 从持久化恢复历史(服务重启后,listen 前 await)。 */
+  /** 从持久化恢复历史和摘要(服务重启后,listen 前 await)。 */
   async restore(): Promise<void> {
     this.messages = await this.persistence.loadMessages(this.config.id);
+    this.currentSummary = await getSummary('room', this.config.id);
+  }
+
+  /** 获取当前讨论摘要 */
+  async getSummary(): Promise<DiscussionSummary | null> {
+    if (!this.currentSummary) {
+      this.currentSummary = await getSummary('room', this.config.id);
+    }
+    return this.currentSummary;
+  }
+
+  /** 手动触发管理员刷新生成讨论摘要 */
+  async refreshSummary(): Promise<DiscussionSummary | null> {
+    const res = await this.admin.generateSummary(this.messages, this.config.topic);
+    if (res && res.text) {
+      await saveSummary('room', this.config.id, res);
+      this.currentSummary = res;
+      this.bus.emitRoomSummary(this.config.id, res);
+    }
+    return res;
   }
 
   get id() {

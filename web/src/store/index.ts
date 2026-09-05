@@ -40,6 +40,9 @@ export const store = reactive({
   editingContext: null as EditingContext | null,
   memberStream: {} as Record<string, StreamBuf>,
 
+  // 讨论摘要状态(群聊或私聊通用)
+  currentSummary: null as import('@server/core/types').DiscussionSummary | null,
+
   // 角色专属 1v1 私聊状态
   currentDirectChar: null as Character | null,
   directMessages: [] as ChatMessage[],
@@ -70,6 +73,13 @@ export async function enterRoom(roomId: string): Promise<void> {
   store.editingContext = null;
   store.memberStream = {};
   store.currentDirectChar = null;
+  store.currentSummary = null;
+
+  void api.roomSummary(roomId).then((s) => {
+    if (store.activeSession?.type === 'room' && store.activeSession.id === roomId) {
+      store.currentSummary = s;
+    }
+  }).catch(() => {});
 }
 
 /** 打开并聚焦房间（若未在 Tab 中则追加） */
@@ -92,7 +102,14 @@ export async function openDirectChat(c: Character): Promise<void> {
   store.currentRoom = null;
   store.directStream = null;
   store.directStatus = 'idle';
+  store.currentSummary = null;
   store.directMessages = await api.directMessages(c.id);
+
+  void api.directSummary(c.id).then((s) => {
+    if (store.activeSession?.type === 'direct' && store.activeSession.characterId === c.id) {
+      store.currentSummary = s;
+    }
+  }).catch(() => {});
 }
 
 /** 1v1 私聊用户发言 */
@@ -294,8 +311,21 @@ function onWsEvent(ev: import('@server/core/bus').WsEvent): void {
       }
       return;
     }
+    case 'roomSummary': {
+      const rid = currentRoomId();
+      if (rid != null && ev.roomId === rid) {
+        store.currentSummary = ev.summary;
+      }
+      return;
+    }
     case 'rooms': {
       void refreshRooms();
+      return;
+    }
+    case 'directSummary': {
+      if (store.currentDirectChar && store.currentDirectChar.id === ev.characterId) {
+        store.currentSummary = ev.summary;
+      }
       return;
     }
     case 'directMessage': {

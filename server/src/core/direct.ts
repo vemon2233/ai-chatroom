@@ -1,10 +1,6 @@
-// DirectChatService: 角色专属 1v1 私聊服务。
-// 职责: 管理用户与特定角色的直接会话(生命周期、Prompt 组装、适配器调用、流式事件广播)。
-// 彻底脱离群聊房间与编排调度器，0 接棒规则，0 语法负担。
-
 import { randomUUID } from 'node:crypto';
 import type { AgentAdapter, AgentEvent } from '../adapters/base';
-import type { Character, ChatMessage } from './types';
+import type { AgentTraceLog, Character, ChatMessage, DiscussionSummary } from './types';
 import type { MessageBus } from './bus';
 import { historyText } from './prompt';
 import {
@@ -15,11 +11,15 @@ import {
   deleteDirectChat,
 } from '../store/directChats';
 import { truncateMessages, prepareReroll, prepareEdit } from './historyOps';
+import { saveTrace } from '../store/trace';
+import { getSummary, saveSummary } from '../store/summary';
+import type { Admin } from './admin';
 
 export interface DirectChatServiceDeps {
   bus: MessageBus;
   adapterConfigs: Record<string, { kind: string; command: string; args: string[] }>;
   resolveAdapter: (adapterKey: string) => AgentAdapter;
+  admin?: Admin;
 }
 
 interface ActiveDirectRun {
@@ -30,6 +30,7 @@ interface ActiveDirectRun {
 export class DirectChatService {
   private activeRuns = new Map<string, ActiveDirectRun>();
   private sessionIds = new Map<string, string>(); // characterId -> CLI session id
+  private summaries = new Map<string, DiscussionSummary>();
 
   constructor(private deps: DirectChatServiceDeps) {}
 
@@ -191,23 +192,56 @@ export class DirectChatService {
       this.activeRuns.delete(character.id);
     }
 
+    const recordTrace = (messageId: string, outputText: string) => {
+      const traceLog: AgentTraceLog = {
+        messageId,
+        roomId: `direct_${character.id}`,
+        memberId: character.id,
+        memberName: character.name,
+        adapter: character.adapter,
+        ts: Date.now(),
+        durationMs: outcome.durationMs,
+        status: outcome.status,
+        error: outcome.error,
+        trigger: '1v1用户对话',
+        input: {
+          prompt,
+          command: req.command,
+          args: req.args,
+          cwd: req.cwd,
+          resumeSessionId: req.resumeSessionId,
+        },
+        output: {
+          result: outputText,
+          thinking: thinking || undefined,
+          trace: trace ?? [],
+          usage,
+        },
+      };
+      void saveTrace('direct', character.id, traceLog);
+    };
+
     if (outcome.status === 'cancelled') {
       const streamed = trace
         .filter((t) => t.kind === 'text')
         .map((t) => t.content)
         .join('');
+      const text = streamed.trim() || '(已停止思考)';
+      const msgId = randomUUID();
+      recordTrace(msgId, text);
       const cancelledMsg: ChatMessage = {
-        id: randomUUID(),
+        id: msgId,
         roomId: `direct_${character.id}`,
         from: character.id,
         fromName: character.name,
-        text: streamed.trim() || '(已停止思考)',
+        text,
         ts: Date.now(),
         detail: {
           trace,
           thinking: thinking || undefined,
           durationMs: outcome.durationMs,
           adapter: character.adapter,
+          hasTrace: true,
         },
       };
       await appendDirectMessage(character.id, cancelledMsg);
@@ -231,12 +265,15 @@ export class DirectChatService {
     }
 
       // ok
+      const text = outcome.result || '(无输出)';
+      const msgId = randomUUID();
+      recordTrace(msgId, text);
       const botMsg: ChatMessage = {
-        id: randomUUID(),
+        id: msgId,
         roomId: `direct_${character.id}`,
         from: character.id,
         fromName: character.name,
-        text: outcome.result || '(无输出)',
+        text,
         ts: Date.now(),
         detail: {
           trace,
@@ -244,6 +281,7 @@ export class DirectChatService {
           usage,
           durationMs: outcome.durationMs,
           adapter: character.adapter,
+          hasTrace: true,
         },
       };
       await appendDirectMessage(character.id, botMsg);
@@ -256,6 +294,27 @@ export class DirectChatService {
         this.runningReplies.delete(character.id);
       }
     });
+  }
+
+  async getSummary(characterId: string): Promise<DiscussionSummary | null> {
+    if (this.summaries.has(characterId)) {
+      return this.summaries.get(characterId)!;
+    }
+    const sum = await getSummary('direct', characterId);
+    if (sum) this.summaries.set(characterId, sum);
+    return sum;
+  }
+
+  async refreshSummary(characterId: string, character: Character): Promise<DiscussionSummary | null> {
+    if (!this.deps.admin) return null;
+    const msgs = await loadDirectMessages(characterId);
+    const res = await this.deps.admin.generateSummary(msgs, `与 ${character.name} 的一对一私聊探讨`);
+    if (res && res.text) {
+      await saveSummary('direct', characterId, res);
+      this.summaries.set(characterId, res);
+      this.deps.bus.emitDirectSummary(characterId, res);
+    }
+    return res;
   }
 }
 

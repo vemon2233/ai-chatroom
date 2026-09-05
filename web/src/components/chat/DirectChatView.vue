@@ -6,12 +6,22 @@ import { dialog } from '@/composables/useDialog';
 import ChatHeader from './ChatHeader.vue';
 import ChatFlow from './ChatFlow.vue';
 import Composer from './Composer.vue';
+import ChatInspector from './ChatInspector.vue';
 import CharacterModal from '@/components/modals/CharacterModal.vue';
 import type { ChatMessage } from '@server/core/types';
 
 const char = computed(() => store.currentDirectChar!);
 const charModalRef = ref<InstanceType<typeof CharacterModal> | null>(null);
 const showCharModal = ref(false);
+const activeInspectorTab = ref<'summary' | 'logs' | null>(null);
+
+function toggleInspector(tab: 'summary' | 'logs') {
+  if (activeInspectorTab.value === tab) {
+    activeInspectorTab.value = null;
+  } else {
+    activeInspectorTab.value = tab;
+  }
+}
 
 const isGenerating = computed(() =>
   store.directStatus === 'thinking' || store.directStatus === 'streaming',
@@ -59,6 +69,24 @@ function openEditChar() {
         :status-kind="isGenerating ? 'baton' : 'idle'"
       >
         <template #actions>
+          <button
+            class="btn btn-ghost btn-panel-toggle"
+            :class="{ active: activeInspectorTab === 'summary' }"
+            type="button"
+            title="查看或刷新讨论摘要"
+            @click="toggleInspector('summary')"
+          >
+            摘要
+          </button>
+          <button
+            class="btn btn-ghost btn-panel-toggle"
+            :class="{ active: activeInspectorTab === 'logs' }"
+            type="button"
+            title="查看 Agent 调用输入输出日志"
+            @click="toggleInspector('logs')"
+          >
+            日志
+          </button>
           <button class="btn btn-ghost" type="button" @click="openEditChar">
             设置
           </button>
@@ -68,13 +96,25 @@ function openEditChar() {
         </template>
       </ChatHeader>
 
-      <ChatFlow
-        :messages="renderList"
-        :empty-title="`与 ${char.name} 的专属私聊`"
-        empty-sub="输入消息，直接开展一对一探讨与交流。"
-      />
+      <div class="direct-split-layout">
+        <div class="direct-chat-column">
+          <ChatFlow
+            :messages="renderList"
+            :empty-title="`与 ${char.name} 的专属私聊`"
+            empty-sub="输入消息，直接开展一对一探讨与交流。"
+          />
+          <Composer mode="direct" />
+        </div>
 
-      <Composer mode="direct" />
+        <ChatInspector
+          v-if="activeInspectorTab"
+          :active-tab="activeInspectorTab"
+          session-type="direct"
+          :session-id="char.id"
+          @update:active-tab="activeInspectorTab = $event"
+          @close="activeInspectorTab = null"
+        />
+      </div>
 
       <CharacterModal ref="charModalRef" v-model="showCharModal" />
     </div>
@@ -98,5 +138,28 @@ function openEditChar() {
   position: relative;
   background: var(--panel);
   overflow: hidden;
+}
+
+.direct-split-layout {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: row;
+  overflow: hidden;
+}
+
+.direct-chat-column {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.btn-panel-toggle.active {
+  background: var(--accent-soft);
+  color: var(--accent-deep);
+  border-color: var(--accent-border);
+  font-weight: 600;
 }
 </style>

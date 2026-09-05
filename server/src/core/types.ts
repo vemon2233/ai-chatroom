@@ -79,6 +79,8 @@ export interface ChatMessage {
     adapter: string;
     /** 点名/触发原因(如"轮到你了"/"被 @点名"/"用户指令") */
     trigger?: string;
+    /** 是否存在独立持久化的完整输入输出 Trace 日志 */
+    hasTrace?: boolean;
   };
   /** 系统事件(如成员加入、轮次开始)而非发言 */
   system?: boolean;
@@ -92,6 +94,42 @@ export interface ChatMessage {
   privateRound?: number;
   /** 私聊行为: 发起新私聊 / 同意 / 拒绝 / 提出想法 / 回复 */
   privateAction?: 'start' | 'agree' | 'reject' | 'idea' | 'reply';
+}
+
+/** 讨论摘要数据模型 */
+export interface DiscussionSummary {
+  text: string;
+  updatedAt: number;
+  messageCount: number;
+  status?: 'idle' | 'generating' | 'error';
+  error?: string;
+}
+
+/** 完整的 Agent 调用输入输出 Trace 日志 */
+export interface AgentTraceLog {
+  messageId: string;
+  roomId: string;
+  memberId: string;
+  memberName: string;
+  adapter: string;
+  ts: number;
+  durationMs: number;
+  status: 'ok' | 'error' | 'cancelled';
+  error?: string;
+  trigger?: string;
+  input: {
+    prompt: string;
+    command?: string;
+    args?: string[];
+    cwd?: string;
+    resumeSessionId?: string;
+  };
+  output: {
+    result: string;
+    thinking?: string;
+    trace?: TraceEntry[];
+    usage?: { inputTokens?: number; outputTokens?: number; costUsd?: number };
+  };
 }
 
 /** 房间基础讨论模式:接棒模式(默认) vs 订阅模式(心跳去中心群聊) */

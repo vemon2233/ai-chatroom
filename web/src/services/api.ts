@@ -109,4 +109,16 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ text }),
     }),
+
+  // 房间 Trace & 讨论摘要
+  roomTraces: (roomId: string) => req<import('@server/store/trace').TraceSummaryItem[]>(`/api/rooms/${roomId}/traces`),
+  roomTraceDetail: (roomId: string, messageId: string) => req<import('@server/core/types').AgentTraceLog>(`/api/rooms/${roomId}/traces/${messageId}`),
+  roomSummary: (roomId: string) => req<import('@server/core/types').DiscussionSummary>(`/api/rooms/${roomId}/summary`),
+  refreshRoomSummary: (roomId: string) => req<import('@server/core/types').DiscussionSummary>(`/api/rooms/${roomId}/summary/refresh`, { method: 'POST' }),
+
+  // 1v1 私聊 Trace & 讨论摘要
+  directTraces: (characterId: string) => req<import('@server/store/trace').TraceSummaryItem[]>(`/api/characters/${characterId}/traces`),
+  directTraceDetail: (characterId: string, messageId: string) => req<import('@server/core/types').AgentTraceLog>(`/api/characters/${characterId}/traces/${messageId}`),
+  directSummary: (characterId: string) => req<import('@server/core/types').DiscussionSummary>(`/api/characters/${characterId}/summary`),
+  refreshDirectSummary: (characterId: string) => req<import('@server/core/types').DiscussionSummary>(`/api/characters/${characterId}/summary/refresh`, { method: 'POST' }),
 };
