@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import type { AgentAdapter, AgentEvent } from '../adapters/base';
-import type { AgentTraceLog, Character, ChatMessage, DiscussionSummary } from './types';
+import type { AgentTraceLog, Character, ChatMessage, DiscussionSummary, ContextMode } from './types';
 import type { MessageBus } from './bus';
-import { historyText } from './prompt';
+import { historyText, extractDeltaMessages } from './prompt';
 import {
   appendDirectMessage,
   loadDirectMessages,
@@ -30,6 +30,8 @@ interface ActiveDirectRun {
 export class DirectChatService {
   private activeRuns = new Map<string, ActiveDirectRun>();
   private sessionIds = new Map<string, string>(); // characterId -> CLI session id
+  private contextModes = new Map<string, ContextMode>(); // characterId -> ContextMode
+  private lastSeenMessageIds = new Map<string, string>(); // characterId -> lastSeenMessageId
   private summaries = new Map<string, DiscussionSummary>();
 
   constructor(private deps: DirectChatServiceDeps) {}
@@ -41,6 +43,7 @@ export class DirectChatService {
   async reset(characterId: string): Promise<void> {
     this.stop(characterId);
     this.sessionIds.delete(characterId);
+    this.lastSeenMessageIds.delete(characterId);
     await resetDirectChat(characterId);
     this.deps.bus.emitDirectReset(characterId);
   }
@@ -48,6 +51,7 @@ export class DirectChatService {
   async delete(characterId: string): Promise<void> {
     this.stop(characterId);
     this.sessionIds.delete(characterId);
+    this.lastSeenMessageIds.delete(characterId);
     await deleteDirectChat(characterId);
   }
 
@@ -59,9 +63,29 @@ export class DirectChatService {
     }
   }
 
+  /** 当角色配置（人设/名称/参数）修改时，使缓存的 CLI session 失效，迫使下次调用注入最新人设 */
+  invalidateSession(characterId: string): void {
+    this.sessionIds.delete(characterId);
+    this.lastSeenMessageIds.delete(characterId);
+  }
+
+  getContextMode(characterId: string): ContextMode {
+    return this.contextModes.get(characterId) ?? 'stateless';
+  }
+
+  setContextMode(characterId: string, mode: ContextMode): void {
+    this.contextModes.set(characterId, mode);
+    if (mode === 'stateless') {
+      this.sessionIds.delete(characterId);
+      this.lastSeenMessageIds.delete(characterId);
+    }
+  }
+
   /** 截断指定消息之后的所有后续私聊消息(点击编辑时截断) */
   async truncateAfter(characterId: string, messageId: string): Promise<ChatMessage[]> {
     this.stop(characterId);
+    this.sessionIds.delete(characterId);
+    this.lastSeenMessageIds.delete(characterId);
     const msgs = await loadDirectMessages(characterId);
     const remaining = truncateMessages(msgs, messageId);
     await rewriteDirectMessages(characterId, remaining);
@@ -143,26 +167,52 @@ export class DirectChatService {
     }
 
     const adapter = this.deps.resolveAdapter(acfg.kind ?? character.adapter);
+    const contextMode = this.getContextMode(character.id);
+    const existingSessionId = this.sessionIds.get(character.id);
 
-    const prompt = [
-      `你是 ${character.name}。`,
-      `你的人设与立场如下:\n${character.persona}`,
-      `现在你正在与用户进行一对一的专属私聊。请完全符合你的人设特点，自然、真诚地回复用户的提问或探讨。`,
-      `\n以下是你们此前的对话记录:\n${historyText(history, 30)}`,
-      `\n请回复用户:`,
-    ].join('\n\n');
+    let prompt: string;
+    let effectiveResumeSessionId: string | undefined = undefined;
+
+    if (contextMode === 'stateful' && existingSessionId) {
+      const lastSeenId = this.lastSeenMessageIds.get(character.id);
+      const { delta, isReanchored } = extractDeltaMessages(history, lastSeenId);
+      effectiveResumeSessionId = existingSessionId;
+      if (isReanchored) {
+        prompt = [
+          `你是 **【${character.name}】**。`,
+          `你的人设与立场如下:\n${character.persona}`,
+          `现在你正在与用户进行一对一的专属私聊。请完全符合你的人设特点，自然、真诚地回复用户的提问或探讨。`,
+          `\n以下是你们此前的对话记录:\n${historyText(history, 30, character.id, character.name)}`,
+          `\n请回复用户:`,
+        ].join('\n\n');
+      } else {
+        prompt = [
+          `你是 **【${character.name}】**。请保持你的 **既有人设与核心立场**。`,
+          `\n以下是用户发来的新增消息:\n${historyText(delta, 30, character.id, character.name)}`,
+          `\n请回复用户:`,
+        ].join('\n\n');
+      }
+    } else {
+      prompt = [
+        `你是 **【${character.name}】**。`,
+        `你的人设与立场如下:\n${character.persona}`,
+        `现在你正在与用户进行一对一的专属私聊。请完全符合你的人设特点，自然、真诚地回复用户的提问或探讨。`,
+        `\n以下是你们此前的对话记录:\n${historyText(history, 30, character.id, character.name)}`,
+        `\n请回复用户:`,
+      ].join('\n\n');
+      effectiveResumeSessionId = undefined;
+    }
 
     const trace: import('./types').TraceEntry[] = [];
     let thinking = '';
     let usage: NonNullable<ChatMessage['detail']>['usage'] = undefined;
 
-    const resumeSessionId = this.sessionIds.get(character.id);
     const req: import('../adapters/base').SpeakRequest = {
       member: character.id,
       prompt,
       command: acfg.command,
       args: [...acfg.args, ...(character.extraArgs ?? [])],
-      resumeSessionId,
+      resumeSessionId: effectiveResumeSessionId,
       permission: 'readonly',
     };
 
@@ -210,6 +260,7 @@ export class DirectChatService {
           args: req.args,
           cwd: req.cwd,
           resumeSessionId: req.resumeSessionId,
+          contextMode: req.resumeSessionId ? 'stateful' : 'stateless',
         },
         output: {
           result: outputText,
@@ -250,6 +301,10 @@ export class DirectChatService {
     }
 
     if (outcome.status === 'error') {
+      if (effectiveResumeSessionId) {
+        this.sessionIds.delete(character.id);
+        this.lastSeenMessageIds.delete(character.id);
+      }
       const errMsg: ChatMessage = {
         id: randomUUID(),
         roomId: `direct_${character.id}`,
@@ -286,6 +341,7 @@ export class DirectChatService {
       };
       await appendDirectMessage(character.id, botMsg);
       this.deps.bus.emitDirectMessage(character.id, botMsg);
+      this.lastSeenMessageIds.set(character.id, msgId);
     })();
 
     this.runningReplies.set(character.id, task);

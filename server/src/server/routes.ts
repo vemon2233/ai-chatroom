@@ -108,6 +108,7 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
           extraArgs: body.extraArgs,
           note: body.note,
         });
+        bus.broadcast({ type: 'characters' });
         return json(res, 201, c);
       }
       const charMatch = p.match(/^\/api\/characters\/([^/]+)(?:\/(.+))?$/);
@@ -207,12 +208,15 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
           }
           const updated = await characters.update(id, body);
           if (!updated) return json(res, 404, { error: '角色不存在' });
+          directChat.invalidateSession(id);
+          bus.broadcast({ type: 'characters' });
           return json(res, 200, updated);
         }
         if (!sub && method === 'DELETE') {
           const ok = await characters.remove(id);
           if (!ok) return json(res, 404, { error: '角色不存在' });
           await directChat.delete(id);
+          bus.broadcast({ type: 'characters' });
           return json(res, 200, { ok: true });
         }
       }

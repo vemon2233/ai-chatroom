@@ -10,7 +10,7 @@ async function req<T>(url: string, init?: RequestInit): Promise<T> {
   return j as T;
 }
 
-import type { Character, RoomSettings, RoomState, DiscussionMode, SubscribeConfig } from '@server/core/types';
+import type { Character, RoomSettings, RoomState, DiscussionMode, SubscribeConfig, ContextMode } from '@server/core/types';
 import type { ChatMessage } from '@server/core/types';
 
 export interface AdapterInfo { key: string; displayName: string; kind: string }
@@ -32,6 +32,7 @@ export interface CreateRoomBody {
   chainBudget?: number;
   mode?: DiscussionMode;
   subscribeConfig?: SubscribeConfig;
+  contextMode?: ContextMode;
   members: Array<{
     name: string;
     adapter: string;

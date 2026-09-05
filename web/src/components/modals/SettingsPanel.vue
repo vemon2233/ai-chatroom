@@ -40,6 +40,7 @@ async function onSubmit(body: RoomFormBody) {
     chainBudget: body.chainBudget,
     moderatorId: body.moderatorId,
     mode: body.mode,
+    contextMode: body.contextMode,
   });
   if (store.currentRoom?.config.id === r.id) {
     store.currentRoom = state;

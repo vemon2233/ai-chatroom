@@ -19,6 +19,7 @@ export type WsEvent =
   | { type: 'directSummary'; characterId: string; summary: import('./types').DiscussionSummary }
   | { type: 'directReset'; characterId: string }
   | { type: 'rooms' }
+  | { type: 'characters' }
   | { type: 'error'; message: string };
 
 export class MessageBus {

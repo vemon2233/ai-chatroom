@@ -390,7 +390,7 @@ describe('编排器状态机:错误与取消', () => {
     const h = makeHarness([
       { outcome: { status: 'error', error: 'resume failed' }, sessionId: 'stale-id' },
       { result: '自愈成功' },
-    ], {}, members);
+    ], { contextMode: 'stateful' }, members);
     await h.orch.onUserMessage('开始');
     await settle(150);
     expect(h.fake.callCount()).toBe(2);

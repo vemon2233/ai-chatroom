@@ -24,6 +24,7 @@ async function onSubmit(body: RoomFormBody) {
     projectPath: body.projectPath || undefined,
     toolPermission: body.toolPermission,
     mode: body.mode,
+    contextMode: body.contextMode,
     members: [],
   });
   model.value = false;

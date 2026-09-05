@@ -123,6 +123,7 @@ export interface AgentTraceLog {
     args?: string[];
     cwd?: string;
     resumeSessionId?: string;
+    contextMode?: ContextMode;
   };
   output: {
     result: string;
@@ -134,6 +135,9 @@ export interface AgentTraceLog {
 
 /** 房间基础讨论模式:接棒模式(默认) vs 订阅模式(心跳去中心群聊) */
 export type DiscussionMode = 'baton' | 'subscribe';
+
+/** 上下文编排模式: stateless(无状态全量注入, 默认) vs stateful(有状态增量追加 --resume) */
+export type ContextMode = 'stateless' | 'stateful';
 
 /** 订阅模式配置(心跳周期可配, 默认15s错峰) */
 export interface SubscribeConfig {
@@ -164,6 +168,8 @@ export interface RoomConfig {
   mode?: DiscussionMode;
   /** 订阅模式配置 */
   subscribeConfig?: SubscribeConfig;
+  /** 上下文模式(默认 'stateless') */
+  contextMode?: ContextMode;
 }
 
 /** 成员运行时状态 */
@@ -191,5 +197,5 @@ export interface RoomState {
 /** 运行期设置面板可改的字段(其余 RoomConfig 字段不可变) */
 export type RoomSettings = Pick<
   RoomConfig,
-  'speechLength' | 'chainBudget' | 'name' | 'color' | 'topic' | 'mode' | 'subscribeConfig'
+  'speechLength' | 'chainBudget' | 'name' | 'color' | 'topic' | 'mode' | 'subscribeConfig' | 'contextMode'
 > & { moderatorId?: string };

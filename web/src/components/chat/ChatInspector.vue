@@ -57,22 +57,47 @@ const isLoadingDetail = ref(false);
 const detailSubTab = ref<'input' | 'output'>('input');
 const copyFeedback = ref<'input' | 'output' | null>(null);
 
-async function loadTraces() {
-  isLoadingTraces.value = true;
+const sessionMessages = computed(() => {
+  return props.sessionType === 'room' ? store.messages : store.directMessages;
+});
+
+async function loadTraces(isAuto: boolean | unknown = false) {
+  const isSilent = isAuto === true;
+  if (!isSilent) {
+    isLoadingTraces.value = true;
+  }
   try {
-    if (props.sessionType === 'room') {
-      tracesList.value = await api.roomTraces(props.sessionId);
+    const list =
+      props.sessionType === 'room'
+        ? await api.roomTraces(props.sessionId)
+        : await api.directTraces(props.sessionId);
+
+    // 记录刷新前的第一项 ID 与跟踪态
+    const prevFirstId = tracesList.value[0]?.messageId;
+    const wasTrackingTop = !selectedMessageId.value || selectedMessageId.value === prevFirstId;
+
+    tracesList.value = list;
+
+    if (list.length > 0) {
+      if (wasTrackingTop) {
+        // 自动聚焦查看最新一次的调用
+        void selectTrace(list[0]!.messageId);
+      } else {
+        const stillExists = list.some((item) => item.messageId === selectedMessageId.value);
+        if (!stillExists) {
+          void selectTrace(list[0]!.messageId);
+        }
+      }
     } else {
-      tracesList.value = await api.directTraces(props.sessionId);
-    }
-    // 默认选中最新一条
-    if (tracesList.value.length > 0 && !selectedMessageId.value) {
-      void selectTrace(tracesList.value[0]!.messageId);
+      selectedMessageId.value = null;
+      currentTraceDetail.value = null;
     }
   } catch (err) {
     console.error('加载调用日志列表失败:', err);
   } finally {
-    isLoadingTraces.value = false;
+    if (!isSilent) {
+      isLoadingTraces.value = false;
+    }
   }
 }
 
@@ -101,6 +126,18 @@ function formatDuration(ms?: number): string {
 function formatTime(ts: number): string {
   const d = new Date(ts);
   return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}:${d.getSeconds().toString().padStart(2, '0')}`;
+}
+
+function formatCliCommand(input?: AgentTraceLog['input']): string {
+  if (!input?.command) return '';
+  const parts = [input.command];
+  if (input.resumeSessionId) {
+    parts.push('--resume', input.resumeSessionId);
+  }
+  if (input.args && input.args.length > 0) {
+    parts.push(...input.args);
+  }
+  return parts.join(' ');
 }
 
 async function copyText(text: string, type: 'input' | 'output') {
@@ -227,7 +264,57 @@ function onTimelineMouseUp() {
   } catch {}
 }
 
+let autoRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+
+function triggerAutoRefresh() {
+  if (props.activeTab !== 'logs') return;
+  if (autoRefreshTimer) clearTimeout(autoRefreshTimer);
+  autoRefreshTimer = setTimeout(() => {
+    void loadTraces(true);
+  }, 300);
+}
+
+// 监听当前会话消息数量或末尾消息变化，实时自动静默同步日志
+watch(
+  () => {
+    const msgs = sessionMessages.value;
+    const lastMsg = msgs[msgs.length - 1];
+    return `${msgs.length}_${lastMsg?.id ?? ''}`;
+  },
+  () => {
+    triggerAutoRefresh();
+  },
+);
+
+// 会话切换时重置选中并刷新
+watch(
+  () => props.sessionId,
+  () => {
+    selectedMessageId.value = null;
+    currentTraceDetail.value = null;
+    tracesList.value = [];
+    if (props.activeTab === 'logs') {
+      void loadTraces(false);
+    }
+  },
+);
+
+// 切换到日志 Tab 时自动触发拉取
+watch(
+  () => props.activeTab,
+  (newTab) => {
+    if (newTab === 'logs') {
+      void loadTraces(false);
+    }
+  },
+  { immediate: true },
+);
+
 onUnmounted(() => {
+  if (autoRefreshTimer) {
+    clearTimeout(autoRefreshTimer);
+    autoRefreshTimer = null;
+  }
   window.removeEventListener('mousemove', onMouseMove);
   window.removeEventListener('mouseup', onMouseUp);
   window.removeEventListener('mousemove', onTimelineMouseMove);
@@ -235,16 +322,6 @@ onUnmounted(() => {
   document.body.style.userSelect = '';
   document.body.style.cursor = '';
 });
-
-watch(
-  () => [props.sessionId, props.activeTab],
-  ([newId, newTab]) => {
-    if (newTab === 'logs') {
-      void loadTraces();
-    }
-  },
-  { immediate: true },
-);
 </script>
 
 <template>
@@ -433,9 +510,18 @@ watch(
 
           <!-- 输入视图 -->
           <div v-if="detailSubTab === 'input'" class="detail-viewer">
+            <div class="viewer-meta-row">
+              <span class="label">上下文模式:</span>
+              <span
+                class="context-mode-pill"
+                :class="currentTraceDetail.input.resumeSessionId ? 'stateful' : 'stateless'"
+              >
+                {{ currentTraceDetail.input.resumeSessionId ? '⚡ 有状态增量 (Delta Resume)' : '📦 无状态全量 (Full Context)' }}
+              </span>
+            </div>
             <div v-if="currentTraceDetail.input.command" class="viewer-meta-row">
               <span class="label">CLI 指令:</span>
-              <code>{{ currentTraceDetail.input.command }} {{ currentTraceDetail.input.args?.join(' ') }}</code>
+              <code>{{ formatCliCommand(currentTraceDetail.input) }}</code>
             </div>
             <div v-if="currentTraceDetail.input.cwd" class="viewer-meta-row">
               <span class="label">工作目录:</span>
@@ -899,6 +985,23 @@ watch(
 .viewer-meta-row .label {
   color: var(--muted);
   flex-shrink: 0;
+}
+
+.context-mode-pill {
+  font-size: 11px;
+  padding: 1px 7px;
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+.context-mode-pill.stateful {
+  background: var(--accent-soft);
+  color: var(--accent-deep);
+}
+
+.context-mode-pill.stateless {
+  background: var(--border-soft);
+  color: var(--muted);
 }
 
 .viewer-meta-row code {

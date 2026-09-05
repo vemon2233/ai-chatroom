@@ -24,8 +24,7 @@
 //  - cancelled → 跳过落库跳过接棒
 
 import { randomUUID } from 'node:crypto';
-import type { AgentAdapter, AgentEvent, SpeakOutcome } from '../adapters/base';
-import { buildPrompt, matchMemberByName } from './prompt';
+import { buildPrompt, buildDeltaPrompt, extractDeltaMessages, matchMemberByName } from './prompt';
 import { parseBaton, stripBatonLine } from './modes/baton/baton';
 import {
   parseAudience,
@@ -99,17 +98,41 @@ export class Orchestrator {
   private currentRunPromise: Promise<void> | null = null;
   /** 订阅模式领域引擎实例 */
   private subscribeEngine: SubscribeEngine;
+  /** 成员已消费消息游标 (运行时内存维护, 不污染配置实体): memberId -> lastSeenMessageId */
+  private memberCursors = new Map<string, string>();
 
   constructor(private deps: OrchestratorDeps) {
     this.budget = deps.room.chainBudget;
     for (const m of deps.room.members) this.statuses[m.id] = 'idle';
+
+    let pendingHeartbeatInvocation: {
+      traceId: string;
+      prompt: string;
+      req: any;
+      outcome: any;
+      trace: any[];
+      thinking?: string;
+      usage?: any;
+    } | null = null;
 
     this.subscribeEngine = new SubscribeEngine({
       getRoom: () => this.deps.room,
       getHistory: () => this.historySnapshot(),
       speak: async (member, prompt) => {
         try {
-          const { outcome, trace, thinking, usage } = await this.invokeWithRetry(member, prompt);
+          const contextMode = this.deps.room.contextMode ?? 'stateless';
+          const existingSessionId = member.sessionIds?.[member.adapter];
+          const resumeSessionId = (contextMode === 'stateful' && existingSessionId) ? existingSessionId : undefined;
+          const { outcome, trace, thinking, usage, req } = await this.invokeWithRetry(member, prompt, resumeSessionId);
+          pendingHeartbeatInvocation = {
+            traceId: randomUUID(),
+            prompt,
+            req,
+            outcome,
+            trace,
+            thinking,
+            usage,
+          };
           return {
             result: outcome.result,
             status: outcome.status,
@@ -128,30 +151,48 @@ export class Orchestrator {
         }
       },
       publishMessage: async (msg) => {
-        const msgId = randomUUID();
+        let msgId: string;
         const member = this.deps.room.members.find((m) => m.id === msg.from);
+
+        // 仅在真实发布消息时，为本次物理调用生成并持久化一次唯一的完整 Trace
+        if (pendingHeartbeatInvocation) {
+          const inv = pendingHeartbeatInvocation;
+          msgId = inv.traceId;
+          pendingHeartbeatInvocation = null; // 消费掉，后续同次拆分出的私聊气泡不再重复记录
+
+          if (member) {
+            const traceLog: AgentTraceLog = {
+              messageId: inv.traceId,
+              roomId: this.deps.room.id,
+              memberId: member.id,
+              memberName: member.name,
+              adapter: member.adapter,
+              ts: Date.now(),
+              durationMs: inv.outcome.durationMs ?? 0,
+              status: inv.outcome.status,
+              error: inv.outcome.error,
+              trigger: '心跳自主发言',
+              input: {
+                prompt: inv.prompt, // 真实完整的输入 Prompt
+                command: inv.req?.command,
+                args: inv.req?.args,
+                cwd: inv.req?.cwd,
+                resumeSessionId: inv.req?.resumeSessionId,
+              },
+              output: {
+                result: inv.outcome.result || msg.text, // 真实完整的原始输出(公聊与私聊一体)
+                thinking: inv.thinking,
+                trace: inv.trace ?? [],
+                usage: inv.usage,
+              },
+            };
+            void saveTrace('room', this.deps.room.id, traceLog);
+          }
+        } else {
+          msgId = randomUUID();
+        }
         if (member) {
-          const traceLog: AgentTraceLog = {
-            messageId: msgId,
-            roomId: this.deps.room.id,
-            memberId: member.id,
-            memberName: member.name,
-            adapter: member.adapter,
-            ts: Date.now(),
-            durationMs: msg.detail?.durationMs ?? 0,
-            status: 'ok',
-            trigger: '心跳自主发言',
-            input: {
-              prompt: msg.text,
-            },
-            output: {
-              result: msg.text,
-              thinking: msg.detail?.thinking,
-              trace: msg.detail?.trace ?? [],
-              usage: msg.detail?.usage,
-            },
-          };
-          void saveTrace('room', this.deps.room.id, traceLog);
+          this.memberCursors.set(member.id, msgId);
         }
 
         await this.deps.pushMessage({
@@ -465,6 +506,7 @@ export class Orchestrator {
       this.statuses[m.id] = 'idle';
     }
     this.currentSpeaker = undefined;
+    this.memberCursors.clear();
     this.setState('idle');
   }
 
@@ -476,6 +518,7 @@ export class Orchestrator {
       this.setState('idle');
       return;
     }
+    this.memberCursors.delete(memberId);
     this.bumpGeneration();
     this.cancelAll();
     this.pendingNextId = undefined;
@@ -555,18 +598,57 @@ export class Orchestrator {
     await this.deps.runScout(); // 绑定项目的房间:首棒前侦察
 
     const batonActive = entry.batonMode != null;
-    const prompt = await buildPrompt(this.deps.room, member, this.historySnapshot(), {
-      trigger: entry.trigger,
-      instruction: entry.instruction,
-      batonMode: entry.batonMode,
-      summary: this.deps.getSummary?.(),
-    });
+    const contextMode = this.deps.room.contextMode ?? 'stateless';
+    const existingSessionId = member.sessionIds?.[member.adapter];
 
-    const { outcome, trace, thinking, usage, req } = await this.invokeWithRetry(member, prompt);
+    let prompt: string;
+    let resumeSessionId: string | undefined = undefined;
 
-    const recordTrace = (messageId: string, outputText: string) => {
+    if (contextMode === 'stateful' && existingSessionId) {
+      const history = this.historySnapshot();
+      const lastSeenId = this.memberCursors.get(member.id);
+      const { delta, isReanchored } = extractDeltaMessages(history, lastSeenId);
+
+      resumeSessionId = existingSessionId;
+      if (isReanchored) {
+        // 游标失效(如历史被截断或重启恢复)，采用全量历史重新锚定上下文
+        prompt = await buildPrompt(this.deps.room, member, history, {
+          trigger: entry.trigger,
+          instruction: entry.instruction,
+          batonMode: entry.batonMode,
+          summary: this.deps.getSummary?.(),
+        });
+      } else {
+        // 正常增量调用：只注入自上次发言以来的新增对话与精简行动指引
+        prompt = buildDeltaPrompt(this.deps.room, member, delta, {
+          trigger: entry.trigger,
+          instruction: entry.instruction,
+          batonMode: entry.batonMode,
+        });
+      }
+    } else {
+      // stateless 模式或首次发言冷启动：全量 Prompt 注入
+      prompt = await buildPrompt(this.deps.room, member, this.historySnapshot(), {
+        trigger: entry.trigger,
+        instruction: entry.instruction,
+        batonMode: entry.batonMode,
+        summary: this.deps.getSummary?.(),
+      });
+      resumeSessionId = undefined;
+    }
+
+    const { outcome, trace, thinking, usage, req } = await this.invokeWithRetry(
+      member,
+      prompt,
+      resumeSessionId,
+    );
+
+    let runOneTraceId: string | null = randomUUID();
+
+    const recordTraceOnce = (finalFullResult: string) => {
+      if (!runOneTraceId) return;
       const traceLog: AgentTraceLog = {
-        messageId,
+        messageId: runOneTraceId,
         roomId: this.deps.room.id,
         memberId: member.id,
         memberName: member.name,
@@ -582,9 +664,10 @@ export class Orchestrator {
           args: req.args,
           cwd: req.cwd,
           resumeSessionId: req.resumeSessionId,
+          contextMode: req.resumeSessionId ? 'stateful' : 'stateless',
         },
         output: {
-          result: outputText,
+          result: finalFullResult,
           thinking: thinking || undefined,
           trace: trace ?? [],
           usage,
@@ -601,8 +684,9 @@ export class Orchestrator {
           .map((t) => t.content)
           .join('');
         const text = streamed.trim() || '(已停止思考)';
-        const msgId = randomUUID();
-        recordTrace(msgId, text);
+        const msgId = runOneTraceId!;
+        recordTraceOnce(text);
+        runOneTraceId = null;
         await this.deps.pushMessage({
           id: msgId,
           roomId: this.deps.room.id,
@@ -655,10 +739,13 @@ export class Orchestrator {
         split.publicText = stripAudienceLine(finalText) || finalText;
       }
 
+      // 无论后续拆分为多少个受众独立气泡，均只为本次模型调用生成一份唯一且包含完整输出的 Trace
+      recordTraceOnce(outcome.result || finalText);
+
       // 6.1 发布公聊消息 (全员可见气泡)
       if (split.publicText) {
-        const msgId = randomUUID();
-        recordTrace(msgId, split.publicText);
+        const msgId = runOneTraceId ?? randomUUID();
+        runOneTraceId = null;
         await this.deps.pushMessage({
           id: msgId,
           roomId: this.deps.room.id,
@@ -686,8 +773,8 @@ export class Orchestrator {
           if (!primaryTarget || !block.privateText) continue;
 
           const meta = this.subscribeEngine.resolvePrivateMeta(member.id, primaryTarget, block.handshake);
-          const msgId = randomUUID();
-          recordTrace(msgId, block.privateText);
+          const msgId = runOneTraceId ?? randomUUID();
+          runOneTraceId = null;
           await this.deps.pushMessage({
             id: msgId,
             roomId: this.deps.room.id,
@@ -732,8 +819,10 @@ export class Orchestrator {
         finalText = stripBatonLine(finalText);
       }
 
-      const msgId = randomUUID();
-      recordTrace(msgId, finalText);
+      recordTraceOnce(outcome.result || finalText);
+      const msgId = runOneTraceId ?? randomUUID();
+      runOneTraceId = null;
+      this.memberCursors.set(member.id, msgId);
       await this.deps.pushMessage({
         id: msgId,
         roomId: this.deps.room.id,
@@ -805,19 +894,28 @@ export class Orchestrator {
   private async invokeWithRetry(
     member: MemberConfig,
     prompt: string,
+    resumeSessionId?: string,
   ): Promise<Awaited<ReturnType<Orchestrator['invoke']>>> {
-    const first = await this.invoke(member, prompt);
+    const first = await this.invoke(member, prompt, resumeSessionId);
     if (first.outcome.status !== 'error') return first;
-    const hadResume = member.sessionIds?.[member.adapter];
-    if (hadResume) {
+    if (resumeSessionId) {
+      // 优雅自愈降级: 如果使用 resume 发生错误，清理失效的 session 并使用全量 Prompt 降级重试一次
       delete member.sessionIds![member.adapter];
+      this.memberCursors.delete(member.id);
       await this.deps.persistRoom();
-      return this.invoke(member, prompt);
+      const fallbackPrompt = await buildPrompt(this.deps.room, member, this.historySnapshot(), {
+        summary: this.deps.getSummary?.(),
+      });
+      return this.invoke(member, fallbackPrompt, undefined);
     }
     return first;
   }
 
-  private async invoke(member: MemberConfig, prompt: string): Promise<{
+  private async invoke(
+    member: MemberConfig,
+    prompt: string,
+    resumeSessionId?: string,
+  ): Promise<{
     outcome: SpeakOutcome;
     trace: import('./types').TraceEntry[];
     thinking: string;
@@ -850,7 +948,7 @@ export class Orchestrator {
       command: acfg.command,
       args: [...acfg.args, ...(member.extraArgs ?? [])],
       cwd: this.deps.room.projectPath || undefined,
-      resumeSessionId: member.sessionIds?.[member.adapter],
+      resumeSessionId,
       permission: this.deps.room.toolPermission,
     };
 

@@ -27,6 +27,7 @@ export interface RoomFormBody {
   chainBudget: number;
   moderatorId: string;
   mode: 'baton' | 'subscribe';
+  contextMode: 'stateless' | 'stateful';
 }
 
 const name = ref('');
@@ -38,6 +39,7 @@ const toolPermission = ref<'readonly' | 'readwrite' | 'full'>('readonly');
 const chainBudget = ref(6);
 const moderatorId = ref('');
 const mode = ref<'baton' | 'subscribe'>('baton');
+const contextMode = ref<'stateless' | 'stateful'>('stateless');
 
 const isCreate = () => props.mode === 'create';
 
@@ -54,6 +56,7 @@ watch(
       chainBudget.value = r.chainBudget;
       moderatorId.value = r.moderatorId ?? '';
       mode.value = r.mode ?? 'baton';
+      contextMode.value = r.contextMode ?? 'stateless';
     } else {
       name.value = '';
       color.value = COLOR_OPTIONS[0]!.value;
@@ -64,6 +67,7 @@ watch(
       chainBudget.value = 6;
       moderatorId.value = '';
       mode.value = 'baton';
+      contextMode.value = 'stateless';
     }
   },
   { immediate: true },
@@ -80,6 +84,7 @@ function submit() {
     chainBudget: Math.max(1, Math.min(50, chainBudget.value || 6)),
     moderatorId: moderatorId.value,
     mode: mode.value,
+    contextMode: contextMode.value,
   });
 }
 
@@ -94,6 +99,7 @@ function reset() {
     chainBudget.value = props.room.chainBudget;
     moderatorId.value = props.room.moderatorId ?? '';
     mode.value = props.room.mode ?? 'baton';
+    contextMode.value = props.room.contextMode ?? 'stateless';
   } else {
     name.value = '';
     color.value = COLOR_OPTIONS[0]!.value;
@@ -104,6 +110,7 @@ function reset() {
     chainBudget.value = 6;
     moderatorId.value = '';
     mode.value = 'baton';
+    contextMode.value = 'stateless';
   }
 }
 
@@ -144,6 +151,21 @@ defineExpose({ submit, reset });
         <label class="perm" :class="{ sel: mode === 'subscribe' }">
           <input v-model="mode" type="radio" value="subscribe" />
           <span><b>订阅模式 (去中心群聊)</b>Agent 错峰心跳自主刷群, 支持纯并行发言、沉默与私聊握手</span>
+        </label>
+      </div>
+    </div>
+
+    <!-- 上下文供给模式选择 -->
+    <div class="form-row">
+      <label>上下文供给模式<span v-if="!isCreate()" class="field-hint">(即时生效)</span></label>
+      <div class="perm-row">
+        <label class="perm" :class="{ sel: contextMode === 'stateless' }">
+          <input v-model="contextMode" type="radio" value="stateless" />
+          <span><b>模式 1: 无状态全量 (推荐)</b>每次注入最新完整历史与人设，稳定可靠，重roll/截断极其敏捷</span>
+        </label>
+        <label class="perm" :class="{ sel: contextMode === 'stateful' }">
+          <input v-model="contextMode" type="radio" value="stateful" />
+          <span><b>模式 2: 有状态增量 (--resume)</b>首次全量，后续仅投递新增订阅消息，Token 极省，响应极快</span>
         </label>
       </div>
     </div>

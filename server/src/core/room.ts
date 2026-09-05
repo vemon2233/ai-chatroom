@@ -33,6 +33,7 @@ export interface CreateRoomInput {
   moderatorId?: string;
   mode?: RoomConfig['mode'];
   subscribeConfig?: RoomConfig['subscribeConfig'];
+  contextMode?: RoomConfig['contextMode'];
   members: Array<Omit<MemberConfig, 'id' | 'color'> & { color?: string }>;
 }
 
@@ -311,6 +312,9 @@ export class ChatRoom {
         ...patch.subscribeConfig,
       };
     }
+    if (patch.contextMode !== undefined) {
+      this.config.contextMode = patch.contextMode;
+    }
     await this.persistence.persistRoom(this.config);
     this.bus.emitRoomState(this.getState());
   }
@@ -343,6 +347,7 @@ export function makeRoomConfig(input: CreateRoomInput): RoomConfig {
     toolPermission: input.toolPermission ?? 'readonly',
     mode: input.mode ?? 'baton',
     subscribeConfig: input.subscribeConfig,
+    contextMode: input.contextMode ?? 'stateless',
     members,
     createdAt: Date.now(),
   };

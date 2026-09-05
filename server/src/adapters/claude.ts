@@ -22,9 +22,7 @@ function permissionArgs(p: ToolPermission | undefined): string[] {
 
 export const claudeAdapter: AgentAdapter = {
   speak(req: SpeakRequest, onEvent: (ev: AgentEvent) => void) {
-    const resumeArgs = req.resumeSessionId
-      ? ['--resume', req.resumeSessionId]
-      : [];
+    const resumeArgs = req.resumeSessionId ? ['--resume', req.resumeSessionId] : [];
     // 权限翻译在适配器内完成,core 只传领域枚举
     const args = [...req.args, ...permissionArgs(req.permission)];
 

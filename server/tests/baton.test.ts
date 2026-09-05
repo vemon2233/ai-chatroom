@@ -58,7 +58,7 @@ describe('historyText', () => {
     const text = historyText(msgs);
     expect(text).not.toContain('话0');
     expect(text).toContain('话49');
-    expect(text).toContain('[人49] 话49');
+    expect(text).toContain('**[人49] (全员公聊)：**');
   });
 });
 
@@ -76,7 +76,8 @@ describe('buildPrompt', () => {
     const p = await buildPrompt(room, member, history, { trigger: '轮到你了' });
     expect(p).toContain('你是测试者');
     expect(p).toContain('测试主题');
-    expect(p).toContain('[用户] 你好');
+    expect(p).toContain('**[用户] (全员公聊)：**');
+    expect(p).toContain('你好');
     expect(p).toContain('轮到你了');
     expect(p).toContain('600 字以内'); // normal 档
   });

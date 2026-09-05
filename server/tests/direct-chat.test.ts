@@ -133,5 +133,14 @@ describe('DirectChatService: 角色专属 1v1 私聊', () => {
     expect(msgs[0]!.text).toBe('修改后的新提问');
     expect(msgs[1]!.from).toBe(testCharId);
   });
+
+  it('invalidateSession: 重置缓存的 CLI session', () => {
+    // 模拟存在 sessionId 缓存
+    (service as any).sessionIds.set(testCharId, 'cli-session-123');
+    expect((service as any).sessionIds.get(testCharId)).toBe('cli-session-123');
+
+    service.invalidateSession(testCharId);
+    expect((service as any).sessionIds.get(testCharId)).toBeUndefined();
+  });
 });
 

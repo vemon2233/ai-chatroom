@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { store, clearRoomMessages } from '@/store';
+import { api } from '@/services/api';
 import { initialsFor } from '@/utils/avatar';
 import { streamPlaceholder } from '@/utils/chat';
 import { dialog } from '@/composables/useDialog';
@@ -76,6 +77,15 @@ async function handleClear() {
   if (!ok) return;
   await clearRoomMessages(room.value.config.id);
 }
+
+async function toggleContextMode() {
+  const current = room.value.config.contextMode ?? 'stateless';
+  const next = current === 'stateful' ? 'stateless' : 'stateful';
+  const updated = await api.updateSettings(room.value.config.id, {
+    contextMode: next,
+  });
+  store.currentRoom = updated;
+}
 </script>
 
 <template>
@@ -103,6 +113,15 @@ async function handleClear() {
           </div>
         </template>
         <template #actions>
+          <button
+            class="btn btn-ghost mode-pill"
+            :class="{ stateful: room.config.contextMode === 'stateful' }"
+            type="button"
+            :title="`当前上下文模式: ${room.config.contextMode === 'stateful' ? '有状态增量 (--resume)' : '无状态全量'} (点击快速切换)`"
+            @click="toggleContextMode"
+          >
+            {{ room.config.contextMode === 'stateful' ? '⚡ 增量' : '📦 全量' }}
+          </button>
           <button
             class="btn btn-ghost btn-panel-toggle"
             :class="{ active: activeInspectorTab === 'summary' }"
@@ -228,5 +247,29 @@ async function handleClear() {
   background: var(--muted);
   font-size: 9px;
   font-weight: 600;
+}
+
+.mode-pill {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--panel-soft);
+  color: var(--muted);
+  border: 1px solid var(--border-soft);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.mode-pill:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.mode-pill.stateful {
+  background: rgba(245, 158, 11, 0.12);
+  color: #f59e0b;
+  border-color: rgba(245, 158, 11, 0.35);
+}
+.mode-pill.stateful:hover {
+  background: rgba(245, 158, 11, 0.22);
 }
 </style>

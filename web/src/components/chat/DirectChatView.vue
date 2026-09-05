@@ -10,7 +10,10 @@ import ChatInspector from './ChatInspector.vue';
 import CharacterModal from '@/components/modals/CharacterModal.vue';
 import type { ChatMessage } from '@server/core/types';
 
-const char = computed(() => store.currentDirectChar!);
+const char = computed(() => {
+  if (!store.currentDirectChar) return null as any;
+  return store.characters.find((c) => c.id === store.currentDirectChar?.id) ?? store.currentDirectChar;
+});
 const charModalRef = ref<InstanceType<typeof CharacterModal> | null>(null);
 const showCharModal = ref(false);
 const activeInspectorTab = ref<'summary' | 'logs' | null>(null);

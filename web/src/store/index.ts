@@ -266,6 +266,12 @@ export async function refreshRooms(): Promise<void> {
 
 export async function refreshCharacters(): Promise<void> {
   store.characters = await api.characters();
+  if (store.currentDirectChar) {
+    const updated = store.characters.find((c) => c.id === store.currentDirectChar?.id);
+    if (updated) {
+      store.currentDirectChar = updated;
+    }
+  }
 }
 
 export async function refreshAdapters(): Promise<void> {
@@ -320,6 +326,10 @@ function onWsEvent(ev: import('@server/core/bus').WsEvent): void {
     }
     case 'rooms': {
       void refreshRooms();
+      return;
+    }
+    case 'characters': {
+      void refreshCharacters();
       return;
     }
     case 'directSummary': {

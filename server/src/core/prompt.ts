@@ -4,15 +4,36 @@
 import type { ChatMessage, MemberConfig, RoomConfig, ToolPermission } from './types';
 import { collectProjectContext } from './projectContext';
 
-/** 聊天历史 → 文本转录(带发言者名)。recent 限制条数以控制 token。 */
-export function historyText(messages: ChatMessage[], recent = 40): string {
+/** 聊天历史 → 文本转录(带发言者名、受众区分与高权重 Markdown 格式)。recent 限制条数以控制 token。 */
+export function historyText(
+  messages: ChatMessage[],
+  recent = 40,
+  viewerId?: string,
+  viewerName?: string,
+): string {
   const slice = messages.slice(-recent);
   return slice
     .map((m) => {
+      // 1. 私聊密信处理
       if (m.audience && m.audience.length > 0) {
-        return `[私聊 - 来自 ${m.fromName}] ${m.text}`;
+        if (viewerId && m.from === viewerId) {
+          return `> 🔒 **【私聊密信 ── 你 发送给对方】：**\n> ${m.text}`;
+        }
+        if (viewerId && m.audience.includes(viewerId)) {
+          return `> 🔒 **【私聊密信 ── ${m.fromName} 对 你 悄悄说】：**\n> ${m.text}`;
+        }
+        return `> 🔒 **【私聊密信 ── 来自 ${m.fromName}】：**\n> ${m.text}`;
       }
-      return `[${m.fromName}] ${m.text}`;
+
+      // 2. 全员公聊处理 (检测是否 @提及了当前成员)
+      const isMentioned =
+        (viewerName && m.text.includes(`@${viewerName}`)) ||
+        (viewerId && m.text.includes(`@${viewerId}`));
+
+      if (isMentioned) {
+        return `**🎯【@提及了你】[${m.fromName}] (全员公聊)：**\n${m.text}`;
+      }
+      return `**[${m.fromName}] (全员公聊)：**\n${m.text}`;
     })
     .join('\n\n');
 }
@@ -64,12 +85,12 @@ export async function buildPrompt(
 ): Promise<string> {
   const others = room.members
     .filter((m) => m.id !== member.id)
-    .map((m) => `- ${m.name}: ${m.persona}`)
+    .map((m) => `- ${m.name}`)
     .join('\n');
 
   const parts: string[] = [];
 
-  parts.push(`# 你的角色\n${member.persona}`);
+  parts.push(`# 你的角色\n你是 **【${member.name}】**。\n${member.persona}`);
 
   parts.push(`# 房间:${room.name}\n讨论主题:${room.topic || '自由讨论'}`);
 
@@ -110,7 +131,7 @@ export async function buildPrompt(
       historySections.push(`【前期讨论摘要】\n${opts.summary.trim()}`);
     }
     if (visibleHistory.length > 0) {
-      historySections.push(`【近期讨论发言(按时间顺序,最新在后)】\n${historyText(visibleHistory)}`);
+      historySections.push(`【近期讨论发言(按时间顺序,最新在后)】\n${historyText(visibleHistory, 40, member.id, member.name)}`);
     }
     parts.push(`# 聊天记录与讨论背景\n${historySections.join('\n\n')}`);
   }
@@ -131,6 +152,70 @@ export async function buildPrompt(
   }
 
   parts.push(`# 现在轮到你发言\n${instructions.join('\n')}`);
+
+  return parts.join('\n\n---\n\n');
+}
+
+/**
+ * 从消息列表中切出自指定位点之后的新增消息(增量消息)。
+ * 若 lastSeenId 为空或未命中（如截断或清空重置），则判定为需要重新锚定。
+ */
+export function extractDeltaMessages(
+  allMessages: ChatMessage[],
+  lastSeenId?: string,
+): { delta: ChatMessage[]; isReanchored: boolean } {
+  if (!lastSeenId) {
+    return { delta: allMessages, isReanchored: true };
+  }
+  const idx = allMessages.findIndex((m) => m.id === lastSeenId);
+  if (idx === -1) {
+    // 历史被截断或消息被清空，旧游标失效，需全量重新锚定
+    return { delta: allMessages, isReanchored: true };
+  }
+  return { delta: allMessages.slice(idx + 1), isReanchored: false };
+}
+
+/**
+ * 构造有状态增量模式下的极简 Prompt (Delta Prompt)。
+ * 彻底剔除静态背景设定，仅提供身份锚点、自上次发言以来的新增对话、以及精炼行动指引。
+ */
+export function buildDeltaPrompt(
+  room: RoomConfig,
+  member: MemberConfig,
+  deltaMessages: ChatMessage[],
+  opts: {
+    trigger?: string;
+    instruction?: string;
+    batonMode?: 'chain' | 'callout';
+  } = {},
+): string {
+  const parts: string[] = [];
+
+  // 1. 精炼身份锚点 (Identity Anchor, 防长程人设漂移)
+  parts.push(`你是 **【${member.name}】**。请始终保持你的 **既有人设与核心立场**。`);
+
+  // 2. 自上次发言以来的新增动态
+  if (deltaMessages.length > 0) {
+    parts.push(`# 自你上次发言以来的最新未读动态:\n\n${historyText(deltaMessages, 40, member.id, member.name)}`);
+  } else {
+    parts.push(`# 自你上次发言以来暂无新增动态。`);
+  }
+
+  // 3. 极简行动指引 (按模式适配)
+  if (room.mode === 'subscribe') {
+    parts.push(buildSubscribePromptSection(member, room.members));
+  } else {
+    const brief = lengthBrief(room.speechLength);
+    const batonSec =
+      opts.batonMode === 'chain' || opts.batonMode === 'callout'
+        ? buildBatonPromptSection(member, room.members, opts.batonMode)
+        : '';
+    parts.push([`# 你的行动任务:\n${brief}`, batonSec].filter(Boolean).join('\n'));
+  }
+
+  if (opts.instruction) {
+    parts.push(`# 额外指令:\n${opts.instruction}`);
+  }
 
   return parts.join('\n\n---\n\n');
 }
