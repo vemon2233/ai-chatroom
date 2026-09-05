@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { rm, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
-import { saveTrace, getTrace, listTraces } from '../src/store/trace';
+import { saveTrace, getTrace, listTraces, computeSessionStats } from '../src/store/trace';
 import { saveSummary, getSummary } from '../src/store/summary';
 import { buildPrompt } from '../src/core/prompt';
 import { Admin } from '../src/core/admin';
@@ -257,5 +257,70 @@ describe('B2 讨论摘要与 Agent Trace 持久化测试', () => {
     expect(traceDetail?.input.prompt).toContain('# 你的角色');
     expect(traceDetail?.input.prompt).toContain('军师');
     expect(traceDetail?.input.prompt).toContain('周瑜');
+  });
+
+  it('Stats: 能准确聚合消息发言份额、Token用量与估算费用', async () => {
+    // 模拟持久化一份带 usage 的 trace
+    const traceWithUsage: AgentTraceLog = {
+      messageId: 'msg_trace_01',
+      roomId: TEST_ROOM_ID,
+      memberId: 'm1',
+      memberName: '诸葛亮',
+      adapter: 'claude',
+      ts: Date.now(),
+      durationMs: 1500,
+      status: 'ok',
+      trigger: '讨论',
+      input: { prompt: 'Prompt...' },
+      output: {
+        result: '计策已定。',
+        usage: {
+          inputTokens: 1200,
+          outputTokens: 300,
+          totalTokens: 1500,
+          costUsd: 0.0081,
+        },
+      },
+    };
+    await saveTrace('room', TEST_ROOM_ID, traceWithUsage);
+
+    const members = [
+      { id: 'm1', name: '诸葛亮', color: '#3b82f6', adapter: 'claude' },
+      { id: 'm2', name: '周瑜', color: '#ef4444', adapter: 'codex' },
+    ];
+    const messages: ChatMessage[] = [
+      {
+        id: 'msg_user_1',
+        roomId: TEST_ROOM_ID,
+        from: 'user',
+        fromName: 'User',
+        text: '诸葛先生有何妙计？',
+        ts: Date.now() - 5000,
+      },
+      {
+        id: 'msg_trace_01',
+        roomId: TEST_ROOM_ID,
+        from: 'm1',
+        fromName: '诸葛亮',
+        text: '计策已定。草船借箭万无一失。',
+        ts: Date.now(),
+      },
+    ];
+
+    const stats = await computeSessionStats('room', TEST_ROOM_ID, members, messages);
+
+    expect(stats.totalMessages).toBe(2);
+    expect(stats.totalCostUsd).toBe(0.0081);
+    expect(stats.totalInputTokens).toBe(1200);
+    expect(stats.totalOutputTokens).toBe(300);
+    expect(stats.totalTokens).toBe(1500);
+    expect(stats.members.length).toBe(3); // user, m1, m2
+
+    const zhuge = stats.members.find((m) => m.id === 'm1');
+    expect(zhuge).toBeDefined();
+    expect(zhuge?.messageCount).toBe(1);
+    expect(zhuge?.totalTokens).toBe(1500);
+    expect(zhuge?.costUsd).toBe(0.0081);
+    expect(zhuge?.sharePct).toBeGreaterThan(0);
   });
 });

@@ -52,11 +52,11 @@ export const store = reactive({
   sidebarTab: 'rooms' as 'rooms' | 'chars',
   openSessions: [] as Session[],
 
-  // 右侧边栏 Inspector 统一激活 Tab ('summary' | 'logs' | 'manage' | null)
-  activeInspectorTab: null as 'summary' | 'logs' | 'manage' | null,
+  // 右侧边栏 Inspector 统一激活 Tab ('summary' | 'stats' | 'logs' | 'manage' | null)
+  activeInspectorTab: null as 'summary' | 'stats' | 'logs' | 'manage' | null,
 });
 
-export type InspectorTab = 'summary' | 'logs' | 'manage';
+export type InspectorTab = 'summary' | 'stats' | 'logs' | 'manage';
 
 export function toggleInspector(tab: InspectorTab): void {
   if (store.activeInspectorTab === tab) {

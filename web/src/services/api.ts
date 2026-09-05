@@ -122,4 +122,8 @@ export const api = {
   directTraceDetail: (characterId: string, messageId: string) => req<import('@server/core/types').AgentTraceLog>(`/api/characters/${characterId}/traces/${messageId}`),
   directSummary: (characterId: string) => req<import('@server/core/types').DiscussionSummary>(`/api/characters/${characterId}/summary`),
   refreshDirectSummary: (characterId: string) => req<import('@server/core/types').DiscussionSummary>(`/api/characters/${characterId}/summary/refresh`, { method: 'POST' }),
+
+  // 会话用量与开销度量统计
+  roomStats: (roomId: string) => req<import('@server/core/types').SessionStats>(`/api/rooms/${roomId}/stats`),
+  directStats: (characterId: string) => req<import('@server/core/types').SessionStats>(`/api/characters/${characterId}/stats`),
 };

@@ -7,15 +7,16 @@ import type { AgentTraceLog, DiscussionSummary } from '@server/core/types';
 import type { TraceSummaryItem } from '@server/store/trace';
 import InspectorRoomManage from './inspector/InspectorRoomManage.vue';
 import InspectorDirectManage from './inspector/InspectorDirectManage.vue';
+import InspectorStats from './inspector/InspectorStats.vue';
 
 const props = defineProps<{
-  activeTab: 'summary' | 'logs' | 'manage';
+  activeTab: 'summary' | 'stats' | 'logs' | 'manage';
   sessionType: 'room' | 'direct';
   sessionId: string;
 }>();
 
 const emit = defineEmits<{
-  (e: 'update:activeTab', tab: 'summary' | 'logs' | 'manage'): void;
+  (e: 'update:activeTab', tab: 'summary' | 'stats' | 'logs' | 'manage'): void;
   (e: 'close'): void;
 }>();
 
@@ -149,7 +150,7 @@ async function copyText(text: string, type: 'input' | 'output') {
     setTimeout(() => {
       if (copyFeedback.value === type) copyFeedback.value = null;
     }, 1500);
-  } catch {}
+  } catch { }
 }
 
 // ---------- 拖拽调节宽度逻辑 ----------
@@ -166,7 +167,7 @@ function getInitialWidth(): number {
         return Math.min(parsed, Math.round(window.innerWidth * 0.7));
       }
     }
-  } catch {}
+  } catch { }
   return DEFAULT_WIDTH;
 }
 
@@ -206,7 +207,7 @@ function onMouseUp() {
 
   try {
     localStorage.setItem(STORAGE_KEY, inspectorWidth.value.toString());
-  } catch {}
+  } catch { }
 }
 
 // ---------- 拖拽调节轮次列表高度逻辑 ----------
@@ -223,7 +224,7 @@ function getInitialTimelineHeight(): number {
         return Math.min(parsed, 550);
       }
     }
-  } catch {}
+  } catch { }
   return DEFAULT_TIMELINE_HEIGHT;
 }
 
@@ -263,7 +264,7 @@ function onTimelineMouseUp() {
 
   try {
     localStorage.setItem(TIMELINE_HEIGHT_KEY, timelineHeight.value.toString());
-  } catch {}
+  } catch { }
 }
 
 let autoRefreshTimer: ReturnType<typeof setTimeout> | null = null;
@@ -301,12 +302,12 @@ watch(
   },
 );
 
-// 切换到日志 Tab 时自动触发拉取
+// 切换到日志 Tab 时自动静默同步拉取
 watch(
   () => props.activeTab,
   (newTab) => {
     if (newTab === 'logs') {
-      void loadTraces(false);
+      void loadTraces(true);
     }
   },
   { immediate: true },
@@ -327,17 +328,9 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <aside
-    class="chat-inspector"
-    :style="{ width: `${inspectorWidth}px` }"
-    :class="{ 'is-dragging': isDragging }"
-  >
+  <aside class="chat-inspector" :style="{ width: `${inspectorWidth}px` }" :class="{ 'is-dragging': isDragging }">
     <!-- 左侧可拖拽分割线 -->
-    <div
-      class="inspector-resizer"
-      title="按住左右拖动调节面板宽度"
-      @mousedown.prevent="onMouseDown"
-    >
+    <div class="inspector-resizer" title="按住左右拖动调节面板宽度" @mousedown.prevent="onMouseDown">
       <div class="resizer-line"></div>
     </div>
 
@@ -350,26 +343,14 @@ onUnmounted(() => {
           <span v-else class="meta-pill meta-pill-empty">未生成</span>
           <span v-if="summaryData?.updatedAt" class="meta-time">{{ formattedSummaryTime }}</span>
         </div>
-        <button
-          type="button"
-          class="btn-refresh btn btn-ghost"
-          :disabled="isRefreshingSummary"
-          @click="handleRefreshSummary"
-        >
-          <svg
-            class="refresh-icon"
-            :class="{ spinning: isRefreshingSummary }"
-            viewBox="0 0 24 24"
-            width="13"
-            height="13"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-          >
+        <button type="button" class="btn-refresh btn btn-ghost" :disabled="isRefreshingSummary"
+          @click="handleRefreshSummary">
+          <svg class="refresh-icon" :class="{ spinning: isRefreshingSummary }" viewBox="0 0 24 24" width="13"
+            height="13" fill="none" stroke="currentColor" stroke-width="2">
             <polyline points="23 4 23 10 17 10" />
             <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
           </svg>
-          {{ isRefreshingSummary ? '生成中...' : '刷新摘要' }}
+          {{ isRefreshingSummary ? '生成中...' : '刷新' }}
         </button>
       </div>
 
@@ -385,11 +366,7 @@ onUnmounted(() => {
           <p class="loading-tip">管理员正在全面梳理近期发言并提炼共识...</p>
         </div>
 
-        <div
-          v-else-if="summaryData?.text"
-          class="summary-markdown-box"
-          v-html="renderMarkdown(summaryData.text)"
-        ></div>
+        <div v-else-if="summaryData?.text" class="summary-markdown-box" v-html="renderMarkdown(summaryData.text)"></div>
 
         <div v-else class="summary-empty-state">
           <div class="empty-icon">📝</div>
@@ -401,11 +378,8 @@ onUnmounted(() => {
     </div>
 
     <!-- Tab 2: 调用日志视图 (分栏列表 + 详情) -->
-    <div
-      v-else-if="activeTab === 'logs'"
-      class="tab-content logs-view"
-      :class="{ 'is-timeline-dragging': isTimelineDragging }"
-    >
+    <div v-else-if="activeTab === 'logs'" class="tab-content logs-view"
+      :class="{ 'is-timeline-dragging': isTimelineDragging }">
       <!-- 轮次列表条 -->
       <div class="traces-timeline" :style="{ height: `${timelineHeight}px` }">
         <div class="logs-subbar">
@@ -413,41 +387,23 @@ onUnmounted(() => {
             <span class="meta-title">Agent 调用轮次</span>
             <span class="meta-pill">共 {{ tracesList.length }} 次</span>
           </div>
-          <button
-            type="button"
-            class="btn-refresh btn btn-ghost"
-            :disabled="isLoadingTraces"
-            title="刷新日志列表"
-            @click="loadTraces"
-          >
-            <svg
-              class="refresh-icon"
-              :class="{ spinning: isLoadingTraces }"
-              viewBox="0 0 24 24"
-              width="13"
-              height="13"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-            >
+          <button type="button" class="btn-refresh btn btn-ghost" :disabled="isLoadingTraces" title="刷新日志列表"
+            @click="loadTraces(false)">
+            <svg class="refresh-icon" :class="{ spinning: isLoadingTraces }" viewBox="0 0 24 24" width="13" height="13"
+              fill="none" stroke="currentColor" stroke-width="2">
               <polyline points="23 4 23 10 17 10" />
               <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
             </svg>
-            {{ isLoadingTraces ? '拉取中...' : '刷新日志' }}
+            刷新
           </button>
         </div>
 
-        <div v-if="isLoadingTraces" class="traces-loading">正在拉取日志列表...</div>
+        <div v-if="isLoadingTraces && tracesList.length === 0" class="traces-loading">正在拉取日志列表...</div>
         <div v-else-if="tracesList.length === 0" class="traces-empty">暂无 Agent 调用记录</div>
         <div v-else class="traces-items-scroll">
-          <button
-            v-for="item in tracesList"
-            :key="item.messageId"
-            type="button"
-            class="trace-item"
+          <button v-for="item in tracesList" :key="item.messageId" type="button" class="trace-item"
             :class="{ active: selectedMessageId === item.messageId, error: item.status === 'error' }"
-            @click="selectTrace(item.messageId)"
-          >
+            @click="selectTrace(item.messageId)">
             <div class="item-head">
               <span class="item-name">{{ item.memberName }}</span>
               <span class="item-time">{{ formatTime(item.ts) }}</span>
@@ -462,11 +418,7 @@ onUnmounted(() => {
       </div>
 
       <!-- 上下拖拽分界线 -->
-      <div
-        class="timeline-v-resizer"
-        title="按住上下拖动调节轮次列表高度"
-        @mousedown.prevent="onTimelineMouseDown"
-      >
+      <div class="timeline-v-resizer" title="按住上下拖动调节轮次列表高度" @mousedown.prevent="onTimelineMouseDown">
         <div class="v-resizer-line"></div>
       </div>
 
@@ -478,35 +430,23 @@ onUnmounted(() => {
           <!-- 详情顶栏切换 -->
           <div class="detail-switch-bar">
             <div class="detail-tabs">
-              <button
-                type="button"
-                class="detail-tab-btn"
-                :class="{ active: detailSubTab === 'input' }"
-                @click="detailSubTab = 'input'"
-              >
+              <button type="button" class="detail-tab-btn" :class="{ active: detailSubTab === 'input' }"
+                @click="detailSubTab = 'input'">
                 全部输入 (Prompt)
               </button>
-              <button
-                type="button"
-                class="detail-tab-btn"
-                :class="{ active: detailSubTab === 'output' }"
-                @click="detailSubTab = 'output'"
-              >
+              <button type="button" class="detail-tab-btn" :class="{ active: detailSubTab === 'output' }"
+                @click="detailSubTab = 'output'">
                 全部输出 (Result)
               </button>
             </div>
-            <button
-              type="button"
-              class="btn-copy-trace btn btn-ghost"
-              @click="
-                copyText(
-                  detailSubTab === 'input'
-                    ? currentTraceDetail.input.prompt
-                    : currentTraceDetail.output.result,
-                  detailSubTab
-                )
-              "
-            >
+            <button type="button" class="btn-copy-trace btn btn-ghost" @click="
+              copyText(
+                detailSubTab === 'input'
+                  ? currentTraceDetail.input.prompt
+                  : currentTraceDetail.output.result,
+                detailSubTab
+              )
+              ">
               {{ copyFeedback === detailSubTab ? '已复制 ✓' : '复制内容' }}
             </button>
           </div>
@@ -515,10 +455,8 @@ onUnmounted(() => {
           <div v-if="detailSubTab === 'input'" class="detail-viewer">
             <div class="viewer-meta-row">
               <span class="label">上下文模式:</span>
-              <span
-                class="context-mode-pill"
-                :class="currentTraceDetail.input.resumeSessionId ? 'stateful' : 'stateless'"
-              >
+              <span class="context-mode-pill"
+                :class="currentTraceDetail.input.resumeSessionId ? 'stateful' : 'stateless'">
                 {{ currentTraceDetail.input.resumeSessionId ? '⚡ 有状态增量 (Delta Resume)' : '📦 无状态全量 (Full Context)' }}
               </span>
             </div>
@@ -542,7 +480,8 @@ onUnmounted(() => {
               <pre class="thinking-text"><code>{{ currentTraceDetail.output.thinking }}</code></pre>
             </div>
 
-            <div v-if="currentTraceDetail.output.trace && currentTraceDetail.output.trace.length > 0" class="trace-steps-section">
+            <div v-if="currentTraceDetail.output.trace && currentTraceDetail.output.trace.length > 0"
+              class="trace-steps-section">
               <div class="section-title">🛠️ 工作过程时间线 ({{ currentTraceDetail.output.trace.length }} 步)</div>
               <div class="trace-timeline-box">
                 <div v-for="(t, idx) in currentTraceDetail.output.trace" :key="idx" class="trace-step-item">
@@ -562,6 +501,11 @@ onUnmounted(() => {
           </div>
         </div>
       </div>
+    </div>
+
+    <!-- Tab 2: 用量与开销度量统计视图 -->
+    <div v-else-if="activeTab === 'stats'" class="tab-content stats-tab-view">
+      <InspectorStats :session-type="sessionType" :session-id="sessionId" />
     </div>
 
     <!-- Tab 3: 管理视图 (房间管理 / 角色管理) -->
@@ -587,6 +531,7 @@ onUnmounted(() => {
   flex-shrink: 0;
 }
 
+.stats-tab-view,
 .manage-tab-view {
   flex: 1;
   min-height: 0;
@@ -692,8 +637,13 @@ onUnmounted(() => {
 }
 
 @keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .summary-body {
@@ -779,8 +729,15 @@ onUnmounted(() => {
   border-radius: 4px;
   animation: pulse 1.5s infinite ease-in-out;
 }
-.shimmer-line.short { width: 40%; }
-.shimmer-line.mid { width: 75%; }
+
+.shimmer-line.short {
+  width: 40%;
+}
+
+.shimmer-line.mid {
+  width: 75%;
+}
+
 .loading-tip {
   font-size: 12px;
   color: var(--muted);
@@ -788,9 +745,17 @@ onUnmounted(() => {
 }
 
 @keyframes pulse {
-  0% { opacity: 0.6; }
-  50% { opacity: 1; }
-  100% { opacity: 0.6; }
+  0% {
+    opacity: 0.6;
+  }
+
+  50% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0.6;
+  }
 }
 
 /* 调用日志面板 */
@@ -905,14 +870,17 @@ onUnmounted(() => {
   border-radius: 4px;
   font-weight: 600;
 }
+
 .item-status.ok {
   color: var(--ok);
   background: rgba(16, 185, 129, 0.1);
 }
+
 .item-status.error {
   color: var(--danger);
   background: rgba(229, 72, 77, 0.1);
 }
+
 .item-status.cancelled {
   color: var(--warn);
   background: rgba(245, 158, 11, 0.1);

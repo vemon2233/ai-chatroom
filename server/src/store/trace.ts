@@ -12,7 +12,9 @@ export type TraceScope = 'room' | 'direct';
 export type TraceSummaryItem = Pick<
   AgentTraceLog,
   'messageId' | 'roomId' | 'memberId' | 'memberName' | 'adapter' | 'ts' | 'durationMs' | 'status' | 'trigger' | 'error'
->;
+> & {
+  usage?: AgentTraceLog['output']['usage'];
+};
 
 function traceDirFor(scope: TraceScope, id: string): string {
   const safeScope = scope === 'room' ? 'rooms' : 'direct';
@@ -81,6 +83,7 @@ export async function listTraces(scope: TraceScope, id: string): Promise<TraceSu
           status: data.status,
           trigger: data.trigger,
           error: data.error,
+          usage: data.output?.usage,
         });
       } catch {
         // 单个文件损坏跳过
@@ -92,4 +95,199 @@ export async function listTraces(scope: TraceScope, id: string): Promise<TraceSu
     console.error(`[TraceStore] 列出 Traces 失败 (${scope}/${id}):`, err);
     return [];
   }
+}
+
+/** 聚合计算指定会话的完整用量、费用、发言份额与角色排行榜 */
+export async function computeSessionStats(
+  scope: TraceScope,
+  id: string,
+  knownMembers: { id: string; name: string; color?: string; adapter?: string }[],
+  messages: import('../core/types').ChatMessage[],
+): Promise<import('../core/types').SessionStats> {
+  const memberMap = new Map<
+    string,
+    {
+      id: string;
+      name: string;
+      color: string;
+      adapter: string;
+      isUser: boolean;
+      messageCount: number;
+      charCount: number;
+      inputTokens: number;
+      outputTokens: number;
+      costUsd: number;
+      durations: number[];
+      skips: number;
+      errors: number;
+    }
+  >();
+
+  // 1. 先用已知的成员列表打底
+  for (const m of knownMembers) {
+    memberMap.set(m.id, {
+      id: m.id,
+      name: m.name,
+      color: m.color || '#3b82f6',
+      adapter: m.adapter || 'AI',
+      isUser: false,
+      messageCount: 0,
+      charCount: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      costUsd: 0,
+      durations: [],
+      skips: 0,
+      errors: 0,
+    });
+  }
+
+  // 2. 统计真实聊天消息(含用户发言与动态历史成员)
+  let totalChars = 0;
+  let totalMessages = 0;
+
+  for (const msg of messages) {
+    const isUser = msg.from === 'user' || msg.fromName === 'User';
+    const key = isUser ? 'user' : (msg.from || msg.fromName);
+    if (!memberMap.has(key)) {
+      memberMap.set(key, {
+        id: isUser ? 'user' : (msg.from || key),
+        name: isUser ? '用户 (User)' : msg.fromName,
+        color: isUser ? '#6366f1' : '#64748b',
+        adapter: isUser ? 'Human' : 'AI',
+        isUser,
+        messageCount: 0,
+        charCount: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+        costUsd: 0,
+        durations: [],
+        skips: 0,
+        errors: 0,
+      });
+    }
+    const item = memberMap.get(key)!;
+    item.messageCount += 1;
+    const len = msg.text ? msg.text.length : 0;
+    item.charCount += len;
+    totalChars += len;
+    totalMessages += 1;
+  }
+
+  // 3. 扫描 Trace 日志累加真实 API 用量与耗时
+  try {
+    const dir = traceDirFor(scope, id);
+    if (existsSync(dir)) {
+      const files = await readdir(dir);
+      const jsonFiles = files.filter((f) => f.endsWith('.json'));
+
+      for (const f of jsonFiles) {
+        try {
+          const raw = await readFile(path.join(dir, f), 'utf8');
+          const trace = JSON.parse(raw) as AgentTraceLog;
+          const targetKey = trace.memberId || trace.memberName;
+          let target = memberMap.get(targetKey);
+          if (!target) {
+            // 通过名字兜底查找
+            for (const item of memberMap.values()) {
+              if (item.name === trace.memberName) {
+                target = item;
+                break;
+              }
+            }
+          }
+
+          if (!target) {
+            target = {
+              id: trace.memberId || trace.memberName,
+              name: trace.memberName,
+              color: '#64748b',
+              adapter: trace.adapter,
+              isUser: false,
+              messageCount: 0,
+              charCount: 0,
+              inputTokens: 0,
+              outputTokens: 0,
+              costUsd: 0,
+              durations: [],
+              skips: 0,
+              errors: 0,
+            };
+            memberMap.set(target.id, target);
+          }
+
+          if (trace.durationMs) {
+            target.durations.push(trace.durationMs);
+          }
+          if (trace.status === 'error') {
+            target.errors += 1;
+          }
+          if (trace.status === 'cancelled' || trace.output?.result?.includes('<跳过>')) {
+            target.skips += 1;
+          }
+
+          const usage = trace.output?.usage;
+          if (usage) {
+            if (usage.inputTokens) target.inputTokens += usage.inputTokens;
+            if (usage.outputTokens) target.outputTokens += usage.outputTokens;
+            if (usage.costUsd) target.costUsd += usage.costUsd;
+          }
+        } catch {
+          // 单个 trace 解析失败略过
+        }
+      }
+    }
+  } catch (err) {
+    console.error(`[TraceStore] computeSessionStats 扫描 trace 失败 (${scope}/${id}):`, err);
+  }
+
+  // 4. 汇总与计算活跃度份额
+  let totalInputTokens = 0;
+  let totalOutputTokens = 0;
+  let totalCostUsd = 0;
+
+  const members = Array.from(memberMap.values()).map((m) => {
+    totalInputTokens += m.inputTokens;
+    totalOutputTokens += m.outputTokens;
+    totalCostUsd += m.costUsd;
+
+    const avgDurationMs =
+      m.durations.length > 0
+        ? Math.round(m.durations.reduce((acc, cur) => acc + cur, 0) / m.durations.length)
+        : 0;
+
+    const sharePct =
+      totalChars > 0 ? Math.round((m.charCount / totalChars) * 100) : 0;
+
+    return {
+      id: m.id,
+      name: m.name,
+      color: m.color,
+      adapter: m.adapter,
+      isUser: m.isUser,
+      messageCount: m.messageCount,
+      charCount: m.charCount,
+      sharePct,
+      inputTokens: m.inputTokens,
+      outputTokens: m.outputTokens,
+      totalTokens: m.inputTokens + m.outputTokens,
+      costUsd: Number(m.costUsd.toFixed(6)),
+      avgDurationMs,
+      skips: m.skips,
+      errors: m.errors,
+    };
+  });
+
+  // 按发言条数倒序排序(优先展示话多的角色)
+  members.sort((a, b) => b.messageCount - a.messageCount || b.totalTokens - a.totalTokens);
+
+  return {
+    totalMessages,
+    totalChars,
+    totalInputTokens,
+    totalOutputTokens,
+    totalTokens: totalInputTokens + totalOutputTokens,
+    totalCostUsd: Number(totalCostUsd.toFixed(6)),
+    members,
+  };
 }

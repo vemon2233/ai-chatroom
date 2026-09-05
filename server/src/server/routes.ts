@@ -8,7 +8,7 @@ import { CharacterStore } from '../store/characters';
 import { DirectChatService } from '../core/direct';
 import { getAdapter as getAdapterByKind } from '../adapters/index';
 import { Admin } from '../core/admin';
-import { getTrace, listTraces } from '../store/trace';
+import { getTrace, listTraces, computeSessionStats } from '../store/trace';
 import type { Character, RoomSettings } from '../core/types';
 import type { AdapterConfig, AppConfig } from './config';
 
@@ -201,6 +201,16 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
           return json(res, 200, sum || { text: '', updatedAt: Date.now(), messageCount: 0 });
         }
 
+        // 1v1 私聊用量与开销度量统计
+        if (sub === 'stats' && method === 'GET') {
+          await characters.ensureLoaded();
+          const char = characters.get(id);
+          if (!char) return json(res, 404, { error: '角色不存在' });
+          const messages = await directChat.getMessages(id);
+          const stats = await computeSessionStats('direct', id, [char], messages);
+          return json(res, 200, stats);
+        }
+
         if (!sub && (method === 'PUT' || method === 'PATCH')) {
           const body = await readBody(req);
           if (body.adapter && !adapterConfigs[body.adapter]) {
@@ -361,6 +371,12 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
         if (sub === 'summary/refresh' && method === 'POST') {
           const sum = await room!.refreshSummary();
           return json(res, 200, sum || { text: '', updatedAt: Date.now(), messageCount: 0 });
+        }
+
+        // 房间用量与开销度量统计
+        if (sub === 'stats' && method === 'GET') {
+          const stats = await computeSessionStats('room', roomId, room!.config.members, room!.history);
+          return json(res, 200, stats);
         }
 
         // 给指定成员直接下指令

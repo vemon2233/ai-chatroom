@@ -67,6 +67,15 @@ async function handleReset() {
           </button>
           <button
             class="btn btn-ghost btn-panel-toggle"
+            :class="{ active: store.activeInspectorTab === 'stats' }"
+            type="button"
+            title="查看会话用量与开销统计"
+            @click="toggleInspector('stats')"
+          >
+            统计
+          </button>
+          <button
+            class="btn btn-ghost btn-panel-toggle"
             :class="{ active: store.activeInspectorTab === 'logs' }"
             type="button"
             title="查看 Agent 调用输入输出日志"

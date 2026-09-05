@@ -199,3 +199,33 @@ export type RoomSettings = Pick<
   RoomConfig,
   'speechLength' | 'chainBudget' | 'name' | 'color' | 'topic' | 'mode' | 'subscribeConfig' | 'contextMode'
 > & { moderatorId?: string };
+
+/** 单个角色/用户的度量统计项 */
+export interface MemberStats {
+  id: string;
+  name: string;
+  color: string;
+  adapter: string;
+  isUser: boolean;
+  messageCount: number;
+  charCount: number;
+  sharePct: number;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  costUsd: number;
+  avgDurationMs: number;
+  skips: number;
+  errors: number;
+}
+
+/** 会话级(房间或私聊)用量与开销聚合统计数据 */
+export interface SessionStats {
+  totalMessages: number;
+  totalChars: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  totalTokens: number;
+  totalCostUsd: number;
+  members: MemberStats[];
+}
