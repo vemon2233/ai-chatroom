@@ -585,6 +585,11 @@ export class Orchestrator {
       finalText = stripBatonLine(finalText);
       const split = splitPublicAndPrivateMessage(finalText, this.deps.room.members, member.id);
 
+      // 如果公聊和私聊都未解析出有效内容，以 stripAudienceLine 作为公聊兜底
+      if (!split.publicText && (!split.privateBlocks || split.privateBlocks.length === 0)) {
+        split.publicText = stripAudienceLine(finalText) || finalText;
+      }
+
       // 6.1 发布公聊消息 (全员可见气泡)
       if (split.publicText) {
         await this.deps.pushMessage({
@@ -606,30 +611,34 @@ export class Orchestrator {
         });
       }
 
-      // 6.2 发布私聊消息 (受众隔离气泡，支持多播)
-      const primaryTarget = split.targetMemberIds?.[0];
-      if (split.privateText && primaryTarget) {
-        const meta = this.subscribeEngine.resolvePrivateMeta(member.id, primaryTarget, split.handshake);
-        await this.deps.pushMessage({
-          id: randomUUID(),
-          roomId: this.deps.room.id,
-          from: member.id,
-          fromName: member.name,
-          text: split.privateText,
-          ts: Date.now(),
-          audience: split.targetMemberIds,
-          handshake: split.handshake,
-          privateRound: meta.privateRound,
-          privateAction: meta.privateAction,
-          detail: {
-            trace,
-            thinking: thinking || undefined,
-            usage,
-            durationMs: outcome.durationMs,
-            adapter: member.adapter,
-            trigger: entry.trigger,
-          },
-        });
+      // 6.2 发布私聊消息 (支持多个独立私聊气泡解构，受众隔离气泡，支持多播)
+      if (split.privateBlocks && split.privateBlocks.length > 0) {
+        for (const block of split.privateBlocks) {
+          const primaryTarget = block.targetMemberIds[0];
+          if (!primaryTarget || !block.privateText) continue;
+
+          const meta = this.subscribeEngine.resolvePrivateMeta(member.id, primaryTarget, block.handshake);
+          await this.deps.pushMessage({
+            id: randomUUID(),
+            roomId: this.deps.room.id,
+            from: member.id,
+            fromName: member.name,
+            text: block.privateText,
+            ts: Date.now(),
+            audience: block.targetMemberIds,
+            handshake: block.handshake,
+            privateRound: meta.privateRound,
+            privateAction: meta.privateAction,
+            detail: {
+              trace,
+              thinking: thinking || undefined,
+              usage,
+              durationMs: outcome.durationMs,
+              adapter: member.adapter,
+              trigger: entry.trigger,
+            },
+          });
+        }
       }
 
       await this.deps.persistRoom();

@@ -340,25 +340,11 @@ export class SubscribeEngine {
         return;
       }
 
-      // 6. 消息解析: 拆分公聊发言与私聊发言 (双气泡支持，严禁对自己发私信)
+      // 6. 消息解析: 拆分公聊发言与私聊发言 (支持单公聊 + 多私聊独立气泡解构，严禁对自己发私信)
       const split = splitPublicAndPrivateMessage(rawText, room.members, member.id);
-      const handshake = parseHandshake(rawText, room.members);
 
-      // 处理私聊部分 (若存在目标成员与私聊文本，支持多播)
-      let privateThreadId: string | undefined;
-      let privateAudience: string[] | undefined;
-      let privateRound: number | undefined;
-      let privateAction: 'start' | 'agree' | 'reject' | 'idea' | 'reply' | undefined;
-
-      const primaryTargetId = split.targetMemberIds?.[0];
-      if (primaryTargetId && split.privateText) {
-        privateAudience = split.targetMemberIds;
-        const meta = this.resolvePrivateMeta(member.id, primaryTargetId, split.handshake);
-        privateThreadId = meta.threadId;
-        privateRound = meta.privateRound;
-        privateAction = meta.privateAction;
-      } else if (!split.privateText && !split.publicText) {
-        // 如果两者都没解析出来，以 stripAudienceLine 作为公聊兜底
+      // 如果公聊和私聊都未解析出有效内容，以 stripAudienceLine 作为公聊兜底
+      if (!split.publicText && (!split.privateBlocks || split.privateBlocks.length === 0)) {
         split.publicText = stripAudienceLine(rawText) || rawText;
       }
 
@@ -370,7 +356,7 @@ export class SubscribeEngine {
         durationMs: outcome.durationMs,
       };
 
-      // 7. 发布消息 (气泡拆分: 若既有公聊又有私聊，依次发布两条独立消息)
+      // 7. 发布消息 (气泡拆分: 若既有公聊又有私聊，依次发布独立消息)
       // 7.1 发布公聊消息 (全员可见气泡)
       if (split.publicText) {
         await this.deps.publishMessage({
@@ -384,20 +370,31 @@ export class SubscribeEngine {
         await this.checkAndTriggerMentions(member, split.publicText);
       }
 
-      // 7.2 发布私聊消息 (受众隔离气泡，携带态度与轮次信息)
-      if (split.privateText && privateAudience) {
-        await this.deps.publishMessage({
-          from: member.id,
-          fromName: member.name,
-          text: split.privateText,
-          audience: privateAudience,
-          threadId: privateThreadId,
-          handshake: split.handshake,
-          privateRound,
-          privateAction,
-          detail: speechDetail,
-        });
-        await this.checkAndTriggerMentions(member, split.privateText, privateAudience, handshake);
+      // 7.2 发布私聊消息 (支持针对不同/相同目标成员拆解出多个独立私聊气泡)
+      if (split.privateBlocks && split.privateBlocks.length > 0) {
+        for (const block of split.privateBlocks) {
+          const primaryTargetId = block.targetMemberIds[0];
+          if (!primaryTargetId || !block.privateText) continue;
+
+          const meta = this.resolvePrivateMeta(member.id, primaryTargetId, block.handshake);
+          await this.deps.publishMessage({
+            from: member.id,
+            fromName: member.name,
+            text: block.privateText,
+            audience: block.targetMemberIds,
+            threadId: meta.threadId,
+            handshake: block.handshake,
+            privateRound: meta.privateRound,
+            privateAction: meta.privateAction,
+            detail: speechDetail,
+          });
+          await this.checkAndTriggerMentions(
+            member,
+            block.privateText,
+            block.targetMemberIds,
+            block.handshake ? { type: block.handshake } : undefined,
+          );
+        }
       }
     } finally {
       this.isSpeaking = false;

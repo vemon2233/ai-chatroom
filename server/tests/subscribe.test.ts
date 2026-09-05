@@ -345,6 +345,26 @@ describe('订阅模式: 去中心心跳引擎与编排器集成 (SubscribeEngine
       expect(resIdea.handshake).toBe('idea');
     });
 
+    it('支持将同一发言中的多个独立私聊块拆分为多个独立的 privateBlocks 气泡', () => {
+      const text =
+        '诸位，局势已明。\n\n' +
+        '<私聊>@吕布3 老伙计，你的算盘就是我的算盘，我投那个2。<同意>\n\n' +
+        '<私聊>@吕布2 老二睡了没？老三方才私下来寻我，要联手投你下油锅，你我联手齐投老三。';
+      const result = splitPublicAndPrivateMessage(text, members, 'm1');
+      expect(result.publicText).toBe('诸位，局势已明。');
+      expect(result.privateBlocks).toHaveLength(2);
+
+      // 第一个私聊气泡发给 m3 (吕布3)
+      expect(result.privateBlocks[0].targetMemberIds).toEqual(['m3']);
+      expect(result.privateBlocks[0].privateText).toBe('老伙计，你的算盘就是我的算盘，我投那个2。');
+      expect(result.privateBlocks[0].handshake).toBe('agree');
+
+      // 第二个私聊气泡发给 m2 (吕布2)
+      expect(result.privateBlocks[1].targetMemberIds).toEqual(['m2']);
+      expect(result.privateBlocks[1].privateText).toContain('老二睡了没？');
+      expect(result.privateBlocks[1].privateText).not.toContain('老伙计');
+    });
+
     it('A与B之间双向复用同一个 active thread', () => {
       const protocol = new PrivateChatProtocol();
       const t1 = protocol.startThread('m1', 'm2');
@@ -520,6 +540,66 @@ describe('订阅模式: 去中心心跳引擎与编排器集成 (SubscribeEngine
       expect(meta2.privateRound).toBe(1);
       expect(meta2.privateAction).toBe('agree');
       expect(meta2.threadId).toBe(meta1.threadId);
+      engine.stop();
+    });
+
+    it('心跳发言包含公聊和两个私聊分块时，SubscribeEngine 依次发布3条独立气泡消息', async () => {
+      const published: any[] = [];
+      const room = {
+        id: 'test-room',
+        name: '测试房',
+        topic: '测试话题',
+        mode: 'subscribe' as const,
+        chainBudget: 6,
+        speechLength: 'normal' as const,
+        toolPermission: 'readonly' as const,
+        members: [
+          { id: 'm1', name: '曹操1', adapter: 'mock', persona: '曹操', color: '#fff' },
+          { id: 'm2', name: '曹操2', adapter: 'mock', persona: '曹操', color: '#fff' },
+          { id: 'm3', name: '曹操3', adapter: 'mock', persona: '曹操', color: '#fff' },
+        ],
+      };
+
+      const engine = new SubscribeEngine({
+        getRoom: () => room,
+        getHistory: () => [{ id: 'init', roomId: 'test-room', from: 'user', text: '开局', ts: 1 }],
+        isBusy: () => false,
+        speak: async () => ({
+          status: 'ok',
+          result:
+            '公聊：天下大势分久必合！\n\n' +
+            '<私聊>@曹操3 老三，我们联手投老二。<同意>\n\n' +
+            '<私聊>@曹操2 老二睡了没？老三要投你，我们联手反击！',
+        }),
+        publishMessage: async (msg) => {
+          published.push(msg);
+        },
+        consumeBudget: () => true,
+        sysMessage: async () => {},
+        onMentioned: async () => {},
+        onIdle: () => {},
+      });
+
+      // @ts-expect-error 测试私有方法
+      await engine.runHeartbeatTick(room.members[0]);
+
+      // 验证一共发布了 3 条独立气泡消息
+      expect(published).toHaveLength(3);
+
+      // 1. 公聊消息
+      expect(published[0].text).toBe('天下大势分久必合！');
+      expect(published[0].audience).toBeUndefined();
+
+      // 2. 私聊气泡 1 (发给曹操3)
+      expect(published[1].text).toBe('老三，我们联手投老二。');
+      expect(published[1].audience).toEqual(['m3']);
+      expect(published[1].handshake).toBe('agree');
+
+      // 3. 私聊气泡 2 (发给曹操2)
+      expect(published[2].text).toBe('老二睡了没？老三要投你，我们联手反击！');
+      expect(published[2].audience).toEqual(['m2']);
+
+      engine.stop();
     });
   });
 });

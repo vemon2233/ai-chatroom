@@ -6,21 +6,33 @@ import { matchMemberByName } from '../../prompt';
 /** 私聊行正则: 匹配末尾 `<私聊>@A @B` 或 `【私聊】@A @B` */
 export const AUDIENCE_LINE = /(?:<私聊>|【私聊】)\s*(.+)/;
 
-export interface SplitMessageResult {
-  /** 公开发言文本 (全员可见)，若无公开发言则为 undefined */
-  publicText?: string;
+export interface PrivateBlock {
   /** 私聊目标成员 ID 列表 (单人为 [id]，多播为 [id1, id2]) */
-  targetMemberIds?: string[];
-  /** 私聊正文 (仅目标受众可见)，若无私聊则为 undefined */
-  privateText?: string;
+  targetMemberIds: string[];
+  /** 私聊正文 (仅目标受众可见) */
+  privateText: string;
   /** 握手态度: agree / reject / idea */
   handshake?: 'agree' | 'reject' | 'idea';
 }
 
+export interface SplitMessageResult {
+  /** 公开发言文本 (全员可见)，若无公开发言则为 undefined */
+  publicText?: string;
+  /** 所有解析出的私聊消息块列表 (支持向不同/相同成员发起多段独立私聊) */
+  privateBlocks: PrivateBlock[];
+  /** 私聊首位目标成员 ID 列表 (向下兼容快捷字段) */
+  targetMemberIds?: string[];
+  /** 私聊首段正文 (向下兼容快捷字段) */
+  privateText?: string;
+  /** 首段握手态度 (向下兼容快捷字段) */
+  handshake?: 'agree' | 'reject' | 'idea';
+}
+
 /**
- * 智能拆分公开发言与私聊发言(双气泡解构)。
+ * 智能拆分公开发言与多段私聊发言(多气泡解构)。
  * 严格杜绝自言自语私聊(自动排除 senderId)。
  * 支持同时私聊多人(例如 <私聊>@A @B 私信内容)。
+ * 支持单次发言输出多段发给不同同事的独立私聊(<私聊>@A 内容A ... <私聊>@B 内容B)。
  * 彻底剥离正文末尾残留的握手标签(<同意>、<拒绝>、<想法>)，并在元数据中返回握手态度。
  */
 export function splitPublicAndPrivateMessage(
@@ -30,107 +42,152 @@ export function splitPublicAndPrivateMessage(
 ): SplitMessageResult {
   const otherMembers = senderId ? members.filter((m) => m.id !== senderId) : members;
 
-  // 匹配私聊引导符起始位置
-  const privateTagMatch = rawText.match(/(?:<私聊>|【私聊】)/);
-  if (!privateTagMatch || privateTagMatch.index === undefined) {
-    // 无私聊标签，纯公聊
-    return { publicText: rawText.trim() || undefined };
+  // 1. 查找所有私聊引导符起始位置
+  const privateTagRegex = /(?:<私聊>|【私聊】)/g;
+  const matches = [...rawText.matchAll(privateTagRegex)];
+
+  if (matches.length === 0) {
+    // 无任何私聊标签，纯公聊
+    return {
+      publicText: rawText.trim() || undefined,
+      privateBlocks: [],
+    };
   }
 
-  const tagIndex = privateTagMatch.index;
-  const beforeText = rawText.slice(0, tagIndex).trim();
-  const afterTag = rawText.slice(tagIndex + privateTagMatch[0].length).trimStart();
-
-  // 从 afterTag 循环提取一个或多个 @目标，剩余内容为私聊正文
-  const targetMembers: Array<{ id: string; name: string }> = [];
-  let remaining = afterTag;
-
-  for (;;) {
-    const m = remaining.match(/^\s*@([^\s@,，。:：\n]+)/);
-    if (!m) break;
-    const name = m[1]!;
-    const hit = matchMemberByName(name, otherMembers);
-    if (hit && !targetMembers.some((t) => t.id === hit.id)) {
-      targetMembers.push(hit);
-    }
-    remaining = remaining.slice(m[0].length);
+  const firstTag = matches[0];
+  if (!firstTag || firstTag.index === undefined) {
+    return {
+      publicText: rawText.trim() || undefined,
+      privateBlocks: [],
+    };
   }
 
-  // 容错：如果开头没有带 @，但直接写了单个名字
-  if (targetMembers.length === 0) {
-    const singleMatch = afterTag.match(/^([^\s@,，。:：\n]+)([\s\S]*)$/);
-    if (singleMatch) {
-      const hit = matchMemberByName(singleMatch[1]!, otherMembers);
-      if (hit) {
+  // 2. 第一个私聊标签之前的内容为公开发言部分
+  const firstTagIndex = firstTag.index;
+  const beforeText = rawText.slice(0, firstTagIndex).trim();
+
+  // 3. 按照私聊标签位置将后续内容切分为多个独立的私聊 chunk
+  const rawChunks: string[] = [];
+  for (let i = 0; i < matches.length; i++) {
+    const curMatch = matches[i];
+    if (!curMatch || curMatch.index === undefined) continue;
+    const curStart = curMatch.index + curMatch[0].length;
+    const nextMatch = i + 1 < matches.length ? matches[i + 1] : undefined;
+    const nextStart = nextMatch && nextMatch.index !== undefined ? nextMatch.index : rawText.length;
+    rawChunks.push(rawText.slice(curStart, nextStart));
+  }
+
+  const privateBlocks: PrivateBlock[] = [];
+
+  for (const chunk of rawChunks) {
+    const trimmedChunk = chunk.trimStart();
+    // 循环提取该 chunk 开头的一个或多个 @目标
+    const targetMembers: Array<{ id: string; name: string }> = [];
+    let remaining = trimmedChunk;
+
+    for (;;) {
+      const m = remaining.match(/^\s*@([^\s@,，。:：\n]+)/);
+      if (!m) break;
+      const name = m[1]!;
+      const hit = matchMemberByName(name, otherMembers);
+      if (hit && !targetMembers.some((t) => t.id === hit.id)) {
         targetMembers.push(hit);
-        remaining = singleMatch[2] ?? '';
+      }
+      remaining = remaining.slice(m[0].length);
+    }
+
+    // 容错：如果开头没有带 @，但直接写了单个名字
+    if (targetMembers.length === 0) {
+      const singleMatch = trimmedChunk.match(/^([^\s@,，。:：\n]+)([\s\S]*)$/);
+      if (singleMatch) {
+        const hit = matchMemberByName(singleMatch[1]!, otherMembers);
+        if (hit) {
+          targetMembers.push(hit);
+          remaining = singleMatch[2] ?? '';
+        }
+      }
+    }
+
+    // 若无法匹配任何有效目标，跳过本 chunk
+    if (targetMembers.length === 0) {
+      continue;
+    }
+
+    const targetIds = targetMembers.map((t) => t.id);
+    let privateBody = remaining.trim();
+
+    // 提取该 chunk 中的握手标签
+    let handshake: 'agree' | 'reject' | 'idea' | undefined;
+    const handshakeMatch = chunk.match(/<(同意|拒绝|想法)>/);
+    if (handshakeMatch) {
+      const hs = handshakeMatch[1];
+      if (hs === '同意') handshake = 'agree';
+      else if (hs === '拒绝') handshake = 'reject';
+      else if (hs === '想法') handshake = 'idea';
+    } else {
+      handshake = inferHandshakeFromText(privateBody);
+    }
+
+    // 清洗私聊正文中的握手标签与前缀
+    const cleanPrivate = privateBody
+      .replace(/<(?:同意|拒绝|想法)>[^\n]*/g, '')
+      .replace(/^\s*(?:私聊(?:部分)?|悄悄话|密谋)[:：\s]*/g, '')
+      .trim();
+
+    if (cleanPrivate.length > 0) {
+      privateBlocks.push({
+        targetMemberIds: targetIds,
+        privateText: cleanPrivate,
+        handshake,
+      });
+    }
+  }
+
+  // 4. 清洗公开发言部分
+  let cleanPublic: string | undefined;
+  if (beforeText.length > 0) {
+    const cleaned = beforeText
+      .replace(/^\s*(?:公开发言(?:部分)?|公开回复|台前发言|公聊(?:部分)?)[:：\s]*/g, '')
+      .trim();
+    if (cleaned.length > 0) {
+      cleanPublic = cleaned;
+    }
+  }
+
+  // 5. 容错：如果既没有公聊，又没有成功解析出任何私聊块，降级为纯公聊
+  if (!cleanPublic && privateBlocks.length === 0) {
+    cleanPublic = stripAudienceLine(rawText) || rawText.trim();
+  }
+
+  // 6. 容错：如果 chunk 正文为空，但 beforeText 不为空 (大模型把正文写在前面，私聊标签放最后)
+  if (privateBlocks.length === 0 && matches.length > 0 && beforeText.length > 0) {
+    const tailChunk = rawChunks[rawChunks.length - 1];
+    const targetMatch = tailChunk?.match(/@?([^\s@,，。:：\n]+)/);
+    if (targetMatch) {
+      const hit = matchMemberByName(targetMatch[1]!, otherMembers);
+      if (hit) {
+        const hsMatch = rawText.match(/<(同意|拒绝|想法)>/);
+        let hs: 'agree' | 'reject' | 'idea' | undefined;
+        if (hsMatch) {
+          hs = hsMatch[1] === '同意' ? 'agree' : hsMatch[1] === '拒绝' ? 'reject' : 'idea';
+        }
+        privateBlocks.push({
+          targetMemberIds: [hit.id],
+          privateText: beforeText.replace(/<(?:同意|拒绝|想法)>[^\n]*/g, '').trim(),
+          handshake: hs,
+        });
+        cleanPublic = undefined;
       }
     }
   }
 
-  // 若无法匹配任何有效目标(如写了自己的名字或不存在的名字)，降级为纯公聊
-  if (targetMembers.length === 0) {
-    return { publicText: stripAudienceLine(rawText) || rawText.trim() };
-  }
-
-  const targetIds = targetMembers.map((t) => t.id);
-  const privateBody = remaining.trim();
-
-  // 提取握手标签态度 (优先显式标签，无标签时智能语义推断兜底)
-  let handshake: 'agree' | 'reject' | 'idea' | undefined;
-  const handshakeMatch = rawText.match(/<(同意|拒绝|想法)>/);
-  if (handshakeMatch) {
-    const hs = handshakeMatch[1];
-    if (hs === '同意') handshake = 'agree';
-    else if (hs === '拒绝') handshake = 'reject';
-    else if (hs === '想法') handshake = 'idea';
-  } else {
-    handshake = inferHandshakeFromText(privateBody || beforeText);
-  }
-
-  // 判定模式:
-  // 1. 如果私聊标签在最开头(beforeText 为空): 全文为私聊
-  if (!beforeText) {
-    const cleanOnlyPrivate = privateBody
-      .replace(/<(?:同意|拒绝|想法)>[^\n]*/g, '')
-      .replace(/^\s*(?:私聊(?:部分)?|悄悄话|密谋)[:：\s]*/g, '')
-      .trim();
-    return {
-      privateText: cleanOnlyPrivate || undefined,
-      targetMemberIds: targetIds,
-      handshake,
-    };
-  }
-
-  // 2. 如果 afterTag 只有 @名字，没有后续正文(privateBody 为空):
-  // 说明模型将前面的 beforeText 当作了私聊正文发给对方
-  if (!privateBody) {
-    const cleanBefore = beforeText
-      .replace(/<(?:同意|拒绝|想法)>[^\n]*/g, '')
-      .replace(/^\s*(?:私聊(?:部分)?|悄悄话|密谋)[:：\s]*/g, '')
-      .trim();
-    return {
-      privateText: cleanBefore,
-      targetMemberIds: targetIds,
-      handshake,
-    };
-  }
-
-  // 3. 既有 beforeText 又有 privateBody:
-  // 公私双重发言！清洗掉前缀与握手标签并拆分成公聊和私聊双气泡
-  const cleanPublic = beforeText
-    .replace(/^\s*(?:公开发言(?:部分)?|公开回复|台前发言)[:：\s]*/g, '')
-    .trim();
-  const cleanPrivate = privateBody
-    .replace(/<(?:同意|拒绝|想法)>[^\n]*/g, '')
-    .replace(/^\s*(?:私聊(?:部分)?|悄悄话|密谋)[:：\s]*/g, '')
-    .trim();
-
+  const firstBlock = privateBlocks[0];
   return {
-    publicText: cleanPublic.length > 0 ? cleanPublic : undefined,
-    privateText: cleanPrivate.length > 0 ? cleanPrivate : undefined,
-    targetMemberIds: targetIds,
-    handshake,
+    publicText: cleanPublic,
+    privateBlocks,
+    targetMemberIds: firstBlock?.targetMemberIds,
+    privateText: firstBlock?.privateText,
+    handshake: firstBlock?.handshake,
   };
 }
 
