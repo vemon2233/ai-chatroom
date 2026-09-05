@@ -26,6 +26,7 @@ export interface RoomFormBody {
   toolPermission: 'readonly' | 'readwrite' | 'full';
   chainBudget: number;
   moderatorId: string;
+  mode: 'baton' | 'subscribe';
 }
 
 const name = ref('');
@@ -36,6 +37,7 @@ const projectPath = ref('');
 const toolPermission = ref<'readonly' | 'readwrite' | 'full'>('readonly');
 const chainBudget = ref(6);
 const moderatorId = ref('');
+const mode = ref<'baton' | 'subscribe'>('baton');
 
 const isCreate = () => props.mode === 'create';
 
@@ -51,6 +53,7 @@ watch(
       toolPermission.value = r.toolPermission;
       chainBudget.value = r.chainBudget;
       moderatorId.value = r.moderatorId ?? '';
+      mode.value = r.mode ?? 'baton';
     } else {
       name.value = '';
       color.value = COLOR_OPTIONS[0]!.value;
@@ -60,6 +63,7 @@ watch(
       toolPermission.value = 'readonly';
       chainBudget.value = 6;
       moderatorId.value = '';
+      mode.value = 'baton';
     }
   },
   { immediate: true },
@@ -75,6 +79,7 @@ function submit() {
     toolPermission: projectPath.value.trim() ? toolPermission.value : 'readonly',
     chainBudget: Math.max(1, Math.min(50, chainBudget.value || 6)),
     moderatorId: moderatorId.value,
+    mode: mode.value,
   });
 }
 
@@ -88,6 +93,7 @@ function reset() {
     toolPermission.value = props.room.toolPermission;
     chainBudget.value = props.room.chainBudget;
     moderatorId.value = props.room.moderatorId ?? '';
+    mode.value = props.room.mode ?? 'baton';
   } else {
     name.value = '';
     color.value = COLOR_OPTIONS[0]!.value;
@@ -97,6 +103,7 @@ function reset() {
     toolPermission.value = 'readonly';
     chainBudget.value = 6;
     moderatorId.value = '';
+    mode.value = 'baton';
   }
 }
 
@@ -126,6 +133,21 @@ defineExpose({ submit, reset });
       <textarea v-model="topic" placeholder="例如:React 和 Vue 该选哪个?考虑团队规模和学习成本"></textarea>
     </div>
 
+    <!-- 讨论模式选择 -->
+    <div class="form-row">
+      <label>讨论模式<span v-if="!isCreate()" class="field-hint">(即时生效)</span></label>
+      <div class="perm-row">
+        <label class="perm" :class="{ sel: mode === 'baton' }">
+          <input v-model="mode" type="radio" value="baton" />
+          <span><b>接棒模式 (默认)</b>发言者尾行指定下一位, 链式推进</span>
+        </label>
+        <label class="perm" :class="{ sel: mode === 'subscribe' }">
+          <input v-model="mode" type="radio" value="subscribe" />
+          <span><b>订阅模式 (去中心群聊)</b>Agent 错峰心跳自主刷群, 支持纯并行发言、沉默与私聊握手</span>
+        </label>
+      </div>
+    </div>
+
     <div class="grid2-eq">
       <div class="form-row">
         <label>发言长度<span v-if="isCreate()" class="field-hint">(进房后可随时改)</span></label>
@@ -136,7 +158,7 @@ defineExpose({ submit, reset });
         </select>
       </div>
       <div class="form-row">
-        <label>接棒上限<span v-if="!isCreate()" class="field-hint">(即时生效)</span></label>
+        <label title="所有讨论模式通用，达到上限后自动暂停讨论，发新消息继续">发言上限 (轮次)<span v-if="!isCreate()" class="field-hint">(即时生效)</span></label>
         <input v-model.number="chainBudget" type="number" min="1" max="50" />
       </div>
     </div>

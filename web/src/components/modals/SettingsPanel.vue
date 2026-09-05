@@ -39,6 +39,7 @@ async function onSubmit(body: RoomFormBody) {
     speechLength: body.speechLength,
     chainBudget: body.chainBudget,
     moderatorId: body.moderatorId,
+    mode: body.mode,
   });
   if (store.currentRoom?.config.id === r.id) {
     store.currentRoom = state;

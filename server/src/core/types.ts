@@ -82,6 +82,25 @@ export interface ChatMessage {
   };
   /** 系统事件(如成员加入、轮次开始)而非发言 */
   system?: boolean;
+  /** 私聊受众: 仅该列表内的成员及发送者/用户可见(空表示全员公聊) */
+  audience?: string[];
+  /** 私聊会话链 ID(同一话题握手共用, 用于 3 条硬闸限制) */
+  threadId?: string;
+  /** 私聊握手态度: 同意 / 拒绝 / 提出想法 */
+  handshake?: 'agree' | 'reject' | 'idea';
+  /** 私聊会话轮次 (1 / 2 / 3) */
+  privateRound?: number;
+  /** 私聊行为: 发起新私聊 / 同意 / 拒绝 / 提出想法 / 回复 */
+  privateAction?: 'start' | 'agree' | 'reject' | 'idea' | 'reply';
+}
+
+/** 房间基础讨论模式:接棒模式(默认) vs 订阅模式(心跳去中心群聊) */
+export type DiscussionMode = 'baton' | 'subscribe';
+
+/** 订阅模式配置(心跳周期可配, 默认15s错峰) */
+export interface SubscribeConfig {
+  /** 基础心跳间隔毫秒数(默认 15000ms) */
+  heartbeatIntervalMs?: number;
 }
 
 export interface RoomConfig {
@@ -103,6 +122,10 @@ export interface RoomConfig {
   toolPermission: ToolPermission;
   members: MemberConfig[];
   createdAt: number;
+  /** 讨论模式(默认 'baton') */
+  mode?: DiscussionMode;
+  /** 订阅模式配置 */
+  subscribeConfig?: SubscribeConfig;
 }
 
 /** 成员运行时状态 */
@@ -113,8 +136,9 @@ export type MemberStatus = 'idle' | 'thinking' | 'streaming' | 'error';
  * - idle: 无自动编排,控制权在用户
  * - baton: 接棒自由讨论(常态;发言者尾行决定下一位)
  * - roundrobin: @allN 轮流发言执行中
+ * - subscribe: 订阅模式意愿自评与波次执行中
  */
-export type OrchestrationState = 'idle' | 'baton' | 'roundrobin';
+export type OrchestrationState = 'idle' | 'baton' | 'roundrobin' | 'subscribe';
 
 export interface RoomState {
   config: RoomConfig;
@@ -127,5 +151,7 @@ export interface RoomState {
 }
 
 /** 运行期设置面板可改的字段(其余 RoomConfig 字段不可变) */
-export type RoomSettings = Pick<RoomConfig, 'speechLength' | 'chainBudget' | 'name' | 'color' | 'topic'>
-  & { moderatorId?: string };
+export type RoomSettings = Pick<
+  RoomConfig,
+  'speechLength' | 'chainBudget' | 'name' | 'color' | 'topic' | 'mode' | 'subscribeConfig'
+> & { moderatorId?: string };

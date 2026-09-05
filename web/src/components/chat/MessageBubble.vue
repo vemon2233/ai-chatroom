@@ -219,6 +219,36 @@ const meta = computed(() => {
   return parts.join(' · ');
 });
 
+const audienceNames = computed(() => {
+  if (!props.msg.audience || props.msg.audience.length === 0) return '';
+  const names = props.msg.audience.map((id) => {
+    const hit = room.value?.config.members.find((m) => m.id === id);
+    return hit ? hit.name : id;
+  });
+  return names.join('、');
+});
+
+const privateActionBadge = computed(() => {
+  const act = props.msg.privateAction || props.msg.handshake;
+  if (!act) return null;
+  if (act === 'start') {
+    return { type: 'start', label: '发起新私聊' };
+  }
+  if (act === 'agree') {
+    return { type: 'agree', label: '同意' };
+  }
+  if (act === 'reject') {
+    return { type: 'reject', label: '拒绝' };
+  }
+  if (act === 'idea') {
+    return { type: 'idea', label: '提出想法' };
+  }
+  if (act === 'reply') {
+    return { type: 'reply', label: '回复' };
+  }
+  return null;
+});
+
 const clickable = computed(() => !isMe.value && !isSystem.value && !props.msg.streaming && !!props.msg.detail);
 
 /** Markdown 格式化 HTML */
@@ -265,6 +295,9 @@ function onBubbleClick(e: MouseEvent) {
       <div class="sender">
         <span class="sender-name">{{ senderName }}</span>
         <span v-if="senderRole" class="sender-role">· {{ senderRole }}</span>
+        <span v-if="audienceNames" class="sender-audience">🔒 仅 {{ audienceNames }} 可见</span>
+        <span v-if="audienceNames" class="private-round-pill">私聊{{ msg.privateRound || 1 }}</span>
+        <span v-if="privateActionBadge" class="handshake-pill" :class="privateActionBadge.type">{{ privateActionBadge.label }}</span>
         <span class="sender-time">· {{ timeLabel }}</span>
       </div>
       <div
@@ -371,6 +404,14 @@ function onBubbleClick(e: MouseEvent) {
 .row.me .sender { flex-direction: row-reverse; }
 .sender-name { color: var(--text-muted); font-weight: 600; }
 .sender-role { color: var(--muted); }
+.sender-audience {
+  font-size: 10.5px;
+  color: var(--accent);
+  background: var(--accent-soft);
+  padding: 1px 6px;
+  border-radius: 6px;
+  font-weight: 550;
+}
 .sender-time { color: var(--faint); }
 
 /* 气泡:agent = 白底描边四角等圆;我 = 淡靛底无边框深靛字 */
@@ -465,6 +506,44 @@ function onBubbleClick(e: MouseEvent) {
 }
 .act-icon {
   display: block;
+}
+
+.private-round-pill {
+  font-size: 10.5px;
+  color: #7c3aed;
+  background: rgba(124, 58, 237, 0.1);
+  padding: 1px 6px;
+  border-radius: 6px;
+  font-weight: 550;
+  line-height: normal;
+}
+
+.handshake-pill {
+  font-size: 10.5px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  font-weight: 550;
+  line-height: normal;
+}
+.handshake-pill.start {
+  color: #4f46e5;
+  background: rgba(79, 70, 229, 0.1);
+}
+.handshake-pill.agree {
+  color: #059669;
+  background: rgba(5, 150, 105, 0.1);
+}
+.handshake-pill.reject {
+  color: #dc2626;
+  background: rgba(220, 38, 38, 0.1);
+}
+.handshake-pill.idea {
+  color: #2563eb;
+  background: rgba(37, 99, 235, 0.1);
+}
+.handshake-pill.reply {
+  color: var(--muted);
+  background: rgba(107, 114, 128, 0.1);
 }
 
 @keyframes caret { 50% { opacity: 0.25; } }

@@ -8,7 +8,12 @@ import { collectProjectContext } from './projectContext';
 export function historyText(messages: ChatMessage[], recent = 40): string {
   const slice = messages.slice(-recent);
   return slice
-    .map((m) => `[${m.fromName}] ${m.text}`)
+    .map((m) => {
+      if (m.audience && m.audience.length > 0) {
+        return `[私聊 - 来自 ${m.fromName}] ${m.text}`;
+      }
+      return `[${m.fromName}] ${m.text}`;
+    })
     .join('\n\n');
 }
 
@@ -37,6 +42,13 @@ export function permissionBrief(p: ToolPermission | undefined): string {
       return '你可以使用 Read / Grep / Glob 工具阅读和搜索项目文件,但不能修改任何文件。';
   }
 }
+
+import { buildBatonPromptSection } from './modes/baton/prompt';
+import { parseBaton } from './modes/baton/baton';
+import { filterHistoryForViewer } from './modes/subscribe/audience';
+import { buildSubscribePromptSection } from './modes/subscribe/prompt';
+
+export { parseBaton };
 
 /** 构造一次成员发言的完整 prompt。 */
 export async function buildPrompt(
@@ -85,8 +97,10 @@ export async function buildPrompt(
     }
   }
 
-  if (history.length > 0) {
-    parts.push(`# 聊天记录(按时间顺序,最新在最后)\n${historyText(history)}`);
+  // 聊天记录注入: 根据受众可见性过滤(保证私聊消息不泄露给非受众 Agent)
+  const visibleHistory = filterHistoryForViewer(history, member.id);
+  if (visibleHistory.length > 0) {
+    parts.push(`# 聊天记录(按时间顺序,最新在最后)\n${historyText(visibleHistory)}`);
   }
 
   const instructions: string[] = [];
@@ -97,53 +111,16 @@ export async function buildPrompt(
     lengthBrief(room.speechLength),
   );
 
-  // 接棒:发言末尾指定下一位发言者。chain=链上(指定后立即开跑) / callout=回应用户点名(指定后暂停待命)
-  if (opts.batonMode === 'chain' || opts.batonMode === 'callout') {
-    const otherNames = room.members.filter((m) => m.id !== member.id).map((m) => m.name);
-    const rule =
-      opts.batonMode === 'chain'
-        ? '这是接棒链讨论,你发完言后由你决定下一位发言者,TA 会立即接着发言。'
-        : '你在回应用户的点名。回应完毕后,由你指定下一位发言者——讨论将暂停,等用户发话后 TA 才开始。';
-    parts.push(
-      `# 接棒规则(重要)\n` +
-      `${rule}\n` +
-      `发言正文结束后,另起一行写接棒指令(与用户输入语法一致):\n` +
-      `- 想让谁接话:最后一行写 \`<接棒>@名字\`(从:${otherNames.join(' / ')} 中选)\n` +
-      `- 认为讨论已充分收敛、没有继续的必要:最后一行写 \`<接棒>结束\`\n` +
-      `选择依据:谁的观点被你质疑了、谁还没说过话、谁的视角最适合回应你刚才的内容。不要接棒给自己。`,
-    );
+  // 模式规则段落: 订阅模式 vs 接棒模式
+  if (room.mode === 'subscribe') {
+    parts.push(buildSubscribePromptSection(member, room.members));
+  } else if (opts.batonMode === 'chain' || opts.batonMode === 'callout') {
+    parts.push(buildBatonPromptSection(member, room.members, opts.batonMode));
   }
 
   parts.push(`# 现在轮到你发言\n${instructions.join('\n')}`);
 
   return parts.join('\n\n---\n\n');
-}
-
-/** 接棒行正则:新语法 <接棒>(用户/agent 统一)+ 旧语法 【接棒】(兼容 resume 旧 session 的记忆惯性)。 */
-const BATON_LINE = /(?:<接棒>|【接棒】)\s*(.+)/;
-
-/** 接棒尾行解析:从发言全文中提取接棒指令。 */
-export function parseBaton(
-  text: string,
-  members: Array<{ id: string; name: string }>,
-  selfId: string,
-): { nextMemberId?: string; endDiscussion?: boolean } {
-  // 取最后 3 行内找接棒标记(容错:agent 可能在正文里换行后又补写)
-  const tailLines = text.trim().split('\n').slice(-3);
-  for (const line of tailLines.reverse()) {
-    const m = line.match(BATON_LINE);
-    if (!m) continue;
-    const directive = (m[1] ?? '').trim();
-    if (/结束|收敛|无需|到此/.test(directive)) return { endDiscussion: true };
-    // @名字 或 直接名字
-    const nameMatch = directive.match(/@([^\s@,，。]+)/);
-    const rawName = ((nameMatch?.[1]) ?? directive).trim();
-    const hit = matchMemberByName(rawName, members);
-    if (hit && hit.id !== selfId) return { nextMemberId: hit.id };
-    if (hit && hit.id === selfId) return {}; // 传给自己:无效 → 无指令
-    return {}; // 名字对不上:无效 → 无指令
-  }
-  return {}; // 没有接棒行:无指令
 }
 
 /**
@@ -155,14 +132,40 @@ export function matchMemberByName<T extends { id: string; name: string }>(
   rawName: string,
   members: T[],
 ): T | undefined {
-  // 1) 精确相等
-  const exact = members.find((mm) => mm.name === rawName);
+  const trimmed = rawName.trim();
+  if (!trimmed) return undefined;
+
+  // 1) 精确相等 (最高优先级)
+  const exact = members.find((mm) => mm.name === trimmed);
   if (exact) return exact;
-  // 2) 模糊:取命中名字最长的(工程师3 → "工程师3" 而非 "工程师")
-  const fuzzy = members
-    .filter((mm) => mm.name.includes(rawName) || rawName.includes(mm.name))
+
+  // 2) 数字/中文序号后缀纠偏:如 @吕布1，若不存在名为"吕布1"的成员，但存在"吕布"，则纠偏匹配"吕布"
+  const numSuffixMatch = trimmed.match(/^(.+?)[1一]$/);
+  if (numSuffixMatch) {
+    const baseName = numSuffixMatch[1]!;
+    const baseExact = members.find((mm) => mm.name === baseName);
+    if (baseExact) return baseExact;
+  }
+
+  // 3) 称呼扩展包含:如输入了"吕布将军"包含"吕布" (trimmed.includes(mm.name))
+  const contained = members
+    .filter((mm) => trimmed.includes(mm.name))
     .sort((a, b) => b.name.length - a.name.length);
-  return fuzzy[0];
+  if (contained[0]) return contained[0];
+
+  // 4) 成员名包含输入，但排除数字序号后缀区分(如输入"吕布"，绝不能模糊匹配到"吕布2"或"吕布3")
+  const prefixMatched = members
+    .filter((mm) => {
+      if (!mm.name.includes(trimmed)) return false;
+      // 若 mm.name 去除 trimmed 之后仅剩数字编号，说明是不同角色，不能当作别名命中
+      const remainder = mm.name.replace(trimmed, '');
+      if (/^[0-9一二三四五六七八九十]+$/.test(remainder)) {
+        return false;
+      }
+      return true;
+    })
+    .sort((a, b) => b.name.length - a.name.length);
+  return prefixMatched[0];
 }
 
 /** 侦察员 prompt:haiku 档、只读工具,产出结构化分析报告供全员共享。 */

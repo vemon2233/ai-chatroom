@@ -25,8 +25,23 @@
 
 import { randomUUID } from 'node:crypto';
 import type { AgentAdapter, AgentEvent, SpeakOutcome } from '../adapters/base';
-import { buildPrompt, parseBaton, matchMemberByName } from './prompt';
-import type { ChatMessage, MemberConfig, MemberStatus, RoomConfig, OrchestrationState } from './types';
+import { buildPrompt, matchMemberByName } from './prompt';
+import { parseBaton, stripBatonLine } from './modes/baton/baton';
+import {
+  parseAudience,
+  splitPublicAndPrivateMessage,
+  stripAudienceLine,
+} from './modes/subscribe/audience';
+import { isSilentDecision } from './modes/subscribe/prompt';
+import { SubscribeEngine } from './modes/subscribe/engine';
+import type {
+  ChatMessage,
+  MemberConfig,
+  MemberStatus,
+  RoomConfig,
+  OrchestrationState,
+  DiscussionMode,
+} from './types';
 
 /** 适配器注册表抽象(测试注入 fake 的接缝) */
 export type AdapterResolver = (adapterKey: string) => AgentAdapter;
@@ -75,12 +90,84 @@ export class Orchestrator {
   private generation = 0;
   private budget: number;
   private loopRunning = false;
-  private cancelCurrent: (() => void) | null = null;
+  /** 活动中可取消函数集合(支持波次并行全部强杀, 杜绝孤儿进程) */
+  private activeCancels = new Set<() => void>();
   private currentRunPromise: Promise<void> | null = null;
+  /** 订阅模式领域引擎实例 */
+  private subscribeEngine: SubscribeEngine;
 
   constructor(private deps: OrchestratorDeps) {
     this.budget = deps.room.chainBudget;
     for (const m of deps.room.members) this.statuses[m.id] = 'idle';
+
+    this.subscribeEngine = new SubscribeEngine({
+      getRoom: () => this.deps.room,
+      getHistory: () => this.historySnapshot(),
+      speak: async (member, prompt) => {
+        try {
+          const { outcome, trace, thinking, usage } = await this.invokeWithRetry(member, prompt);
+          return {
+            result: outcome.result,
+            status: outcome.status,
+            error: outcome.error,
+            trace,
+            thinking,
+            usage,
+            durationMs: outcome.durationMs,
+          };
+        } finally {
+          this.statuses[member.id] = 'idle';
+          if (this.currentSpeaker === member.id) {
+            this.currentSpeaker = undefined;
+          }
+          this.onStatuses();
+        }
+      },
+      publishMessage: async (msg) => {
+        await this.deps.pushMessage({
+          id: randomUUID(),
+          roomId: this.deps.room.id,
+          from: msg.from,
+          fromName: msg.fromName,
+          text: msg.text,
+          ts: Date.now(),
+          audience: msg.audience,
+          threadId: msg.threadId,
+          handshake: msg.handshake,
+          privateRound: msg.privateRound,
+          privateAction: msg.privateAction,
+          detail: {
+            trace: msg.detail?.trace ?? [],
+            thinking: msg.detail?.thinking,
+            usage: msg.detail?.usage,
+            durationMs: msg.detail?.durationMs,
+            adapter: this.deps.room.members.find((m) => m.id === msg.from)?.adapter ?? 'unknown',
+            trigger: '心跳自主发言',
+          },
+        });
+        await this.deps.persistRoom();
+      },
+      sysMessage: (text) => this.sysMessage(text),
+      consumeBudget: () => {
+        if (this.budget <= 0) return false;
+        this.budget--;
+        return true;
+      },
+      isBusy: () => this.loopRunning || this.currentRunPromise !== null,
+      onMentioned: async (target, triggerReason) => {
+        if (this.budget <= 0) {
+          console.log('[subscribe] 自动发言上限已达，不再入队 @ 唤醒发言');
+          return;
+        }
+        this.enqueue({
+          memberId: target.id,
+          trigger: triggerReason,
+        });
+      },
+      onIdle: () => {
+        this.setState('idle');
+      },
+    });
   }
 
   /** 新成员加入(房间门面调用) */
@@ -94,7 +181,7 @@ export class Orchestrator {
     delete this.statuses[memberId];
     if (this.pendingNextId === memberId) this.pendingNextId = undefined;
     this.queue = this.queue.filter((e) => e.memberId !== memberId);
-    if (this.currentSpeaker === memberId) this.cancelCurrent?.();
+    if (this.currentSpeaker === memberId) this.cancelAll();
     this.onStatuses();
   }
 
@@ -110,6 +197,15 @@ export class Orchestrator {
   private bumpGeneration(): void {
     this.generation++;
     this.queue = []; // 旧世代条目全部作废,不必等 dequeue
+  }
+
+  private cancelAll(): void {
+    for (const cancel of this.activeCancels) {
+      try {
+        cancel();
+      } catch {}
+    }
+    this.activeCancels.clear();
   }
 
   private enqueue(entry: Omit<SpeechEntry, 'generation'>): void {
@@ -135,15 +231,20 @@ export class Orchestrator {
         // 幽灵成员防御(已移除/适配器未配置)
         const member = this.deps.room.members.find((m) => m.id === entry.memberId);
         if (!member) continue;
+        this.subscribeEngine.setExternalSpeaking(true, member.id);
         this.currentRunPromise = this.runOne(member, entry);
         try {
           await this.currentRunPromise;
         } finally {
           this.currentRunPromise = null;
+          this.subscribeEngine.setExternalSpeaking(false);
+          this.subscribeEngine.drainSpeakerQueue();
         }
       }
     } finally {
       this.loopRunning = false;
+      this.subscribeEngine.setExternalSpeaking(false);
+      this.subscribeEngine.drainSpeakerQueue();
     }
   }
 
@@ -154,10 +255,18 @@ export class Orchestrator {
     const cmd = this.parseUserCommand(text);
 
     switch (cmd.kind) {
+      case 'mode': {
+        await this.stop();
+        this.deps.room.mode = cmd.mode;
+        await this.deps.persistRoom();
+        const modeLabel = cmd.mode === 'subscribe' ? '订阅模式(意愿驱动)' : '接棒模式';
+        await this.sysMessage(`已切换为【${modeLabel}】。`);
+        return;
+      }
       case 'start': {
         // <接棒>@xx:直接指定起手进接棒链
         this.bumpGeneration();
-        this.cancelCurrent?.();
+        this.cancelAll();
         this.pendingNextId = undefined;
         this.setState('baton');
         this.enqueue({
@@ -168,47 +277,110 @@ export class Orchestrator {
         return;
       }
       case 'mention': {
-        // 点名 = 回应 + 指定待命接棒者:bump 世代取消一切未开始条目(含旧 @name),
-        // 被点名者回应并在尾行 <接棒>@xx 指定下一位 → 暂停,用户发话后 xx 起头
+        // 点名 = 回应 + 指定待命接棒者:bump 世代取消一切未开始条目(含旧 @name)
         this.bumpGeneration();
-        this.cancelCurrent?.();
+        this.cancelAll();
         this.pendingNextId = undefined;
-        this.state = 'idle';
-        this.onStatuses();
-        if (cmd.member) {
-          this.sysNotice(`已取消之前的指令,@${cmd.member.name} 将回应你并指定下一位`);
-          this.enqueue({
-            memberId: cmd.member.id,
-            trigger: `用户在聊天中 @了你,请回应用户。回应完在结尾用 <接棒>@名字 指定下一位(讨论将暂停等待用户)。`,
-            batonMode: 'callout',
-          });
+        this.budget = this.deps.room.chainBudget;
+
+        if (this.deps.room.mode === 'subscribe') {
+          // 订阅模式: 多 @ 角色依次排队唤醒，提示词中不使用接棒指令
+          this.setState('subscribe');
+          this.subscribeEngine.start(this.deps.room.members);
+          if (cmd.members && cmd.members.length > 0) {
+            const names = cmd.members.map((m) => `@${m.name}`).join(' ');
+            this.sysNotice(`已唤醒 ${names}，将依次排队回应`);
+            for (const m of cmd.members) {
+              // 延后被点名成员心跳，避免响应期间或紧随其后发生短延时重复心跳
+              this.subscribeEngine.resetMemberHeartbeat(m.id);
+              this.enqueue({
+                memberId: m.id,
+                trigger: `用户在聊天中 @了你,请针对用户的最新发言发表你的回应与看法。`,
+                batonMode: undefined,
+              });
+            }
+          } else {
+            this.sysNotice(`没有找到 @ 的成员,控制权回到你手里`);
+          }
         } else {
-          this.sysNotice(`没有找到 @ 的成员,控制权回到你手里`);
+          // 接棒模式: 保留原有点名接棒
+          this.state = 'idle';
+          this.onStatuses();
+          if (cmd.member) {
+            this.sysNotice(`已取消之前的指令,@${cmd.member.name} 将回应你并指定下一位`);
+            this.enqueue({
+              memberId: cmd.member.id,
+              trigger: `用户在聊天中 @了你,请回应用户。回应完在结尾用 <接棒>@名字 指定下一位(讨论将暂停等待用户)。`,
+              batonMode: 'callout',
+            });
+          } else {
+            this.sysNotice(`没有找到 @ 的成员,控制权回到你手里`);
+          }
         }
         return;
       }
       case 'all': {
         // 轮流 N 轮:bump 世代,预入队全部条目(辩手×N轮 + 轮末小结 + 终局总结)
         this.bumpGeneration();
-        this.cancelCurrent?.();
+        this.cancelAll();
         this.pendingNextId = undefined;
         this.startRoundRobin(cmd.rounds);
         return;
       }
       case 'none':
       default: {
-        // 纯文本:待命接棒者起头;无待命者 → 随机起头。预算重置。
+        // 纯文本: 根据当前房间模式分流驱动
         this.budget = this.deps.room.chainBudget;
-        this.startFreeDiscussion();
+        if (this.deps.room.mode === 'subscribe') {
+          this.setState('subscribe');
+          this.subscribeEngine.start(this.deps.room.members);
+          // 用户未 @ 任何角色时，立即随机唤醒一名成员起头发言回应用户
+          if (this.deps.room.members.length > 0) {
+            const starter = this.pickStarter(this.deps.room.members);
+            this.sysNotice(`讨论继续, 随机唤醒 ${starter.name} 起头回应`);
+            // 延后起头成员心跳，杜绝初始 1~4s 短延时定时器在发言期间重叠触发
+            this.subscribeEngine.resetMemberHeartbeat(starter.id);
+            this.enqueue({
+              memberId: starter.id,
+              trigger: '用户刚发表了新观点，请针对用户的最新消息发表你的看法。',
+              batonMode: undefined,
+            });
+          }
+        } else {
+          this.startFreeDiscussion();
+        }
         return;
       }
     }
   }
 
-  /** 纯文本消息的起手决策(「开始」按钮共用入口)。
+  /**
+   * 讨论启动入口(点击「开始」按钮时共用入口)
+   */
+  startDiscussion(): void {
+    if (this.deps.room.mode === 'subscribe') {
+      this.budget = this.deps.room.chainBudget;
+      this.setState('subscribe');
+      this.subscribeEngine.start(this.deps.room.members);
+      if (this.deps.room.members.length > 0 && this.queue.length === 0 && !this.currentSpeaker) {
+        const starter = this.pickStarter(this.deps.room.members);
+        this.sysNotice(`讨论开始, 随机唤醒 ${starter.name} 起头发言`);
+        this.subscribeEngine.resetMemberHeartbeat(starter.id);
+        this.enqueue({
+          memberId: starter.id,
+          trigger: '讨论开始，请你先就房间讨论主题开个头。',
+          batonMode: undefined,
+        });
+      }
+    } else {
+      this.startFreeDiscussion();
+    }
+  }
+
+  /** 纯文本消息的起手决策(接棒模式)。
    *  待命接棒者(点名回应者指定)起头;无待命者冷启动 → 随机(唯一自选点);
    *  已在 baton 且有人在说/队列非空 → 不打扰(链自行驱动)。
-   *  ⚠ 触发冷场补救:baton 中无人说且队列空(防御性,正常路径到不了)。 */
+   */
   startFreeDiscussion(): void {
     const members = this.deps.room.members;
     if (this.state === 'idle' && members.length > 0 && this.currentSpeaker == null) {
@@ -225,7 +397,7 @@ export class Orchestrator {
         batonMode: 'chain',
       });
     } else if (this.state === 'baton' && this.currentSpeaker == null && this.queue.length === 0) {
-      // 冷场补救:没人在说、队列空(上次没写接棒行已回 idle,不该到这里;防御性保留)
+      // 冷场补救:没人在说、队列空
       const starter = this.pickStarter(members);
       this.pendingNextId = undefined;
       this.enqueue({
@@ -236,7 +408,7 @@ export class Orchestrator {
     }
   }
 
-  /** 起手选择:待命接棒者优先(成员被移除则作废);否则随机(冷启动,唯一自选点)。 */
+  /** 起手选择:待命接棒者优先;否则随机。 */
   private pickStarter(members: MemberConfig[]): MemberConfig {
     if (this.pendingNextId) {
       const hit = members.find((m) => m.id === this.pendingNextId);
@@ -245,10 +417,11 @@ export class Orchestrator {
     return members[Math.floor(Math.random() * members.length)]!;
   }
 
-  /** 停止按钮:bump 世代 + 杀当前进程 → idle(待命接棒者保留——停止不撤销既定意向) */
+  /** 停止按钮:bump 世代 + 强杀全部进行中进程 + 清理心跳 → idle */
   async stop(): Promise<void> {
     this.bumpGeneration();
-    this.cancelCurrent?.();
+    this.cancelAll();
+    this.subscribeEngine.stop();
     if (this.currentRunPromise) {
       try {
         await this.currentRunPromise;
@@ -256,10 +429,15 @@ export class Orchestrator {
         // 忽略已取消抛出的异常
       }
     }
+    // 全员状态强制收拢为 idle，杜绝前端残留思考中
+    for (const m of this.deps.room.members) {
+      this.statuses[m.id] = 'idle';
+    }
+    this.currentSpeaker = undefined;
     this.setState('idle');
   }
 
-  /** 单次发言重roll:清除当前队列与正在进行的发言,直接让该成员重新说一次,且发完强制回到 idle 态(不传棒) */
+  /** 单次发言重roll:清除当前队列与正在进行的发言,直接让该成员重新说一次,发完强制回到 idle 态 */
   rerollAgent(memberId: string): void {
     const member = this.deps.room.members.find((m) => m.id === memberId);
     if (!member) {
@@ -268,21 +446,21 @@ export class Orchestrator {
       return;
     }
     this.bumpGeneration();
-    this.cancelCurrent?.();
+    this.cancelAll();
     this.pendingNextId = undefined;
     this.setState('idle');
     this.onStatuses();
     this.enqueue({
       memberId,
       trigger: '请重新生成你的发言。针对上述讨论发表你的观点。',
-      batonMode: undefined, // 不传棒,发完直接 idle
+      batonMode: undefined,
     });
   }
 
-  /** 用户给成员直接下指令(同 @点名语义:回应 + 指定待命接棒者) */
+  /** 用户给成员直接下指令 */
   directInstruction(memberId: string, userText: string): void {
     this.bumpGeneration();
-    this.cancelCurrent?.();
+    this.cancelAll();
     this.pendingNextId = undefined;
     this.state = 'idle';
     this.onStatuses();
@@ -300,7 +478,6 @@ export class Orchestrator {
     const moderator = this.deps.room.members.find((m) => m.id === this.deps.room.moderatorId);
     this.setState('roundrobin');
     if (speakers.length === 0 && moderator) {
-      // 只有主持人:每轮自问自答
       for (let r = 1; r <= rounds; r++) {
         this.enqueue({ memberId: moderator.id, trigger: this.moderatorSelfTrigger(r) });
       }
@@ -340,14 +517,12 @@ export class Orchestrator {
     return '讨论已到最后一轮,这是收场总结(终局发言,没有下一位)。请总结:各方核心观点、分歧点、可能的共识或结论。不要再写接棒行。';
   }
 
-  // ---------- 单次发言执行(invoke)+ 尾部接棒决策 ----------
+  // ---------- 单次发言执行(invoke)+ 尾部决策 ----------
 
   private async runOne(member: MemberConfig, entry: SpeechEntry): Promise<void> {
     const genAtStart = entry.generation;
-    await this.deps.runScout(); // 绑定项目的房间:首棒前侦察(内部幂等+熔断)
+    await this.deps.runScout(); // 绑定项目的房间:首棒前侦察
 
-    // 接棒语义由条目自带(callout 在 idle 态执行——点名回应不需要全局 baton 状态背书;
-    // state 门闩只用于尾部 chain 传递决策,防 roundrobin 残留条目误传棒)
     const batonActive = entry.batonMode != null;
     const prompt = await buildPrompt(this.deps.room, member, this.historySnapshot(), {
       trigger: entry.trigger,
@@ -359,8 +534,6 @@ export class Orchestrator {
 
     switch (outcome.status) {
       case 'cancelled': {
-        // stop/点名/轮流打断:正文不落库,但"发言被终止"本身是聊天历史的一部分——
-        // 记一条已停止占位消息(刷新后仍可见,替代凭空消失)
         this.statuses[member.id] = 'idle';
         const streamed = trace
           .filter((t) => t.kind === 'text')
@@ -387,10 +560,7 @@ export class Orchestrator {
       case 'error': {
         this.statuses[member.id] = 'error';
         await this.sysMessage(`${member.name} 发言失败: ${outcome.error ?? '未知错误'}`);
-        // error → 一律 idle 且终止本轮编排:绝不从错误文本解析接棒,不自动重试;
-        // bump 世代作废队列残留(否则轮流剩余条目会在 state=idle 的伪装下继续跑)
         this.bumpGeneration();
-        // error 不粘滞:全员复位 idle(红点只在出错瞬间可见,下一次交互不再干扰)
         for (const id of Object.keys(this.statuses)) {
           if (this.statuses[id] === 'error') this.statuses[id] = 'idle';
         }
@@ -403,28 +573,104 @@ export class Orchestrator {
 
     this.statuses[member.id] = 'idle';
 
-    // 落库前:非链上发言剥掉尾行接棒标记(防 session 记忆惯性复写;新旧语法都剥)
+    // 格式清洗与私聊解析
     let finalText = outcome.result || '(无输出)';
-    if (!batonActive) {
-      finalText = finalText.replace(/(?:<接棒>|【接棒】)[^\n]*/g, '').trimEnd();
+
+    if (this.deps.room.mode === 'subscribe') {
+      // 订阅模式: 若自决为 <沉默> 则零落库零广播
+      if (isSilentDecision(finalText)) {
+        return;
+      }
+      // 剥除接棒尾行, 并做公私混杂双气泡智能拆分
+      finalText = stripBatonLine(finalText);
+      const split = splitPublicAndPrivateMessage(finalText, this.deps.room.members, member.id);
+
+      // 6.1 发布公聊消息 (全员可见气泡)
+      if (split.publicText) {
+        await this.deps.pushMessage({
+          id: randomUUID(),
+          roomId: this.deps.room.id,
+          from: member.id,
+          fromName: member.name,
+          text: split.publicText,
+          ts: Date.now(),
+          audience: undefined,
+          detail: {
+            trace,
+            thinking: thinking || undefined,
+            usage,
+            durationMs: outcome.durationMs,
+            adapter: member.adapter,
+            trigger: entry.trigger,
+          },
+        });
+      }
+
+      // 6.2 发布私聊消息 (受众隔离气泡，支持多播)
+      const primaryTarget = split.targetMemberIds?.[0];
+      if (split.privateText && primaryTarget) {
+        const meta = this.subscribeEngine.resolvePrivateMeta(member.id, primaryTarget, split.handshake);
+        await this.deps.pushMessage({
+          id: randomUUID(),
+          roomId: this.deps.room.id,
+          from: member.id,
+          fromName: member.name,
+          text: split.privateText,
+          ts: Date.now(),
+          audience: split.targetMemberIds,
+          handshake: split.handshake,
+          privateRound: meta.privateRound,
+          privateAction: meta.privateAction,
+          detail: {
+            trace,
+            thinking: thinking || undefined,
+            usage,
+            durationMs: outcome.durationMs,
+            adapter: member.adapter,
+            trigger: entry.trigger,
+          },
+        });
+      }
+
+      await this.deps.persistRoom();
+
+      // 关键防连击: 同步已读位点并重置该发言成员的心跳冷却
+      this.subscribeEngine.markMemberSpoken(member.id);
+
+      // 扣减预算
+      this.budget--;
+      if (this.budget <= 0) {
+        await this.sysMessage('讨论已达自动发言上限,发条新消息可继续。');
+        await this.stop();
+        this.setState('idle');
+        return;
+      }
+    } else {
+      // 接棒模式: 剥除私聊尾行(不允许私聊), 非链上发言剥除接棒行
+      finalText = stripAudienceLine(finalText);
+      if (!batonActive) {
+        finalText = stripBatonLine(finalText);
+      }
+
+      await this.deps.pushMessage({
+        id: randomUUID(),
+        roomId: this.deps.room.id,
+        from: member.id,
+        fromName: member.name,
+        text: finalText,
+        ts: Date.now(),
+        audience: undefined,
+        detail: {
+          trace,
+          thinking: thinking || undefined,
+          usage,
+          durationMs: outcome.durationMs,
+          adapter: member.adapter,
+          trigger: entry.trigger,
+        },
+      });
+      await this.deps.persistRoom();
     }
-    await this.deps.pushMessage({
-      id: randomUUID(),
-      roomId: this.deps.room.id,
-      from: member.id,
-      fromName: member.name,
-      text: finalText,
-      ts: Date.now(),
-      detail: {
-        trace,
-        thinking: thinking || undefined,
-        usage,
-        durationMs: outcome.durationMs, // harness 真实计时(修 v1 0.0s bug)
-        adapter: member.adapter,
-        trigger: entry.trigger,
-      },
-    });
-    await this.deps.persistRoom(); // 写穿 rooms.json(含最新 sessionIds)
 
     // 终局条目:轮流跑完回 idle
     if (entry.afterRounds === 'finalSummary') {
@@ -433,9 +679,8 @@ export class Orchestrator {
       return;
     }
 
-    // 接棒决策:只在"接棒条目 + 世代未变"时发生;
-    // callout(点名回应)在 idle 态合法执行 → 尾部门闩不看 state,只看条目语义与世代
-    if (batonActive && genAtStart === this.generation) {
+    // 接棒决策: 只在"非订阅模式 + 接棒条目 + 世代未变"时发生
+    if (this.deps.room.mode !== 'subscribe' && batonActive && genAtStart === this.generation) {
       const baton = parseBaton(outcome.result, this.deps.room.members, member.id);
       if (baton.endDiscussion) {
         await this.sysMessage(`🏁 ${member.name} 宣布讨论结束。`);
@@ -446,19 +691,16 @@ export class Orchestrator {
         ? this.deps.room.members.find((m) => m.id === baton.nextMemberId)
         : undefined;
       if (!next) {
-        // 没写接棒行/无效:不指定任何人,控制权回用户
         await this.sysMessage(`${member.name} 没有指定下一位,控制权回到你手中。发消息将从随机成员继续。`);
         this.setState('idle');
         return;
       }
       if (entry.batonMode === 'callout') {
-        // 点名回应:指定者进入待命,讨论暂停——用户下一条纯文本消息后 TA 起头
         this.pendingNextId = next.id;
         await this.sysMessage(`⏸ ${member.name} 指定 ${next.name} 接棒。你发消息后 TA 开始发言。`);
         this.setState('idle');
         return;
       }
-      // 链上传递:立即开跑(预算闸门)
       if (this.budget <= 0) {
         this.pendingNextId = next.id;
         await this.sysMessage('自由讨论已达接棒上限,发条新消息可继续。');
@@ -476,18 +718,15 @@ export class Orchestrator {
     }
   }
 
-  /** invoke + resume 失败自愈(清 sessionId 重试一次)。
-   *  cancelled(用户 stop/点名打断)绝不是失败——不重试,否则"停止"会立刻复活一个新进程
-   *  (实测根因:用户须按两次停止)。 */
+  /** invoke + resume 失败自愈 */
   private async invokeWithRetry(
     member: MemberConfig,
     prompt: string,
   ): Promise<Awaited<ReturnType<Orchestrator['invoke']>>> {
     const first = await this.invoke(member, prompt);
-    if (first.outcome.status !== 'error') return first; // ok 原样;cancelled 直接透传,禁止重试
+    if (first.outcome.status !== 'error') return first;
     const hadResume = member.sessionIds?.[member.adapter];
     if (hadResume) {
-      // stale session 是最可能的失败因——清掉重试一次
       delete member.sessionIds![member.adapter];
       await this.deps.persistRoom();
       return this.invoke(member, prompt);
@@ -495,8 +734,6 @@ export class Orchestrator {
     return first;
   }
 
-  /** invoke 产物:outcome + 本次发言的过程缓冲(局部变量,不挂实例——
-   *  队列虽串行,但把过程状态显式装进返回值可让"无并发窗口"成为类型可见的事实) */
   private async invoke(member: MemberConfig, prompt: string): Promise<{
     outcome: SpeakOutcome;
     trace: import('./types').TraceEntry[];
@@ -513,10 +750,11 @@ export class Orchestrator {
     const adapter = this.deps.resolveAdapter(member.adapter);
 
     this.statuses[member.id] = 'thinking';
-    this.currentSpeaker = member.id;
+    if (!this.currentSpeaker || this.currentSpeaker === 'multiple') {
+      this.currentSpeaker = member.id;
+    }
     this.onStatuses();
 
-    // 本次发言的过程缓冲(局部;invoke 的生命周期内聚)
     const trace: import('./types').TraceEntry[] = [];
     let thinking = '';
     let usage: NonNullable<ChatMessage['detail']>['usage'] = undefined;
@@ -532,7 +770,6 @@ export class Orchestrator {
     };
 
     const handle = adapter.speak(req, (ev: AgentEvent) => {
-      // session id 发现:记录到成员(下次 resume)
       if (ev.sessionId) {
         member.sessionIds = { ...member.sessionIds, [member.adapter]: ev.sessionId };
       }
@@ -555,38 +792,54 @@ export class Orchestrator {
       this.deps.pushAgentEvent?.(ev);
     });
 
-    this.cancelCurrent = handle.cancel;
-    const outcome = await handle.done;
-    this.cancelCurrent = null;
-    this.currentSpeaker = undefined;
-    return { outcome, trace, thinking, usage };
+    const cancelFn = () => handle.cancel();
+    this.activeCancels.add(cancelFn);
+
+    try {
+      const outcome = await handle.done;
+      return { outcome, trace, thinking, usage };
+    } finally {
+      this.activeCancels.delete(cancelFn);
+      if (this.currentSpeaker === member.id) {
+        this.currentSpeaker = undefined;
+      }
+    }
   }
 
   // ---------- @指令解析 ----------
 
   private parseUserCommand(text: string):
     | { kind: 'start'; member: MemberConfig; fromName: string }
-    | { kind: 'mention'; member?: MemberConfig }
+    | { kind: 'mention'; member?: MemberConfig; members: MemberConfig[] }
     | { kind: 'all'; rounds: number }
+    | { kind: 'mode'; mode: DiscussionMode }
     | { kind: 'none' } {
+    // /mode 命令解析
+    const modeMatch = text.match(/^\/mode\s+(baton|subscribe)\b/i);
+    if (modeMatch) {
+      return { kind: 'mode', mode: modeMatch[1]!.toLowerCase() as DiscussionMode };
+    }
     // <接棒>@xx / 【接棒】@xx(与 agent 同一语法):直接指定起手进链
     const startMatch = text.match(/(?:<接棒>|【接棒】)\s*@([^\s@,，。]+)/);
     if (startMatch) {
       const hit = matchMemberByName(startMatch[1]!, this.deps.room.members);
       if (hit) return { kind: 'start', member: hit, fromName: '用户' };
-      // 名字没对上 → 按 mention 处理会误触发"点名回应"语义;这里提示并忽略
       return { kind: 'none' };
     }
     const allMatch = text.match(/@all\s*(\d*)/);
     if (allMatch) {
       return { kind: 'all', rounds: allMatch[1] ? Math.max(1, parseInt(allMatch[1])) : 1 };
     }
-    // @成员名:提取所有 @ token,从最长开始尝试(用户最具体的意图优先)
-    // ⚠ token 语法与前端 web/src/mentions.ts 是同一契约的双语言实现——改这里必须同步改那边
     const atNames = [...text.matchAll(/@([^\s@,，。]+)/g)].map((mm) => mm[1]!);
-    for (const raw of [...atNames].sort((a, b) => b.length - a.length)) {
+    const matchedMembers: MemberConfig[] = [];
+    for (const raw of atNames) {
       const hit = matchMemberByName(raw, this.deps.room.members);
-      if (hit) return { kind: 'mention', member: hit };
+      if (hit && !matchedMembers.some((m) => m.id === hit.id)) {
+        matchedMembers.push(hit);
+      }
+    }
+    if (matchedMembers.length > 0) {
+      return { kind: 'mention', members: matchedMembers, member: matchedMembers[0] };
     }
     return { kind: 'none' };
   }

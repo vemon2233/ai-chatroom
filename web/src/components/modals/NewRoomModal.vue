@@ -20,8 +20,10 @@ async function onSubmit(body: RoomFormBody) {
     color: body.color,
     topic: body.topic,
     speechLength: body.speechLength,
+    chainBudget: body.chainBudget,
     projectPath: body.projectPath || undefined,
     toolPermission: body.toolPermission,
+    mode: body.mode,
     members: [],
   });
   model.value = false;

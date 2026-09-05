@@ -9,6 +9,9 @@ import type { AgentAdapter, SpeakOutcome, SpeakRequest } from '../adapters/base'
 import type { ChatMessage } from './types';
 import { collectProjectContext } from './projectContext';
 import { buildScoutPrompt } from './prompt';
+import { oneShotSpeak } from './exec';
+
+export { oneShotSpeak };
 
 export interface ScoutConfig {
   adapter: string;        // 用哪个适配器 key(agents.yaml adapters.*)
@@ -16,31 +19,6 @@ export interface ScoutConfig {
   allowedTools: string;   // 只读工具白名单
   timeoutMs: number;      // 超时(超时即取消进程)
   maxRetries: number;     // 熔断:连续失败 N 次后不再重试
-}
-
-/**
- * 一次性轻量调用:超时必 clearTimeout + cancel 进程。
- * v1 的两处 Promise.race 超时一份忘了 cancel、两份都忘了 clear——统一收敛到这里。
- */
-export async function oneShotSpeak(
-  req: SpeakRequest,
-  adapter: AgentAdapter,
-  timeoutMs: number,
-): Promise<SpeakOutcome> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    const handle = adapter.speak(req, () => { /* 一次性调用不消费事件流 */ });
-    const timeout = new Promise<SpeakOutcome>((resolve) => {
-      timer = setTimeout(() => {
-        handle.cancel(); // 超时必杀进程,不养孤儿
-        resolve({ status: 'error', result: '', durationMs: timeoutMs, error: `超时(${timeoutMs}ms)` });
-      }, timeoutMs);
-    });
-    const outcome = await Promise.race([handle.done, timeout]);
-    return outcome;
-  } finally {
-    if (timer != null) clearTimeout(timer); // 无论谁赢,定时器必清
-  }
 }
 
 /**

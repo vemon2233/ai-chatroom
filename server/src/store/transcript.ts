@@ -4,6 +4,7 @@ import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import type { ChatMessage } from '../core/types';
+import { inferHandshakeFromText } from '../core/modes/subscribe/audience';
 import { REPO_ROOT } from '../paths';
 
 const DATA_DIR = path.join(REPO_ROOT, 'data', 'rooms');
@@ -37,6 +38,35 @@ export async function loadRoomMessages(roomId: string): Promise<ChatMessage[]> {
       // 损坏行跳过(进程被杀时可能的半行)
     }
   }
+
+  // 针对历史旧消息: 兼容推算补齐缺少 privateRound / handshake 的私聊消息
+  let threadSeq = 0;
+  const pairThreadMap = new Map<string, number>();
+  for (const m of out) {
+    if (m.audience && m.audience.length > 0) {
+      const pairKey = [m.from, ...m.audience].sort().join(':');
+      if (m.privateRound == null) {
+        if (!pairThreadMap.has(pairKey)) {
+          threadSeq++;
+          pairThreadMap.set(pairKey, threadSeq);
+        }
+        m.privateRound = pairThreadMap.get(pairKey)!;
+      } else {
+        pairThreadMap.set(pairKey, m.privateRound);
+        if (m.privateRound > threadSeq) threadSeq = m.privateRound;
+      }
+
+      // 若历史消息缺少 handshake/privateAction，智能语义兜底推算
+      if (!m.handshake && !m.privateAction) {
+        const inferred = inferHandshakeFromText(m.text);
+        if (inferred) {
+          m.handshake = inferred;
+          m.privateAction = inferred;
+        }
+      }
+    }
+  }
+
   return out;
 }
 

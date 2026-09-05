@@ -30,6 +30,8 @@ export interface CreateRoomInput {
   speechLength?: RoomConfig['speechLength'];
   chainBudget?: number;
   moderatorId?: string;
+  mode?: RoomConfig['mode'];
+  subscribeConfig?: RoomConfig['subscribeConfig'];
   members: Array<Omit<MemberConfig, 'id' | 'color'> & { color?: string }>;
 }
 
@@ -193,8 +195,12 @@ export class ChatRoom {
       await this.sysMessage('房间里还没有成员,请先添加成员再开始。');
       return;
     }
-    await this.sysMessage('自由讨论开始(接棒模式):有待命接棒者由 TA 起头,否则随机。');
-    this.orch.startFreeDiscussion(); // 显式入口(v1 用 '@free' 文本触发,v2 parseUserCommand 已无该指令,曾是化石 bug)
+    if (this.config.mode === 'subscribe') {
+      await this.sysMessage('自由讨论开始(订阅模式): 依据全员发言意愿驱动讨论。');
+    } else {
+      await this.sysMessage('自由讨论开始(接棒模式):有待命接棒者由 TA 起头,否则随机。');
+    }
+    this.orch.startDiscussion();
   }
 
   async stop(): Promise<void> {
@@ -248,7 +254,7 @@ export class ChatRoom {
 
     // 彻底清除所有成员绑定的底层 CLI 会话记忆 (sessionIds) 并写穿持久化
     for (const m of this.config.members) {
-      delete m.sessionIds;
+      m.sessionIds = undefined;
     }
     await this.persistence.persistRoom(this.config);
     this.bus.emitRoomState(this.getState());
@@ -272,6 +278,15 @@ export class ChatRoom {
       } else if (this.config.members.some((m) => m.id === patch.moderatorId)) {
         this.config.moderatorId = patch.moderatorId;
       }
+    }
+    if (patch.mode !== undefined) {
+      this.config.mode = patch.mode;
+    }
+    if (patch.subscribeConfig !== undefined) {
+      this.config.subscribeConfig = {
+        ...this.config.subscribeConfig,
+        ...patch.subscribeConfig,
+      };
     }
     await this.persistence.persistRoom(this.config);
     this.bus.emitRoomState(this.getState());
@@ -303,6 +318,8 @@ export function makeRoomConfig(input: CreateRoomInput): RoomConfig {
     moderatorId: input.moderatorId ? members.find((m) => m.id === input.moderatorId)?.id : undefined,
     projectPath: input.projectPath || undefined,
     toolPermission: input.toolPermission ?? 'readonly',
+    mode: input.mode ?? 'baton',
+    subscribeConfig: input.subscribeConfig,
     members,
     createdAt: Date.now(),
   };
