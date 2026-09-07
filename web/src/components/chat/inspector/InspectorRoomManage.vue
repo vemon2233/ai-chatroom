@@ -37,8 +37,6 @@ async function handleSubmit(body: RoomFormBody) {
       topic: body.topic,
       speechLength: body.speechLength,
       chainBudget: body.chainBudget,
-      mode: body.mode,
-      contextMode: body.contextMode,
     });
     if (store.currentRoom && store.currentRoom.config.id === room.value.id) {
       store.currentRoom = updated;

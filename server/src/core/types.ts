@@ -195,7 +195,7 @@ export interface RoomState {
 /** 运行期设置面板可改的字段(其余 RoomConfig 字段不可变) */
 export type RoomSettings = Pick<
   RoomConfig,
-  'speechLength' | 'chainBudget' | 'name' | 'color' | 'topic' | 'mode' | 'subscribeConfig' | 'contextMode'
+  'speechLength' | 'chainBudget' | 'name' | 'color' | 'topic' | 'subscribeConfig'
 >;
 
 /** 单个角色/用户的度量统计项 */

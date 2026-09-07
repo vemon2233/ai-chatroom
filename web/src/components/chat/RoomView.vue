@@ -61,15 +61,6 @@ async function handleClear() {
   if (!ok) return;
   await clearRoomMessages(room.value.config.id);
 }
-
-async function toggleContextMode() {
-  const current = room.value.config.contextMode ?? 'stateless';
-  const next = current === 'stateful' ? 'stateless' : 'stateful';
-  const updated = await api.updateSettings(room.value.config.id, {
-    contextMode: next,
-  });
-  store.currentRoom = updated;
-}
 </script>
 
 <template>

@@ -1,8 +1,8 @@
 <script setup lang="ts">
 // RoomForm 原语:房间字段表单的唯一实现(新建房间 / 房间设置共用)。
 // mode='create':全部可编辑(项目目录/权限在此确定)。
-// mode='settings':项目目录/工具权限禁用(建房时锁定——历史讨论的语境依赖它们),
-//                 其余(名称/主题/长度/接棒上限等)可改即时生效。
+// mode='settings':建时属性禁用锁定(讨论模式/上下文模式/项目目录/工具权限建房时确定),
+//                 其余(名称/主题/发言长度/发言上限)可改即时生效。
 
 import { ref, watch } from 'vue';
 import { store } from '@/store';
@@ -133,36 +133,6 @@ defineExpose({ submit, reset });
       <textarea v-model="topic" placeholder="例如:React 和 Vue 该选哪个?考虑团队规模和学习成本"></textarea>
     </div>
 
-    <!-- 讨论模式选择 -->
-    <div class="form-row">
-      <label>讨论模式<span v-if="!isCreate()" class="field-hint">(即时生效)</span></label>
-      <div class="perm-row">
-        <label class="perm" :class="{ sel: mode === 'baton' }">
-          <input v-model="mode" type="radio" value="baton" />
-          <span><b>接棒模式 (默认)</b>发言者尾行指定下一位, 链式推进</span>
-        </label>
-        <label class="perm" :class="{ sel: mode === 'subscribe' }">
-          <input v-model="mode" type="radio" value="subscribe" />
-          <span><b>订阅模式 (去中心群聊)</b>Agent 错峰心跳自主刷群, 支持纯并行发言、沉默与私聊握手</span>
-        </label>
-      </div>
-    </div>
-
-    <!-- 上下文供给模式选择 -->
-    <div class="form-row">
-      <label>上下文供给模式<span v-if="!isCreate()" class="field-hint">(即时生效)</span></label>
-      <div class="perm-row">
-        <label class="perm" :class="{ sel: contextMode === 'stateless' }">
-          <input v-model="contextMode" type="radio" value="stateless" />
-          <span><b>模式 1: 无状态全量 (推荐)</b>每次注入最新完整历史与人设，稳定可靠，重roll/截断极其敏捷</span>
-        </label>
-        <label class="perm" :class="{ sel: contextMode === 'stateful' }">
-          <input v-model="contextMode" type="radio" value="stateful" />
-          <span><b>模式 2: 有状态增量 (--resume)</b>首次全量，后续仅投递新增订阅消息，Token 极省，响应极快</span>
-        </label>
-      </div>
-    </div>
-
     <div class="grid2-eq">
       <div class="form-row">
         <label class="nowrap-label">发言长度<span v-if="isCreate()" class="field-hint">(进房可改)</span></label>
@@ -173,12 +143,40 @@ defineExpose({ submit, reset });
         </select>
       </div>
       <div class="form-row">
-        <label class="nowrap-label" title="所有讨论模式通用，达到上限后自动暂停讨论，发新消息继续">发言上限 (轮次)<span v-if="!isCreate()" class="field-hint">(即时生效)</span></label>
+        <label class="nowrap-label" title="达到上限后自动暂停讨论，发新消息继续">发言上限 (轮次)<span v-if="!isCreate()" class="field-hint">(即时生效)</span></label>
         <input v-model.number="chainBudget" type="number" min="1" max="50" />
       </div>
     </div>
 
     <!-- 建时锁定区:settings 模式禁用 -->
+    <div class="form-row" :class="{ 'row-locked': !isCreate() }">
+      <label>讨论模式<span v-if="!isCreate()" class="lock-pill">创建后不可改</span></label>
+      <div class="perm-row">
+        <label class="perm" :class="{ sel: mode === 'baton', dis: !isCreate() }">
+          <input v-model="mode" type="radio" value="baton" :disabled="!isCreate()" />
+          <span><b>接棒模式 (默认)</b>发言者尾行指定下一位, 链式推进</span>
+        </label>
+        <label class="perm" :class="{ sel: mode === 'subscribe', dis: !isCreate() }">
+          <input v-model="mode" type="radio" value="subscribe" :disabled="!isCreate()" />
+          <span><b>订阅模式 (去中心群聊)</b>Agent 错峰心跳自主刷群, 支持纯并行发言与私聊</span>
+        </label>
+      </div>
+    </div>
+
+    <div class="form-row" :class="{ 'row-locked': !isCreate() }">
+      <label>上下文供给模式<span v-if="!isCreate()" class="lock-pill">创建后不可改</span></label>
+      <div class="perm-row">
+        <label class="perm" :class="{ sel: contextMode === 'stateless', dis: !isCreate() }">
+          <input v-model="contextMode" type="radio" value="stateless" :disabled="!isCreate()" />
+          <span><b>无状态全量 (推荐)</b>每次注入最新完整历史，稳定可靠，敏捷支持回滚截断</span>
+        </label>
+        <label class="perm" :class="{ sel: contextMode === 'stateful', dis: !isCreate() }">
+          <input v-model="contextMode" type="radio" value="stateful" :disabled="!isCreate()" />
+          <span><b>有状态增量 (--resume)</b>首次全量，后续仅投递新增消息，Token 极省极速</span>
+        </label>
+      </div>
+    </div>
+
     <div class="form-row">
       <label>项目目录<span v-if="!isCreate()" class="lock-pill">创建后不可改</span></label>
       <input

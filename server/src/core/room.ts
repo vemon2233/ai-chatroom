@@ -294,17 +294,11 @@ export class ChatRoom {
       this.config.chainBudget = patch.chainBudget;
       this.orch.setBudget(patch.chainBudget);
     }
-    if (patch.mode !== undefined) {
-      this.config.mode = patch.mode;
-    }
     if (patch.subscribeConfig !== undefined) {
       this.config.subscribeConfig = {
         ...this.config.subscribeConfig,
         ...patch.subscribeConfig,
       };
-    }
-    if (patch.contextMode !== undefined) {
-      this.config.contextMode = patch.contextMode;
     }
     await this.persistence.persistRoom(this.config);
     this.bus.emitRoomState(this.getState());
