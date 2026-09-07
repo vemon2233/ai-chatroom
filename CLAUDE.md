@@ -32,6 +32,7 @@ server/src/
 │   ├── palette.ts        成员头像色板
 │   ├── scout.ts          oneShotSpeak(超时必 clearTimeout+cancel)+ Scout 熔断闩
 │   ├── prompt.ts         buildPrompt/parseBaton/matchMemberByName(最长命中)
+│   ├── summaryOps.ts     ★ 上下文压缩层(链式公聊摘要/私聊自纪要/原生compact/锚点视窗组装)
 │   ├── projectContext.ts 目录树采集(5min 缓存)
 │   └── bus.ts            WS 广播(消息落库经 emitMessage 钩子)
 ├── adapters/
@@ -93,6 +94,7 @@ web/src/
 
 - `server/tests/orchestrator.test.ts`:29 场景(fake adapter 按 member 脚本化 + Math.random mock 确定性)——接棒链/冷启动随机/点名待命/待命者起头/`<接棒>`用户指令/@allN轮流/轮流中 stop/世代隔离/error→idle/cancel 占位与不重试/resume 自愈/幽灵成员/预算重置+待命承接/旧语法兼容
 - `baton.test.ts`:`<接棒>`/旧【接棒】双语法解析断言 + 成员名匹配;`rooms-store.test.ts`:持久化往返
+- `summary-compact.test.ts`:上下文压缩层——链式摘要输入断言/私聊绝不进公聊摘要/纪要增量喂入+锚点失效丢弃/注入视窗活跃线程豁免/心跳 prompt 锚点校验/compact 计数收口(41 触发 40 不触发/stateless 跳过/私聊仅当事人)
 - 改 orchestrator 必须同步改测试(该文件是并发 bug 的唯一防线)
 
 ## 已知边界(v2 接受)

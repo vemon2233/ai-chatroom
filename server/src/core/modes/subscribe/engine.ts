@@ -58,7 +58,10 @@ export interface SubscribeEngineDeps {
   isBusy?: () => boolean;
   /** 状态机切回 idle 通知 */
   onIdle: () => void;
+  /** 获取当前讨论上下文摘要(供心跳注入长程记忆) */
+  getSummaryContext?: () => { summary?: import('../../types').DiscussionSummary | null };
 }
+
 
 export class SubscribeEngine {
   private timers: Map<string, NodeJS.Timeout> = new Map();
@@ -292,7 +295,7 @@ export class SubscribeEngine {
     const room = this.deps.getRoom();
     if (room.members.length > 1 && allHistory.length > 0) {
       const lastMsg = allHistory[allHistory.length - 1];
-      if (lastMsg.from === member.id) {
+      if (lastMsg && lastMsg.from === member.id) {
         // 标记位点已读，避让给他人
         this.lastSeenIndices.set(member.id, allHistory.length);
         return;
@@ -315,8 +318,21 @@ export class SubscribeEngine {
         otherMemberName = other?.name;
       }
 
-      const prompt = buildHeartbeatPrompt(room, member, delta, activeThread, otherMemberName);
+      const ctx = this.deps.getSummaryContext?.();
+      const isStatefulResumed =
+        (room.contextMode ?? 'stateless') === 'stateful' &&
+        !!member.sessionIds?.[member.adapter];
+      const prompt = buildHeartbeatPrompt(
+        room,
+        member,
+        delta,
+        activeThread,
+        otherMemberName,
+        isStatefulResumed ? undefined : ctx?.summary,
+        allHistory, // 供摘要/纪要锚点失效校验(截断后不注入幽灵摘要)
+      );
       const outcome = await this.deps.speak(member, prompt);
+
 
       if (outcome.status !== 'ok' || !outcome.result) {
         return;

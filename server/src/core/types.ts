@@ -96,6 +96,13 @@ export interface ChatMessage {
   privateAction?: 'start' | 'agree' | 'reject' | 'idea' | 'reply';
 }
 
+/** 成员私聊纪要(第一人称,只注入该成员本人) */
+export interface PrivateDigest {
+  text: string;
+  coveredMessageId: string;   // 锚点:最后一条被纪要覆盖的私聊消息 id
+  updatedAt: number;
+}
+
 /** 讨论摘要数据模型 */
 export interface DiscussionSummary {
   text: string;
@@ -103,7 +110,20 @@ export interface DiscussionSummary {
   messageCount: number;
   status?: 'idle' | 'generating' | 'error';
   error?: string;
+  /** 公聊锚点:最后一条被摘要覆盖的公聊消息 id(旧存量无此字段 = 降级照旧注入) */
+  coveredMessageId?: string;
+  /** stateless 成员的私聊纪要(memberId -> digest;随 summary 文件持久化) */
+  privateDigests?: Record<string, PrivateDigest>;
 }
+
+/** agents.yaml summary 段;0=关 */
+export interface SummaryConfig {
+  model: string;             // 摘要/compact 用模型,默认 'haiku'
+  autoThreshold: number;     // 公聊自动触发,默认 30
+  privateThreshold: number;  // 私聊纪要阈值,默认 20
+  compactThreshold: number;  // stateful compact 阈值,默认 40
+}
+
 
 /** 完整的 Agent 调用输入输出 Trace 日志 */
 export interface AgentTraceLog {

@@ -316,10 +316,10 @@ export function stripAudienceLine(text: string): string {
  * @param viewerMemberId 当前被注入 Prompt 的成员 ID(为 undefined 时表示管理员/房间主人视角)
  */
 export function filterHistoryForViewer(
-  messages: ChatMessage[],
+  messages: readonly ChatMessage[],
   viewerMemberId?: string,
 ): ChatMessage[] {
-  if (!viewerMemberId) return messages; // 无具体成员视角(如全览)保留全量
+  if (!viewerMemberId) return [...messages]; // 无具体成员视角(如全览)保留全量
 
   return messages.filter((m) => {
     // 1. 无受众限制(公聊全员可见)

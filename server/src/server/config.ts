@@ -14,10 +14,13 @@ export interface AdapterConfig {
   args: string[];
 }
 
+import type { SummaryConfig } from '../core/types';
+
 export interface AppConfig {
   adapters: Record<string, AdapterConfig>;
   admin: AdminConfig;
   scout: ScoutConfig;
+  summary: SummaryConfig;
   server: { port: number; host: string };
 }
 
@@ -40,10 +43,19 @@ export async function loadConfig(): Promise<AppConfig> {
     maxRetries: parsed.admin?.maxRetries ?? parsed.scout?.maxRetries ?? 2,
   };
 
+  const summaryCfg: SummaryConfig = {
+    model: parsed.summary?.model ?? adminCfg.model ?? 'haiku',
+    autoThreshold: parsed.summary?.autoThreshold ?? 30,
+    privateThreshold: parsed.summary?.privateThreshold ?? 20,
+    compactThreshold: parsed.summary?.compactThreshold ?? 40,
+  };
+
   return {
     adapters: parsed.adapters,
     admin: adminCfg,
     scout: adminCfg,
+    summary: summaryCfg,
     server: parsed.server ?? { port: 3220, host: '127.0.0.1' },
   };
 }
+

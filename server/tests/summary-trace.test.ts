@@ -106,6 +106,7 @@ describe('B2 讨论摘要与 Agent Trace 持久化测试', () => {
       topic: '赤壁之战',
       chainBudget: 6,
       speechLength: 'normal',
+      toolPermission: 'readonly',
       mode: 'baton',
       members: [
         { id: 'm1', name: '诸葛亮', adapter: 'claude', persona: '蜀国丞相', color: '#10b981' },
@@ -203,9 +204,12 @@ describe('B2 讨论摘要与 Agent Trace 持久化测试', () => {
       topic: '测试',
       mode: 'subscribe',
       chainBudget: 10,
+      speechLength: 'normal',
+      toolPermission: 'readonly',
+      createdAt: Date.now(),
       members: [
-        { id: 'm1', name: '诸葛亮', adapter: 'fake', persona: '军师' },
-        { id: 'm2', name: '周瑜', adapter: 'fake', persona: '都督' },
+        { id: 'm1', name: '诸葛亮', adapter: 'fake', persona: '军师', color: '#10b981' },
+        { id: 'm2', name: '周瑜', adapter: 'fake', persona: '都督', color: '#3b82f6' },
       ],
     };
 
@@ -276,7 +280,6 @@ describe('B2 讨论摘要与 Agent Trace 持久化测试', () => {
         usage: {
           inputTokens: 1200,
           outputTokens: 300,
-          totalTokens: 1500,
           costUsd: 0.0081,
         },
       },

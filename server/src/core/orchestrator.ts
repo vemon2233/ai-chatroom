@@ -34,6 +34,7 @@ import {
 import { isSilentDecision } from './modes/subscribe/prompt';
 import { SubscribeEngine } from './modes/subscribe/engine';
 import { saveTrace } from '../store/trace';
+import type { AgentAdapter, AgentEvent, SpeakOutcome } from '../adapters/base';
 import type {
   AgentTraceLog,
   ChatMessage,
@@ -42,14 +43,17 @@ import type {
   RoomConfig,
   OrchestrationState,
   DiscussionMode,
+  DiscussionSummary,
+  SummaryConfig,
 } from './types';
+import { executeCompactSession } from './summaryOps';
 
 /** 适配器注册表抽象(测试注入 fake 的接缝) */
 export type AdapterResolver = (adapterKey: string) => AgentAdapter;
 
 export interface OrchestratorDeps {
   room: RoomConfig;                    // 房间配置(可变引用:成员/设置运行期改)
-  adapterConfigs: Record<string, { command: string; args: string[] }>;
+  adapterConfigs: Record<string, { kind?: string; command: string; args: string[] }>;
   resolveAdapter: AdapterResolver;
   /** 消息出口:落库+广播(由 ChatRoom 提供) */
   pushMessage: (msg: ChatMessage) => Promise<void>;
@@ -65,9 +69,12 @@ export interface OrchestratorDeps {
   getHistory: () => ChatMessage[];
   /** 适配器事件转发(WS 实时流) */
   pushAgentEvent: (ev: AgentEvent) => void;
-  /** 获取当前讨论摘要纯文本(若有) */
-  getSummary?: () => string | undefined;
+  /** 获取当前讨论上下文摘要对象(若有) */
+  getSummary?: () => DiscussionSummary | null;
+  /** 压缩层配置(autoThreshold, privateThreshold, compactThreshold) */
+  summaryCfg?: SummaryConfig;
 }
+
 
 /** 队列条目 */
 interface SpeechEntry {
@@ -100,6 +107,12 @@ export class Orchestrator {
   private subscribeEngine: SubscribeEngine;
   /** 成员已消费消息游标 (运行时内存维护, 不污染配置实体): memberId -> lastSeenMessageId */
   private memberCursors = new Map<string, string>();
+  /** Stateful 成员可见消息计数 */
+  private memberMsgCounts = new Map<string, number>();
+  /** 正在执行 compact 的成员(值为进行中的 compact promise),防止并发踩踏同一个 session */
+  private compactingPromises = new Map<string, Promise<boolean>>();
+  /** compact 失败次数，连续失败熔断 */
+  private compactFailures = new Map<string, number>();
 
   constructor(private deps: OrchestratorDeps) {
     this.budget = deps.room.chainBudget;
@@ -118,6 +131,7 @@ export class Orchestrator {
     this.subscribeEngine = new SubscribeEngine({
       getRoom: () => this.deps.room,
       getHistory: () => this.historySnapshot(),
+      getSummaryContext: () => ({ summary: this.deps.getSummary?.() ?? null }),
       speak: async (member, prompt) => {
         try {
           const contextMode = this.deps.room.contextMode ?? 'stateless';
@@ -133,6 +147,9 @@ export class Orchestrator {
             thinking,
             usage,
           };
+          if (outcome.status === 'ok') {
+            this.maybeCompact(member);
+          }
           return {
             result: outcome.result,
             status: outcome.status,
@@ -150,6 +167,7 @@ export class Orchestrator {
           this.onStatuses();
         }
       },
+
       publishMessage: async (msg) => {
         let msgId: string;
         const member = this.deps.room.members.find((m) => m.id === msg.from);
@@ -220,6 +238,7 @@ export class Orchestrator {
         await this.deps.persistRoom();
       },
       sysMessage: (text) => this.sysMessage(text),
+
       consumeBudget: () => {
         if (this.budget <= 0) return false;
         this.budget--;
@@ -783,6 +802,7 @@ export class Orchestrator {
       }
 
       await this.deps.persistRoom();
+      this.maybeCompact(member);
 
       // 关键防连击: 同步已读位点并重置该发言成员的心跳冷却
       this.subscribeEngine.markMemberSpoken(member.id);
@@ -825,6 +845,7 @@ export class Orchestrator {
         },
       });
       await this.deps.persistRoom();
+      this.maybeCompact(member);
     }
 
     // 终局条目:轮流跑完回 idle
@@ -873,13 +894,100 @@ export class Orchestrator {
     }
   }
 
+  /**
+   * 记录消息对 stateful 成员的累计条数(所有消息的唯一计数收口,由 ChatRoom.pushMessage 调用)。
+   * 语义:该成员"可见的对话量"(公聊全员 +1,私聊仅当事人 +1);系统消息与侦察报告不计入。
+   */
+  noteMessageForCompact(msg: ChatMessage): void {
+    if ((this.deps.room.contextMode ?? 'stateless') !== 'stateful') return;
+    if (msg.system || msg.from === 'scout' || !msg.text?.trim()) return;
+
+    const isPrivate = Array.isArray(msg.audience) && msg.audience.length > 0;
+    for (const m of this.deps.room.members) {
+      if (isPrivate) {
+        if (msg.from === m.id || msg.audience?.includes(m.id)) {
+          this.memberMsgCounts.set(m.id, (this.memberMsgCounts.get(m.id) ?? 0) + 1);
+        }
+      } else {
+        this.memberMsgCounts.set(m.id, (this.memberMsgCounts.get(m.id) ?? 0) + 1);
+      }
+    }
+  }
+
+  /**
+   * 检查并在满足条件时异步执行 stateful 成员会话压缩
+   */
+  private maybeCompact(member: MemberConfig) {
+    if ((this.deps.room.contextMode ?? 'stateless') !== 'stateful') return;
+    const threshold = this.deps.summaryCfg?.compactThreshold ?? 40;
+    if (threshold <= 0) return;
+
+    const sessionId = member.sessionIds?.[member.adapter];
+    if (!sessionId) return;
+
+    const count = this.memberMsgCounts.get(member.id) ?? 0;
+    if (count <= threshold) return;
+
+    if (this.compactingPromises.has(member.id)) return;
+    if ((this.compactFailures.get(member.id) ?? 0) >= 2) return;
+
+    const entry = this.deps.adapterConfigs[member.adapter];
+    if (!entry) return;
+
+    // 清零计数并上锁
+    this.memberMsgCounts.set(member.id, 0);
+
+    const adapter = this.deps.resolveAdapter(member.adapter);
+    const compactP = executeCompactSession({
+      member,
+      sessionId,
+      model: this.deps.summaryCfg?.model ?? 'haiku',
+      kind: entry.kind ?? member.adapter,
+      adapter,
+      command: entry.command,
+      args: entry.args,
+    });
+    // 存 promise 而非 Set 标记: invokeWithRetry 可直接 await 它,等待被 compact 超时上界自然约束
+    const tracked = compactP
+      .then((ok) => {
+        if (ok) {
+          this.compactFailures.set(member.id, 0);
+        } else {
+          const prev = this.compactFailures.get(member.id) ?? 0;
+          this.compactFailures.set(member.id, prev + 1);
+        }
+        return ok;
+      })
+      .catch((err) => {
+        console.error(`[orchestrator] 成员 ${member.name} compact 失败:`, err);
+        const prev = this.compactFailures.get(member.id) ?? 0;
+        this.compactFailures.set(member.id, prev + 1);
+        return false;
+      })
+      .finally(() => {
+        // 仅在仍是本次 promise 时清除(防御极端下新的 compact 已顶替)
+        if (this.compactingPromises.get(member.id) === tracked) {
+          this.compactingPromises.delete(member.id);
+        }
+      });
+    this.compactingPromises.set(member.id, tracked);
+  }
+
   /** invoke + resume 失败自愈 */
   private async invokeWithRetry(
     member: MemberConfig,
     prompt: string,
     resumeSessionId?: string,
   ): Promise<Awaited<ReturnType<Orchestrator['invoke']>>> {
+    // 防并发踩踏: 若该成员正在后台执行 /compact, 等待其释放 session
+    // (等待被 compact 自身的超时上界约束——oneShotSpeak 超时必 resolve,不会无限等)
+    const compacting = this.compactingPromises.get(member.id);
+    if (compacting) {
+      await compacting.catch(() => {});
+    }
+
     const first = await this.invoke(member, prompt, resumeSessionId);
+
     if (first.outcome.status !== 'error') return first;
     if (resumeSessionId) {
       // 优雅自愈降级: 如果使用 resume 发生错误，清理失效的 session 并使用全量 Prompt 降级重试一次

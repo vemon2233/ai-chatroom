@@ -52,6 +52,14 @@ scout:
   timeoutMs: 180000         # 超时(超时即取消进程,不泄漏)
   maxRetries: 2             # 失败熔断:连续失败 N 次后本房间生命周期内不再重试
 
+# 上下文压缩层(Summary & Compact):长程讨论与私聊自总结
+summary:
+  model: haiku              # 摘要与 compact 用的经济模型
+  autoThreshold: 30         # 公聊消息自动触发阈值(0为关闭)
+  privateThreshold: 20      # 私聊消息自动触发纪要阈值(0为关闭)
+  compactThreshold: 40      # stateful 成员自动 compact 阈值(0为关闭)
+
 server:
   port: 3220
   host: 127.0.0.1
+

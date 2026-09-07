@@ -69,18 +69,25 @@ import { parseBaton } from './modes/baton/baton';
 import { filterHistoryForViewer } from './modes/subscribe/audience';
 import { buildSubscribePromptSection } from './modes/subscribe/prompt';
 
+import {
+  isPublicSummaryUsable,
+  isDigestUsable,
+  buildInjectionWindow,
+} from './summaryOps';
+import type { DiscussionSummary } from './types';
+
 export { parseBaton };
 
 /** 构造一次成员发言的完整 prompt。 */
 export async function buildPrompt(
   room: RoomConfig,
   member: MemberConfig,
-  history: ChatMessage[],
+  history: readonly ChatMessage[],
   opts: {
     trigger?: string;
     instruction?: string;
     batonMode?: 'chain' | 'callout';
-    summary?: string;
+    summary?: DiscussionSummary | string | null;
   } = {},
 ): Promise<string> {
   const others = room.members
@@ -123,18 +130,35 @@ export async function buildPrompt(
     }
   }
 
-  // 聊天记录与前置摘要注入: 根据受众可见性过滤(保证私聊消息不泄露给非受众 Agent)
-  const visibleHistory = filterHistoryForViewer(history, member.id);
-  if (opts.summary || visibleHistory.length > 0) {
+  // 聊天记录与前置摘要注入: 结合上下文压缩层锚点视窗与受众可见性过滤
+  const summaryObj = typeof opts.summary === 'object' ? opts.summary : null;
+  const summaryStr = typeof opts.summary === 'string' ? opts.summary : null;
+
+  const publicSummaryText = summaryObj
+    ? (isPublicSummaryUsable(summaryObj, history) ? summaryObj.text?.trim() : '')
+    : (summaryStr ? summaryStr.trim() : '');
+
+  const memberDigest = summaryObj?.privateDigests?.[member.id];
+  const privateDigestText = (memberDigest && isDigestUsable(memberDigest, history))
+    ? memberDigest.text?.trim()
+    : '';
+
+  const injectionWindow = buildInjectionWindow(history, member.id, summaryObj);
+
+  if (publicSummaryText || privateDigestText || injectionWindow.length > 0) {
     const historySections: string[] = [];
-    if (opts.summary && opts.summary.trim()) {
-      historySections.push(`【前期讨论摘要】\n${opts.summary.trim()}`);
+    if (publicSummaryText) {
+      historySections.push(`【前期讨论摘要】\n${publicSummaryText}`);
     }
-    if (visibleHistory.length > 0) {
-      historySections.push(`【近期讨论发言(按时间顺序,最新在后)】\n${historyText(visibleHistory, 40, member.id, member.name)}`);
+    if (privateDigestText) {
+      historySections.push(`【你的私聊往来纪要(仅你可见)】\n${privateDigestText}`);
+    }
+    if (injectionWindow.length > 0) {
+      historySections.push(`【近期讨论发言(按时间顺序,最新在后)】\n${historyText(injectionWindow, 40, member.id, member.name)}`);
     }
     parts.push(`# 聊天记录与讨论背景\n${historySections.join('\n\n')}`);
   }
+
 
   const instructions: string[] = [];
   if (opts.trigger) instructions.push(opts.trigger);

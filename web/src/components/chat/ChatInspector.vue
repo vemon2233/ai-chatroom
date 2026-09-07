@@ -37,7 +37,11 @@ async function handleRefreshSummary() {
     } else {
       res = await api.refreshDirectSummary(props.sessionId);
     }
-    store.currentSummary = res;
+    if (res.status === 'error') {
+      summaryError.value = res.error || '生成摘要失败';
+    } else {
+      store.currentSummary = res;
+    }
   } catch (err: any) {
     summaryError.value = err?.message || '生成摘要失败';
   } finally {

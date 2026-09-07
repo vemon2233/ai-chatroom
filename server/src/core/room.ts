@@ -7,10 +7,16 @@ import type { MessageBus } from './bus';
 import { Orchestrator } from './orchestrator';
 import { Admin, type AdminConfig, type ScoutConfig } from './admin';
 import { MEMBER_PALETTE } from './palette';
-import type { ChatMessage, DiscussionSummary, MemberConfig, RoomConfig, RoomSettings, RoomState } from './types';
+import type { ChatMessage, DiscussionSummary, MemberConfig, RoomConfig, RoomSettings, RoomState, SummaryConfig } from './types';
 import { getAdapter as getAdapterByKind } from '../adapters/index';
 import { truncateMessages, prepareReroll, prepareEdit } from './historyOps';
 import { getSummary, saveSummary } from '../store/summary';
+import {
+  countUncoveredPublic,
+  countUncoveredPrivateFor,
+  uncoveredPrivateMessages,
+  executePrivateDigest,
+} from './summaryOps';
 
 /** ChatRoom 的持久化接缝(构造注入,core 层不 import store——依赖保持单向:server→core→adapters)。 */
 export interface RoomPersistence {
@@ -42,6 +48,9 @@ export class ChatRoom {
   private orch: Orchestrator;
   private admin: Admin;
   private currentSummary: DiscussionSummary | null = null;
+  private summaryCfg: SummaryConfig;
+  private adapterConfigs: Record<string, { kind: string; command: string; args: string[] }>;
+  private privateDigestRunning = new Set<string>();
 
   constructor(
     cfg: RoomConfig,
@@ -49,8 +58,17 @@ export class ChatRoom {
     adapterConfigs: Record<string, { kind: string; command: string; args: string[] }>,
     adminCfg: AdminConfig,
     private persistence: RoomPersistence,
+    summaryCfg?: SummaryConfig,
   ) {
     this.config = cfg;
+    this.adapterConfigs = adapterConfigs;
+    this.summaryCfg = summaryCfg ?? {
+      model: 'haiku',
+      autoThreshold: 30,
+      privateThreshold: 20,
+      compactThreshold: 40,
+    };
+
     const adminAdapterEntry = adapterConfigs[adminCfg.adapter];
     if (!adminAdapterEntry) {
       throw new Error(`管理员/侦察适配器未配置: ${adminCfg.adapter}(检查 config/agents.yaml 的 admin.adapter 与 adapters 是否一致)`);
@@ -84,7 +102,8 @@ export class ChatRoom {
       },
       getHistory: () => this.messages,
       pushAgentEvent: (ev) => this.bus.emitAgentEvent(this.config.id, ev),
-      getSummary: () => this.currentSummary?.text,
+      getSummary: () => this.currentSummary,
+      summaryCfg: this.summaryCfg,
     });
   }
 
@@ -102,16 +121,26 @@ export class ChatRoom {
     return this.currentSummary;
   }
 
+  /** 应用并持久化广播最新摘要 */
+  private async applySummary(sum: DiscussionSummary): Promise<void> {
+    await saveSummary('room', this.config.id, sum);
+    this.currentSummary = sum;
+    this.bus.emitRoomSummary(this.config.id, sum);
+  }
+
   /** 手动触发管理员刷新生成讨论摘要 */
   async refreshSummary(): Promise<DiscussionSummary | null> {
-    const res = await this.admin.generateSummary(this.messages, this.config.topic);
+    const res = await this.admin.generateSummary({
+      messages: this.messages,
+      topic: this.config.topic,
+      prevSummary: this.currentSummary,
+    });
     if (res && res.text) {
-      await saveSummary('room', this.config.id, res);
-      this.currentSummary = res;
-      this.bus.emitRoomSummary(this.config.id, res);
+      await this.applySummary(res);
     }
     return res;
   }
+
 
   get id() {
     return this.config.id;
@@ -173,8 +202,103 @@ export class ChatRoom {
 
   private async pushMessage(msg: ChatMessage) {
     this.messages.push(msg);
+    this.orch.noteMessageForCompact(msg); // stateful compact 计数唯一收口(用户/agent/心跳消息全覆盖)
     await this.bus.emitMessage(msg);
+    void this.maybeAutoSummarize(msg);
   }
+
+  /**
+   * 自动上下文压缩触发器 (公聊自动摘要 + 私聊自总结)
+   * 必须 fire-and-forget (void), 绝不阻塞消息正常落库与广播
+   */
+  private async maybeAutoSummarize(msg: ChatMessage): Promise<void> {
+    if (msg.system || !msg.text.trim()) return;
+
+    const isPrivate = Array.isArray(msg.audience) && msg.audience.length > 0;
+
+    // 1. 公聊消息且开启了自动公聊摘要 (autoThreshold > 0)
+    if (!isPrivate && this.summaryCfg.autoThreshold > 0) {
+      const uncovered = countUncoveredPublic(this.messages, this.currentSummary);
+      if (uncovered > this.summaryCfg.autoThreshold) {
+        try {
+          const res = await this.admin.generateSummary({
+            messages: this.messages,
+            topic: this.config.topic,
+            prevSummary: this.currentSummary,
+          });
+          if (res && res.text) {
+            await this.applySummary(res);
+          }
+        } catch (err) {
+          console.error('[room] 自动生成公聊摘要失败:', err);
+        }
+      }
+    }
+
+    // 2. 私聊消息且房间处于 stateless 模式, 检查相关成员的未覆盖私聊
+    const isStateless = (this.config.contextMode ?? 'stateless') !== 'stateful';
+    if (isPrivate && isStateless && this.summaryCfg.privateThreshold > 0) {
+      const candidates = Array.from(new Set([msg.from, ...(msg.audience ?? [])]));
+      for (const mid of candidates) {
+        const member = this.config.members.find((m) => m.id === mid);
+        if (!member) continue;
+        const currentDigest = this.currentSummary?.privateDigests?.[mid];
+        const uncovered = countUncoveredPrivateFor(this.messages, mid, currentDigest);
+        if (uncovered > this.summaryCfg.privateThreshold) {
+          void this.generatePrivateDigestFor(member);
+        }
+      }
+    }
+  }
+
+  /**
+   * 为指定成员生成第一人称私聊纪要 (使用成员自身 adapter 与 persona)
+   */
+  private async generatePrivateDigestFor(member: MemberConfig): Promise<void> {
+    if (this.privateDigestRunning.has(member.id)) return;
+    const entry = this.adapterConfigs[member.adapter];
+    if (!entry) return;
+
+    this.privateDigestRunning.add(member.id);
+    try {
+      const adapter = getAdapterByKind(entry.kind);
+      const prevDigest = this.currentSummary?.privateDigests?.[member.id];
+      // 增量喂入:只给纪要锚点后的新私聊(防 prompt 线性膨胀);
+      // 锚点失效(截断/清空)→ 丢弃旧纪要链(旧文含已删除信息,不得继承)
+      const { anchorValid, delta } = uncoveredPrivateMessages(this.messages, member.id, prevDigest);
+      if (delta.length === 0) return;
+
+      const digest = await executePrivateDigest({
+        member,
+        privateMessages: delta,
+        prevDigest: anchorValid ? prevDigest : null,
+        adapter,
+        command: entry.command,
+        args: entry.args,
+      });
+
+      if (digest) {
+        const base = this.currentSummary ?? {
+          text: '',
+          updatedAt: Date.now(),
+          messageCount: 0,
+        };
+        const updatedSummary: DiscussionSummary = {
+          ...base,
+          privateDigests: {
+            ...base.privateDigests,
+            [member.id]: digest,
+          },
+        };
+        await this.applySummary(updatedSummary);
+      }
+    } catch (err) {
+      console.error(`[room] 成员 ${member.name} 生成私聊纪要失败:`, err);
+    } finally {
+      this.privateDigestRunning.delete(member.id);
+    }
+  }
+
 
   async sysMessage(text: string) {
     await this.pushMessage({

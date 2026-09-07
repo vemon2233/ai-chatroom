@@ -3,6 +3,8 @@ import type { AgentAdapter, AgentEvent } from '../adapters/base';
 import type { AgentTraceLog, Character, ChatMessage, DiscussionSummary, ContextMode } from './types';
 import type { MessageBus } from './bus';
 import { historyText, extractDeltaMessages } from './prompt';
+import { isPublicSummaryUsable, splitHistoryByAnchor } from './summaryOps';
+
 import {
   appendDirectMessage,
   loadDirectMessages,
@@ -170,6 +172,7 @@ export class DirectChatService {
     const contextMode = this.getContextMode(character.id);
     const existingSessionId = this.sessionIds.get(character.id);
 
+    const summary = await this.getSummary(character.id);
     let prompt: string;
     let effectiveResumeSessionId: string | undefined = undefined;
 
@@ -178,13 +181,7 @@ export class DirectChatService {
       const { delta, isReanchored } = extractDeltaMessages(history, lastSeenId);
       effectiveResumeSessionId = existingSessionId;
       if (isReanchored) {
-        prompt = [
-          `你是 **【${character.name}】**。`,
-          `你的人设与立场如下:\n${character.persona}`,
-          `现在你正在与用户进行一对一的专属私聊。请完全符合你的人设特点，自然、真诚地回复用户的提问或探讨。`,
-          `\n以下是你们此前的对话记录:\n${historyText(history, 30, character.id, character.name)}`,
-          `\n请回复用户:`,
-        ].join('\n\n');
+        prompt = this.buildDirectFullPrompt(character, history, summary);
       } else {
         prompt = [
           `你是 **【${character.name}】**。请保持你的 **既有人设与核心立场**。`,
@@ -193,15 +190,10 @@ export class DirectChatService {
         ].join('\n\n');
       }
     } else {
-      prompt = [
-        `你是 **【${character.name}】**。`,
-        `你的人设与立场如下:\n${character.persona}`,
-        `现在你正在与用户进行一对一的专属私聊。请完全符合你的人设特点，自然、真诚地回复用户的提问或探讨。`,
-        `\n以下是你们此前的对话记录:\n${historyText(history, 30, character.id, character.name)}`,
-        `\n请回复用户:`,
-      ].join('\n\n');
+      prompt = this.buildDirectFullPrompt(character, history, summary);
       effectiveResumeSessionId = undefined;
     }
+
 
     const trace: import('./types').TraceEntry[] = [];
     let thinking = '';
@@ -361,10 +353,37 @@ export class DirectChatService {
     return sum;
   }
 
+  private buildDirectFullPrompt(
+    character: Character,
+    history: readonly ChatMessage[],
+    summary?: DiscussionSummary | null,
+  ): string {
+    const parts: string[] = [
+      `你是 **【${character.name}】**。`,
+      `你的人设与立场如下:\n${character.persona}`,
+      `现在你正在与用户进行一对一的专属私聊。请完全符合你的人设特点，自然、真诚地回复用户的提问或探讨。`,
+    ];
+
+    if (isPublicSummaryUsable(summary, history) && summary?.text?.trim()) {
+      parts.push(`【前期对话摘要】\n${summary.text.trim()}`);
+    }
+
+    const visibleHistory = splitHistoryByAnchor(history, summary?.coveredMessageId).after;
+    parts.push(`\n以下是你们此前的对话记录:\n${historyText(visibleHistory, 30, character.id, character.name)}`);
+    parts.push(`\n请回复用户:`);
+
+    return parts.join('\n\n');
+  }
+
   async refreshSummary(characterId: string, character: Character): Promise<DiscussionSummary | null> {
     if (!this.deps.admin) return null;
     const msgs = await loadDirectMessages(characterId);
-    const res = await this.deps.admin.generateSummary(msgs, `与 ${character.name} 的一对一私聊探讨`);
+    const prev = await this.getSummary(characterId);
+    const res = await this.deps.admin.generateSummary({
+      messages: msgs,
+      topic: `与 ${character.name} 的一对一私聊探讨`,
+      prevSummary: prev,
+    });
     if (res && res.text) {
       await saveSummary('direct', characterId, res);
       this.summaries.set(characterId, res);
@@ -373,4 +392,5 @@ export class DirectChatService {
     return res;
   }
 }
+
 

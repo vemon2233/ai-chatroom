@@ -355,14 +355,14 @@ describe('订阅模式: 去中心心跳引擎与编排器集成 (SubscribeEngine
       expect(result.privateBlocks).toHaveLength(2);
 
       // 第一个私聊气泡发给 m3 (吕布3)
-      expect(result.privateBlocks[0].targetMemberIds).toEqual(['m3']);
-      expect(result.privateBlocks[0].privateText).toBe('老伙计，你的算盘就是我的算盘，我投那个2。');
-      expect(result.privateBlocks[0].handshake).toBe('agree');
+      expect(result.privateBlocks[0]!.targetMemberIds).toEqual(['m3']);
+      expect(result.privateBlocks[0]!.privateText).toBe('老伙计，你的算盘就是我的算盘，我投那个2。');
+      expect(result.privateBlocks[0]!.handshake).toBe('agree');
 
       // 第二个私聊气泡发给 m2 (吕布2)
-      expect(result.privateBlocks[1].targetMemberIds).toEqual(['m2']);
-      expect(result.privateBlocks[1].privateText).toContain('老二睡了没？');
-      expect(result.privateBlocks[1].privateText).not.toContain('老伙计');
+      expect(result.privateBlocks[1]!.targetMemberIds).toEqual(['m2']);
+      expect(result.privateBlocks[1]!.privateText).toContain('老二睡了没？');
+      expect(result.privateBlocks[1]!.privateText).not.toContain('老伙计');
     });
 
     it('A与B之间双向复用同一个 active thread', () => {
@@ -417,13 +417,13 @@ describe('订阅模式: 去中心心跳引擎与编排器集成 (SubscribeEngine
         onIdle: () => {},
       });
 
-      engine.start(members);
+      engine.start(setup.room.members);
       // 模拟外部正在由 m1 (吕布) 发言
       engine.setExternalSpeaking(true, 'm1');
 
       // 尝试触发 m1 的心跳，应被禁止自排队
       // @ts-expect-error 测试私有方法
-      await engine.runHeartbeatTick(members[0]);
+      await engine.runHeartbeatTick(setup.room.members[0]!);
       // @ts-expect-error 测试私有属性
       expect(engine.speakerQueue.some((m) => m.id === 'm1')).toBe(false);
 
@@ -458,6 +458,7 @@ describe('订阅模式: 去中心心跳引擎与编排器集成 (SubscribeEngine
         chainBudget: 6,
         speechLength: 'normal' as const,
         toolPermission: 'readonly' as const,
+        createdAt: Date.now(),
         members: [
           { id: 'm1', name: '吕布', adapter: 'mock', persona: '吕布', color: '#fff' },
           { id: 'm2', name: '张飞', adapter: 'mock', persona: '张飞', color: '#fff' },
@@ -513,6 +514,7 @@ describe('订阅模式: 去中心心跳引擎与编排器集成 (SubscribeEngine
         chainBudget: 6,
         speechLength: 'normal' as const,
         toolPermission: 'readonly' as const,
+        createdAt: Date.now(),
         members: [
           { id: 'm1', name: '吕布', adapter: 'mock', persona: '吕布', color: '#fff' },
           { id: 'm2', name: '张飞', adapter: 'mock', persona: '张飞', color: '#fff' },
@@ -553,6 +555,7 @@ describe('订阅模式: 去中心心跳引擎与编排器集成 (SubscribeEngine
         chainBudget: 6,
         speechLength: 'normal' as const,
         toolPermission: 'readonly' as const,
+        createdAt: Date.now(),
         members: [
           { id: 'm1', name: '曹操1', adapter: 'mock', persona: '曹操', color: '#fff' },
           { id: 'm2', name: '曹操2', adapter: 'mock', persona: '曹操', color: '#fff' },
@@ -562,7 +565,8 @@ describe('订阅模式: 去中心心跳引擎与编排器集成 (SubscribeEngine
 
       const engine = new SubscribeEngine({
         getRoom: () => room,
-        getHistory: () => [{ id: 'init', roomId: 'test-room', from: 'user', text: '开局', ts: 1 }],
+        getHistory: () => [{ id: 'init', roomId: 'test-room', from: 'user', fromName: '用户', text: '开局', ts: 1 }],
+
         isBusy: () => false,
         speak: async () => ({
           status: 'ok',

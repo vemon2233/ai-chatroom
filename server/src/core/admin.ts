@@ -6,10 +6,16 @@
 
 import { randomUUID } from 'node:crypto';
 import type { AgentAdapter, SpeakRequest } from '../adapters/base';
-import type { ChatMessage, DiscussionSummary } from './types';
+import type { ChatMessage, DiscussionSummary, PrivateDigest } from './types';
 import { collectProjectContext } from './projectContext';
 import { buildScoutPrompt } from './prompt';
 import { oneShotSpeak } from './exec';
+import {
+  filterValidPublic,
+  splitHistoryByAnchor,
+  isDigestUsable,
+} from './summaryOps';
+
 
 export interface AdminConfig {
   adapter: string;        // 用哪个适配器 key(agents.yaml adapters.*)
@@ -90,18 +96,36 @@ export class Admin {
     }
   }
 
-  // ================= 任务二: 讨论摘要 (B2 核心功能) =================
+  // ================= 任务二: 讨论摘要 (上下文压缩层公聊核心) =================
 
   /**
-   * 生成讨论摘要: 并发调用共享同一次执行，支持熔断。
+   * 生成讨论摘要: 并发调用共享同一次执行，支持熔断与链式滚动合并。
+   * 支持对象传参或历史位置重载参数。
    */
   async generateSummary(
-    messages: ChatMessage[],
-    topic?: string,
+    inputOrMessages:
+      | { messages: readonly ChatMessage[]; topic?: string; prevSummary?: DiscussionSummary | null }
+      | readonly ChatMessage[],
+    topicArg?: string,
+    prevSummaryArg?: DiscussionSummary | null,
   ): Promise<DiscussionSummary | null> {
-    // 过滤系统消息与空消息
-    const validMessages = messages.filter((m) => !m.system && m.text.trim().length > 0);
-    if (validMessages.length === 0) {
+    let messages: readonly ChatMessage[];
+    let topic: string | undefined;
+    let prevSummary: DiscussionSummary | null | undefined;
+
+    if ('messages' in inputOrMessages) {
+      messages = inputOrMessages.messages;
+      topic = inputOrMessages.topic;
+      prevSummary = inputOrMessages.prevSummary;
+    } else {
+      messages = inputOrMessages;
+      topic = topicArg;
+      prevSummary = prevSummaryArg;
+    }
+
+    // 过滤纯公聊消息(严格剔除私聊与系统消息)
+    const validPublic = filterValidPublic(messages);
+    if (validPublic.length === 0) {
       return null;
     }
 
@@ -109,35 +133,68 @@ export class Admin {
       return {
         text: '管理员摘要服务暂时不可用(连续失败已熔断)。',
         updatedAt: Date.now(),
-        messageCount: validMessages.length,
+        messageCount: validPublic.length,
         status: 'error',
         error: '熔断保护中',
       };
     }
 
     if (this.summaryRunning == null) {
-      const p = this.doGenerateSummary(validMessages, topic);
-      this.summaryRunning = p.finally(() => { this.summaryRunning = null; });
+      const p = this.doGenerateSummary(messages, validPublic, topic, prevSummary);
+      this.summaryRunning = p.finally(() => {
+        this.summaryRunning = null;
+      });
       return p;
     }
     return this.summaryRunning;
   }
 
   private async doGenerateSummary(
-    messages: ChatMessage[],
+    rawMessages: readonly ChatMessage[],
+    validPublic: ChatMessage[],
     topic?: string,
+    prevSummary?: DiscussionSummary | null,
   ): Promise<DiscussionSummary | null> {
     try {
-      // 截取最近至多 60 条有效消息供摘要
-      const slice = messages.slice(-60);
-      const historyFormatted = slice
+      // 锚点切分判定
+      const { anchorValid, after } = splitHistoryByAnchor(
+        validPublic,
+        prevSummary?.coveredMessageId,
+      );
+
+      // 若锚点失效(如历史被截断/清空导致锚点不在)，丢弃旧文全量重摘；否则链式继承
+      const effectivePrev = anchorValid ? prevSummary : null;
+      const targetMessages = effectivePrev ? after : validPublic;
+
+      // 如果有有效旧摘要且没有新增公聊，无需重复调用大模型
+      if (effectivePrev?.text && targetMessages.length === 0) {
+        return effectivePrev;
+      }
+
+      const historyFormatted = targetMessages
         .map((m) => `[${m.fromName}]: ${m.text}`)
         .join('\n\n');
 
-      const prompt = [
-        '你是本次多角色讨论的【管理员】。请根据以下对话记录，生成一份结构清晰、观点明确的 Markdown 格式【讨论摘要】。',
-        topic ? `【讨论主题】\n${topic}` : '',
-        `【对话记录(共 ${slice.length} 条)】\n${historyFormatted}`,
+      const promptParts: string[] = [
+        '你是本次多角色讨论的【管理员】。请根据对话记录，生成一份结构清晰、观点明确的 Markdown 格式【讨论摘要】。',
+      ];
+
+      if (topic) {
+        promptParts.push(`【讨论主题】\n${topic}`);
+      }
+
+      if (effectivePrev?.text) {
+        promptParts.push(
+          `【既有讨论摘要(在其基础上滚动合并更新，800字以内)】\n${effectivePrev.text}`,
+          `【自上次摘要以来的新增公聊发言(共 ${targetMessages.length} 条)】\n${historyFormatted}`,
+        );
+      } else {
+        promptParts.push(
+          `【对话记录(共 ${targetMessages.length} 条)】\n${historyFormatted}`,
+        );
+      }
+
+      promptParts.push(
         '【输出要求】',
         '必须使用以下 Markdown 三级标题结构：',
         '### 1. 核心议题与讨论背景',
@@ -146,20 +203,23 @@ export class Admin {
         '梳理各发言角色的鲜明立场、主要论据以及彼此的争议点。',
         '### 3. 已达成共识与下一步焦点',
         '总结目前各方认可的共识，以及待继续推进的下一步探讨焦点。',
-        '直接输出上述 Markdown 正文，不要有任何多余的开场白或礼貌套话。',
-      ].filter(Boolean).join('\n\n');
+        '直接输出上述 Markdown 正文，内容控制在 800 字以内，不要有任何多余的开场白或礼貌套话。',
+      );
+
+      const prompt = promptParts.filter(Boolean).join('\n\n');
 
       const req: SpeakRequest = {
         member: 'admin',
         prompt,
         command: this.adapterEntry.command,
-        args: [
-          ...this.adapterEntry.args,
-          '--model', this.cfg.model,
-        ],
+        args: [...this.adapterEntry.args, '--model', this.cfg.model],
       };
 
-      const outcome = await oneShotSpeak(req, this.resolveAdapter(this.cfg.adapter), this.cfg.timeoutMs);
+      const outcome = await oneShotSpeak(
+        req,
+        this.resolveAdapter(this.cfg.adapter),
+        this.cfg.timeoutMs,
+      );
       const text = outcome.result.trim();
 
       if (outcome.status !== 'ok' || !text) {
@@ -167,7 +227,7 @@ export class Admin {
         return {
           text: '',
           updatedAt: Date.now(),
-          messageCount: messages.length,
+          messageCount: validPublic.length,
           status: 'error',
           error: outcome.error ?? '生成摘要失败',
         };
@@ -175,10 +235,26 @@ export class Admin {
 
       // 重置连续失败计数
       this.summaryFailureCount = 0;
+
+      // 继承 prevSummary 中仍然有效的 privateDigests
+      const preservedDigests: Record<string, PrivateDigest> = {};
+      if (prevSummary?.privateDigests) {
+        for (const [mid, dig] of Object.entries(prevSummary.privateDigests)) {
+          if (isDigestUsable(dig, rawMessages)) {
+            preservedDigests[mid] = dig;
+          }
+        }
+      }
+
+      const lastPublic = validPublic[validPublic.length - 1];
+
       return {
         text,
         updatedAt: Date.now(),
-        messageCount: messages.length,
+        messageCount: validPublic.length,
+        coveredMessageId: lastPublic?.id,
+        privateDigests:
+          Object.keys(preservedDigests).length > 0 ? preservedDigests : undefined,
         status: 'idle',
       };
     } catch (err: any) {
@@ -186,13 +262,14 @@ export class Admin {
       return {
         text: '',
         updatedAt: Date.now(),
-        messageCount: messages.length,
+        messageCount: validPublic.length,
         status: 'error',
         error: err?.message ?? '执行异常',
       };
     }
   }
 }
+
 
 // 保持对 Scout 命名的兼容导出
 export { Admin as Scout };

@@ -282,7 +282,7 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
           return json(res, 400, { error: `项目目录不存在: ${body.projectPath}` });
         }
         const rcfg = makeRoomConfig(body);
-        const room = new ChatRoom(rcfg, bus, adapterConfigs, cfg.scout, roomPersistence);
+        const room = new ChatRoom(rcfg, bus, adapterConfigs, cfg.scout, roomPersistence, cfg.summary);
         rooms.set(room.id, room);
         await persistRoom(rcfg);
         bus.broadcast({ type: 'rooms' });

@@ -102,7 +102,7 @@ export async function computeSessionStats(
   scope: TraceScope,
   id: string,
   knownMembers: { id: string; name: string; color?: string; adapter?: string }[],
-  messages: import('../core/types').ChatMessage[],
+  messages: readonly import('../core/types').ChatMessage[],
 ): Promise<import('../core/types').SessionStats> {
   const memberMap = new Map<
     string,

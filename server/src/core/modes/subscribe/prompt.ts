@@ -1,22 +1,51 @@
 // 订阅模式: 增量消息视窗与自决 Prompt 组装。
 
-import type { ChatMessage, MemberConfig, RoomConfig } from '../../types';
+import type { ChatMessage, DiscussionSummary, MemberConfig, RoomConfig } from '../../types';
 import { historyText } from '../../prompt';
 import { filterHistoryForViewer } from './audience';
+import { isPublicSummaryUsable, isDigestUsable } from '../../summaryOps';
 import type { PrivateThread } from './protocol';
 
 /**
  * 组装心跳唤醒时的一步全价自决 Prompt。
+ * fullHistory: 房间全量历史(用于校验摘要/纪要锚点是否因截断/清空失效;缺省跳过校验)
  */
 export function buildHeartbeatPrompt(
   room: RoomConfig,
   member: MemberConfig,
-  deltaMessages: ChatMessage[],
+  deltaMessages: readonly ChatMessage[],
   activeThread?: PrivateThread,
   otherMemberName?: string,
+  summary?: DiscussionSummary | null,
+  fullHistory?: readonly ChatMessage[],
 ): string {
+  // 锚点失效校验:摘要锚点不在历史 → 整份不注入(含纪要);
+  // 摘要有效但本人纪要锚点失效 → 仅剔除该成员纪要段
+  let usableSummary = summary;
+  if (summary && fullHistory) {
+    if (!isPublicSummaryUsable(summary, fullHistory)) {
+      usableSummary = null;
+    } else {
+      const d = summary.privateDigests?.[member.id];
+      if (d && !isDigestUsable(d, fullHistory)) {
+        const digests = { ...summary.privateDigests };
+        delete digests[member.id];
+        usableSummary = { ...summary, privateDigests: digests };
+      }
+    }
+  }
+
+  // 若摘要锚点存在，剔除 delta 中已被锚点覆盖的消息
+  let effectiveDelta = deltaMessages;
+  if (usableSummary?.coveredMessageId) {
+    const covIdx = deltaMessages.findIndex((m) => m.id === usableSummary.coveredMessageId);
+    if (covIdx !== -1) {
+      effectiveDelta = deltaMessages.slice(covIdx + 1);
+    }
+  }
+
   // 只看针对当前成员可见的增量消息
-  const visibleDelta = filterHistoryForViewer(deltaMessages, member.id);
+  const visibleDelta = filterHistoryForViewer(effectiveDelta, member.id);
   const snippet = historyText(visibleDelta, 10, member.id, member.name);
 
   const candidateNames = room.members.filter((m) => m.id !== member.id).map((m) => m.name);
@@ -31,6 +60,18 @@ export function buildHeartbeatPrompt(
     `\`\`\`json\n${whitelistJson}\n\`\`\``,
     ``,
     `# 讨论主题: ${room.topic}`,
+  ];
+
+  // 注入公聊长程摘要与私聊纪要
+  if (usableSummary?.text?.trim()) {
+    sections.push(``, `# 前期讨论摘要`, usableSummary.text.trim());
+  }
+  const memberDigest = usableSummary?.privateDigests?.[member.id];
+  if (memberDigest?.text?.trim()) {
+    sections.push(``, `# 你的私聊往来纪要 (仅你可见)`, memberDigest.text.trim());
+  }
+
+  sections.push(
     ``,
     `# 自上次查看以来的最新未读消息`,
     snippet || '(自上次查看以来暂无新消息)',
@@ -51,7 +92,8 @@ export function buildHeartbeatPrompt(
     `- 若【公聊意愿 ≥ 60 且 无私聊意向】：**直接输出公开发言正文** (纯公聊，无需附带私聊)。`,
     `- 若【公聊意愿 < 60 但 有私聊意向】：**直接输出: <私聊>@同事名字 私信内容** (纯私聊，不发大群公聊)。`,
     `- 若【公聊意愿 ≥ 60 且 有私聊意向】：**先写公开发言，并在结尾另起一行附带: <私聊>@同事名字 私信内容** (系统会自动拆分为公聊与私聊两个独立气泡)。`,
-  ];
+  );
+
 
   if (activeThread && activeThread.status === 'active' && otherMemberName) {
     sections.push(
