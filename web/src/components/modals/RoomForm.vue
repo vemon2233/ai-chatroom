@@ -2,7 +2,7 @@
 // RoomForm 原语:房间字段表单的唯一实现(新建房间 / 房间设置共用)。
 // mode='create':全部可编辑(项目目录/权限在此确定)。
 // mode='settings':项目目录/工具权限禁用(建房时锁定——历史讨论的语境依赖它们),
-//                 其余(名称/主题/长度/接棒上限/主持人)可改即时生效。
+//                 其余(名称/主题/长度/接棒上限等)可改即时生效。
 
 import { ref, watch } from 'vue';
 import { store } from '@/store';
@@ -25,7 +25,6 @@ export interface RoomFormBody {
   projectPath: string;
   toolPermission: 'readonly' | 'readwrite' | 'full';
   chainBudget: number;
-  moderatorId: string;
   mode: 'baton' | 'subscribe';
   contextMode: 'stateless' | 'stateful';
 }
@@ -37,7 +36,6 @@ const speechLength = ref<'short' | 'normal' | 'long'>('normal');
 const projectPath = ref('');
 const toolPermission = ref<'readonly' | 'readwrite' | 'full'>('readonly');
 const chainBudget = ref(6);
-const moderatorId = ref('');
 const mode = ref<'baton' | 'subscribe'>('baton');
 const contextMode = ref<'stateless' | 'stateful'>('stateless');
 
@@ -54,7 +52,6 @@ watch(
       projectPath.value = r.projectPath ?? '';
       toolPermission.value = r.toolPermission;
       chainBudget.value = r.chainBudget;
-      moderatorId.value = r.moderatorId ?? '';
       mode.value = r.mode ?? 'baton';
       contextMode.value = r.contextMode ?? 'stateless';
     } else {
@@ -65,7 +62,6 @@ watch(
       projectPath.value = '';
       toolPermission.value = 'readonly';
       chainBudget.value = 6;
-      moderatorId.value = '';
       mode.value = 'baton';
       contextMode.value = 'stateless';
     }
@@ -82,7 +78,6 @@ function submit() {
     projectPath: projectPath.value.trim(),
     toolPermission: projectPath.value.trim() ? toolPermission.value : 'readonly',
     chainBudget: Math.max(1, Math.min(50, chainBudget.value || 6)),
-    moderatorId: moderatorId.value,
     mode: mode.value,
     contextMode: contextMode.value,
   });
@@ -97,7 +92,6 @@ function reset() {
     projectPath.value = props.room.projectPath ?? '';
     toolPermission.value = props.room.toolPermission;
     chainBudget.value = props.room.chainBudget;
-    moderatorId.value = props.room.moderatorId ?? '';
     mode.value = props.room.mode ?? 'baton';
     contextMode.value = props.room.contextMode ?? 'stateless';
   } else {
@@ -108,7 +102,6 @@ function reset() {
     projectPath.value = '';
     toolPermission.value = 'readonly';
     chainBudget.value = 6;
-    moderatorId.value = '';
     mode.value = 'baton';
     contextMode.value = 'stateless';
   }
@@ -211,17 +204,6 @@ defineExpose({ submit, reset });
           <span><b>完全</b>读写+执行命令(危险)</span>
         </label>
       </div>
-    </div>
-
-    <!-- 主持人只在 settings 模式显示(建房时还没有成员) -->
-    <div v-if="!isCreate()" class="form-row">
-      <label>主持人(@allN 轮流时每轮末小结;留空 = 无)</label>
-      <select v-model="moderatorId">
-        <option value="">(无)</option>
-        <option v-for="m in store.currentRoom?.config.members ?? []" :key="m.id" :value="m.id">
-          {{ m.name }}
-        </option>
-      </select>
     </div>
 
     <slot name="after-form" />

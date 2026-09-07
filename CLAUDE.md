@@ -62,7 +62,7 @@ web/src/
 2. **@语法**(每条消息驱动,模式不锁死;user 与 agent 共用 `<接棒>@名字` 语法,兼容旧【接棒】):
    - `接棒@成员` / `<接棒>@成员` = 指定起手:该成员直接起头进接棒链
    - `@成员名` = 点名:被点名者回应用户,尾行 `<接棒>@xx` 指定下一位 → **暂停待命**(xx 不自动发言;用户下一条纯文本消息后 xx 起头)
-   - `@allN` = 轮流 N 轮(预入队全部条目:辩手×N + 主持人轮末小结 + 终局总结)
+   - `@allN` = 轮流 N 轮(预入队全部条目:成员×N + 终局总结)
    - 无 @ = 接棒续聊:有待命接棒者(pendingNextId)→ TA 起头;无 → **随机**起头(v2.1 起冷启动随机,修"永远第一个 agent 开场")
    - 接棒失败语义:发言者没写有效接棒行 → 停止,控制权回用户(无轮询兜底)
    - 停止语义:cancelled → 落"(已停止思考)"占位消息(有部分正文则保留正文);**cancelled 绝不触发 resume 重试**(否则停止会复活新进程——实测"按两次停止"bug 根因);stop 不清除待命接棒者
@@ -91,7 +91,7 @@ web/src/
 
 ## 测试
 
-- `server/tests/orchestrator.test.ts`:29 场景(fake adapter 按 member 脚本化 + Math.random mock 确定性)——接棒链/冷启动随机/点名待命/待命者起头/`<接棒>`用户指令/@allN+主持人/轮流中 stop/世代隔离/error→idle/cancel 占位与不重试/resume 自愈/幽灵成员/预算重置+待命承接/旧语法兼容
+- `server/tests/orchestrator.test.ts`:29 场景(fake adapter 按 member 脚本化 + Math.random mock 确定性)——接棒链/冷启动随机/点名待命/待命者起头/`<接棒>`用户指令/@allN轮流/轮流中 stop/世代隔离/error→idle/cancel 占位与不重试/resume 自愈/幽灵成员/预算重置+待命承接/旧语法兼容
 - `baton.test.ts`:`<接棒>`/旧【接棒】双语法解析断言 + 成员名匹配;`rooms-store.test.ts`:持久化往返
 - 改 orchestrator 必须同步改测试(该文件是并发 bug 的唯一防线)
 

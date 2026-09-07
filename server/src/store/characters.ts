@@ -24,12 +24,6 @@ const SEEDS: Array<Omit<Character, 'id' | 'createdAt'>> = [
     persona: '你是辩论反方。坚定主张讨论题目中的后者,提供论据,直接反驳正方。',
   },
   {
-    name: '主持人',
-    adapter: 'claude',
-    persona: '你是主持人。保持中立,归纳各方观点与分歧,引导讨论聚焦,不站队。',
-    extraArgs: ['--model', 'haiku'],
-  },
-  {
     name: '产品经理',
     adapter: 'claude',
     persona: '你是产品经理。从用户价值、产品定位和商业角度发言。',

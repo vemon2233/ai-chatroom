@@ -548,26 +548,17 @@ export class Orchestrator {
   // ---------- @allN 轮流(预入队全部条目) ----------
 
   private startRoundRobin(rounds: number): void {
-    const speakers = this.deps.room.members.filter((m) => m.id !== this.deps.room.moderatorId);
-    const moderator = this.deps.room.members.find((m) => m.id === this.deps.room.moderatorId);
+    const members = this.deps.room.members;
+    if (members.length === 0) return;
+
     this.setState('roundrobin');
-    if (speakers.length === 0 && moderator) {
-      for (let r = 1; r <= rounds; r++) {
-        this.enqueue({ memberId: moderator.id, trigger: this.moderatorSelfTrigger(r) });
-      }
-      this.enqueue({ memberId: moderator.id, trigger: this.finalTrigger(), afterRounds: 'finalSummary' });
-      return;
-    }
     for (let r = 1; r <= rounds; r++) {
-      speakers.forEach((m, i) => {
-        this.enqueue({ memberId: m.id, trigger: this.turnTrigger(r, i, speakers.length) });
+      members.forEach((m, i) => {
+        this.enqueue({ memberId: m.id, trigger: this.turnTrigger(r, i, members.length) });
       });
-      if (moderator) {
-        this.enqueue({ memberId: moderator.id, trigger: this.moderatorSummaryTrigger(r) });
-      }
     }
-    const summarizer = moderator ?? speakers[speakers.length - 1]!;
-    this.enqueue({ memberId: summarizer.id, trigger: this.finalTrigger(), afterRounds: 'finalSummary' });
+    const lastMember = members[members.length - 1]!;
+    this.enqueue({ memberId: lastMember.id, trigger: this.finalTrigger(), afterRounds: 'finalSummary' });
     void this.sysMessage(`开始轮流发言 ${rounds} 轮`);
   }
 
@@ -577,14 +568,6 @@ export class Orchestrator {
       return `这是第 ${roundNo} 轮的收尾发言。针对前面发言者的观点进行回应、反驳或补充。`;
     }
     return `这是第 ${roundNo} 轮发言。${first ? '请先亮明你的立场。' : '针对前面发言者的观点进行回应、反驳或补充。'}`;
-  }
-
-  private moderatorSummaryTrigger(roundNo: number): string {
-    return `你是主持人。第 ${roundNo} 轮结束,请用两三句话小结分歧焦点,并给下一轮指定一个更具体的讨论点。`;
-  }
-
-  private moderatorSelfTrigger(roundNo: number): string {
-    return `你是主持人,房间里暂无其他辩手,请就主题做第 ${roundNo} 轮自问自答式推进。`;
   }
 
   private finalTrigger(): string {

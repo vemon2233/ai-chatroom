@@ -37,7 +37,6 @@ async function handleSubmit(body: RoomFormBody) {
       topic: body.topic,
       speechLength: body.speechLength,
       chainBudget: body.chainBudget,
-      moderatorId: body.moderatorId,
       mode: body.mode,
       contextMode: body.contextMode,
     });

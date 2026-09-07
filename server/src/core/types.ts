@@ -156,8 +156,6 @@ export interface RoomConfig {
   chainBudget: number;
   /** 发言长度风格:short(300字内)/ normal(600字内)/ long(不限);运行期可改 */
   speechLength: 'short' | 'normal' | 'long';
-  /** 主持人成员 id(可选;@allN 轮流时每轮末小结) */
-  moderatorId?: string;
   /** 绑定的项目目录(成员可用工具在其中自主探索) */
   projectPath?: string;
   /** 工具权限档位(房间级) */
@@ -198,7 +196,7 @@ export interface RoomState {
 export type RoomSettings = Pick<
   RoomConfig,
   'speechLength' | 'chainBudget' | 'name' | 'color' | 'topic' | 'mode' | 'subscribeConfig' | 'contextMode'
-> & { moderatorId?: string };
+>;
 
 /** 单个角色/用户的度量统计项 */
 export interface MemberStats {

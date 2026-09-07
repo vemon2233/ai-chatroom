@@ -203,7 +203,6 @@ describe('B2 讨论摘要与 Agent Trace 持久化测试', () => {
       topic: '测试',
       mode: 'subscribe',
       chainBudget: 10,
-      moderatorId: 'm1',
       members: [
         { id: 'm1', name: '诸葛亮', adapter: 'fake', persona: '军师' },
         { id: 'm2', name: '周瑜', adapter: 'fake', persona: '都督' },

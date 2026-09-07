@@ -328,17 +328,17 @@ describe('编排器状态机:<接棒> 用户指令', () => {
 });
 
 describe('编排器状态机:@allN 轮流', () => {
-  it('轮流 N 轮 + 主持人轮末小结 + 终局总结,跑完 idle', async () => {
-    const members = makeMembers(3, ['甲', '乙', '主持']);
+  it('轮流 N 轮 + 终局总结,跑完 idle', async () => {
+    const members = makeMembers(2, ['甲', '乙']);
     const h = makeHarness(
       Array.from({ length: 10 }, (_, i) => ({ result: `发言${i}` })),
-      { moderatorId: 'm3' },
+      {},
       members,
     );
     await h.orch.onUserMessage('@all2');
-    await settle(500); // 7 次调用 × 50ms hold + 微任务余量
-    // 2 轮 × 2 辩手 + 2 次小结 + 1 终局 = 7 次调用
-    expect(h.fake.callCount()).toBe(7);
+    await settle(500);
+    // 2 轮 × 2 成员 + 1 终局总结 = 5 次调用
+    expect(h.fake.callCount()).toBe(5);
     expect(h.orch.state).toBe('idle');
     const sys = h.messages.filter((m) => m.system).map((m) => m.text).join('|');
     expect(sys).toContain('轮流发言结束');

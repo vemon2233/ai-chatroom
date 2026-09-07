@@ -30,7 +30,6 @@ export interface CreateRoomInput {
   toolPermission?: RoomConfig['toolPermission'];
   speechLength?: RoomConfig['speechLength'];
   chainBudget?: number;
-  moderatorId?: string;
   mode?: RoomConfig['mode'];
   subscribeConfig?: RoomConfig['subscribeConfig'];
   contextMode?: RoomConfig['contextMode'];
@@ -164,7 +163,6 @@ export class ChatRoom {
     const idx = this.config.members.findIndex((m) => m.id === memberId);
     if (idx < 0) throw new Error(`成员不存在: ${memberId}`);
     const [removed] = this.config.members.splice(idx, 1);
-    if (this.config.moderatorId === memberId) this.config.moderatorId = undefined;
     this.orch.memberRemoved(memberId);
     await this.sysMessage(`${removed!.name} 离开了房间`);
     await this.persistence.persistRoom(this.config);
@@ -296,13 +294,6 @@ export class ChatRoom {
       this.config.chainBudget = patch.chainBudget;
       this.orch.setBudget(patch.chainBudget);
     }
-    if (patch.moderatorId !== undefined) {
-      if (patch.moderatorId === '' || patch.moderatorId == null) {
-        this.config.moderatorId = undefined;
-      } else if (this.config.members.some((m) => m.id === patch.moderatorId)) {
-        this.config.moderatorId = patch.moderatorId;
-      }
-    }
     if (patch.mode !== undefined) {
       this.config.mode = patch.mode;
     }
@@ -342,7 +333,6 @@ export function makeRoomConfig(input: CreateRoomInput): RoomConfig {
     topic: input.topic || '自由聊天',
     chainBudget: input.chainBudget ?? 6,
     speechLength: input.speechLength ?? 'normal',
-    moderatorId: input.moderatorId ? members.find((m) => m.id === input.moderatorId)?.id : undefined,
     projectPath: input.projectPath || undefined,
     toolPermission: input.toolPermission ?? 'readonly',
     mode: input.mode ?? 'baton',
