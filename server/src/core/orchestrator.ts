@@ -359,6 +359,7 @@ export class Orchestrator {
         this.bumpGeneration();
         this.cancelAll();
         this.pendingNextId = undefined;
+        this.budget = this.deps.room.chainBudget;
         this.setState('baton');
         this.enqueue({
           memberId: cmd.member.id,
@@ -415,6 +416,7 @@ export class Orchestrator {
         this.bumpGeneration();
         this.cancelAll();
         this.pendingNextId = undefined;
+        this.budget = this.deps.room.chainBudget;
         this.startRoundRobin(cmd.rounds);
         return;
       }
@@ -807,13 +809,16 @@ export class Orchestrator {
       // 关键防连击: 同步已读位点并重置该发言成员的心跳冷却
       this.subscribeEngine.markMemberSpoken(member.id);
 
-      // 扣减预算
-      this.budget--;
-      if (this.budget <= 0) {
-        await this.sysMessage('讨论已达自动发言上限,发条新消息可继续。');
-        await this.stop();
-        this.setState('idle');
-        return;
+      // 扣减预算: 仅在自由订阅讨论状态(subscribe)扣减; 显式 @all(roundrobin) 或用户点名不截断
+      if (this.state === 'subscribe') {
+        this.budget--;
+        if (this.budget <= 0) {
+          await this.sysMessage('讨论已达自动发言上限,发条新消息可继续。');
+          this.subscribeEngine.stop();
+          this.bumpGeneration();
+          this.setState('idle');
+          return;
+        }
       }
     } else {
       // 接棒模式: 剥除私聊尾行(不允许私聊), 非链上发言剥除接棒行

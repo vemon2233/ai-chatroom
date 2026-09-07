@@ -16,9 +16,16 @@ export async function oneShotSpeak(
   timeoutMs: number,
 ): Promise<SpeakOutcome> {
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let lastUsage: SpeakOutcome['usage'] | undefined;
   try {
-    const handle = adapter.speak(req, () => {
-      // 一次性调用不消费事件流
+    const handle = adapter.speak(req, (ev) => {
+      if (ev.usage) {
+        lastUsage = {
+          inputTokens: ev.usage.inputTokens ?? lastUsage?.inputTokens,
+          outputTokens: ev.usage.outputTokens ?? lastUsage?.outputTokens,
+          costUsd: ev.usage.costUsd ?? lastUsage?.costUsd,
+        };
+      }
     });
     const timeout = new Promise<SpeakOutcome>((resolve) => {
       timer = setTimeout(() => {
@@ -28,10 +35,14 @@ export async function oneShotSpeak(
           result: '',
           durationMs: timeoutMs,
           error: `超时(${timeoutMs}ms)`,
+          usage: lastUsage,
         });
       }, timeoutMs);
     });
     const outcome = await Promise.race([handle.done, timeout]);
+    if (lastUsage && !outcome.usage) {
+      outcome.usage = lastUsage;
+    }
     return outcome;
   } finally {
     if (timer != null) clearTimeout(timer); // 无论谁赢, 定时器必清

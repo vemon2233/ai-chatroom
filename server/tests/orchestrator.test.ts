@@ -550,4 +550,49 @@ describe('编排器状态机:杂项入口', () => {
     expect(h.orch.state).toBe('idle');
     expect(h.fake.callCount()).toBe(1);
   });
+
+  it('订阅模式下 @all 不受自动发言上限拦截，且全员依次完成发言', async () => {
+    const members = makeMembers(3, ['曹操1', '曹操2', '曹操3']);
+    // 设置 chainBudget 为 1, 模拟之前 1 号发言后预算归零的极端场景
+    const h = makeHarness([], { mode: 'subscribe', chainBudget: 1 }, members, {
+      m1: [{ result: '曹操1投票' }],
+      m2: [{ result: '曹操2投票' }],
+      m3: [{ result: '曹操3投票' }, { result: '总结发言' }],
+    });
+
+    await h.orch.onUserMessage('@all 1');
+    await settle(400);
+
+    // 验证全员都完成了发言
+    expect(h.messages.some((m) => m.from === 'm1' && m.text === '曹操1投票')).toBe(true);
+    expect(h.messages.some((m) => m.from === 'm2' && m.text === '曹操2投票')).toBe(true);
+    expect(h.messages.some((m) => m.from === 'm3' && m.text === '曹操3投票')).toBe(true);
+    // 验证没有被误判为自动发言上限
+    expect(h.messages.some((m) => m.text.includes('讨论已达自动发言上限'))).toBe(false);
+    expect(h.orch.state).toBe('idle');
+  });
+
+  it('订阅模式达到发言上限后，用户 @name 点名能顺畅唤醒且不发生死锁', async () => {
+    const members = makeMembers(2, ['关羽', '张飞']);
+    // 设置 chainBudget 为 1
+    const h = makeHarness([], { mode: 'subscribe', chainBudget: 1 }, members, {
+      m1: [{ result: '关羽自由发言' }],
+      m2: [{ result: '张飞回应用户' }],
+    });
+
+    // 1. 用户发纯文本消息触发订阅模式自由讨论 (进入 subscribe 态), 消耗 1 次预算并触发上限
+    await h.orch.onUserMessage('诸公请开始讨论');
+    await settle(300);
+
+    // 此时应收到上限提示且状态回到 idle
+    expect(h.messages.some((m) => m.text.includes('讨论已达自动发言上限'))).toBe(true);
+    expect(h.orch.state).toBe('idle');
+
+    // 2. 用户点名 @张飞
+    await h.orch.onUserMessage('@张飞 你呢');
+    await settle(300);
+
+    // 张飞应当顺畅被唤醒并完成发言，绝不卡死
+    expect(h.messages.some((m) => m.from === 'm2' && m.text === '张飞回应用户')).toBe(true);
+  });
 });

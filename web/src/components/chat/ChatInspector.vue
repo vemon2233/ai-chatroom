@@ -522,7 +522,7 @@ onUnmounted(() => {
             <span class="meta-pill">共 {{ summariesList.length }} 份</span>
           </div>
           <div class="subbar-actions">
-            <button type="button" class="btn-refresh btn btn-ghost"
+            <button type="button" class="btn-generate-summary btn btn-primary"
               :disabled="isRefreshingSummary || !hasNewMessagesForSummary"
               :title="!hasNewMessagesForSummary ? '暂无新增发言，当前摘要已是最新' : (isRefreshingSummary ? '生成中...' : '提炼并保存最新摘要')"
               @click="handleRefreshSummary">
@@ -859,6 +859,37 @@ onUnmounted(() => {
   background: var(--border-soft);
   color: var(--muted);
   font-weight: 500;
+}
+
+.btn-generate-summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  font-size: 12px;
+  height: auto;
+  border-radius: 6px;
+  font-weight: 500;
+  background: var(--accent);
+  color: #fff;
+  border: 1px solid transparent;
+  transition: all 0.15s ease;
+}
+
+.btn-generate-summary:hover:not(:disabled) {
+  opacity: 0.9;
+  background: var(--accent);
+  color: #fff;
+}
+
+.btn-generate-summary:disabled,
+.btn-generate-summary[disabled] {
+  opacity: 0.45 !important;
+  cursor: not-allowed !important;
+  background: var(--accent) !important;
+  color: #fff !important;
+  border-color: transparent !important;
+  pointer-events: auto !important;
 }
 
 .btn-refresh {

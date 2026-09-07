@@ -123,8 +123,42 @@ export async function computeSessionStats(
     }
   >();
 
-  // 1. 先用已知的成员列表打底
+  // 1. 基石成员打底: 确保 用户(User) 与 系统(System) 恒定存在于前两位
+  memberMap.set('user', {
+    id: 'user',
+    name: '用户 (User)',
+    color: '#6366f1',
+    adapter: 'Human',
+    isUser: true,
+    messageCount: 0,
+    charCount: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    costUsd: 0,
+    durations: [],
+    skips: 0,
+    errors: 0,
+  });
+
+  memberMap.set('system', {
+    id: 'system',
+    name: '系统 (System)',
+    color: '#94a3b8',
+    adapter: 'System',
+    isUser: false,
+    messageCount: 0,
+    charCount: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    costUsd: 0,
+    durations: [],
+    skips: 0,
+    errors: 0,
+  });
+
+  // 2. 已知成员列表打底
   for (const m of knownMembers) {
+    if (m.id === 'user' || m.id === 'system') continue;
     memberMap.set(m.id, {
       id: m.id,
       name: m.name,
@@ -142,19 +176,26 @@ export async function computeSessionStats(
     });
   }
 
-  // 2. 统计真实聊天消息(含用户发言与动态历史成员)
+  // 3. 统计真实聊天消息(含用户发言与动态历史成员, 过滤纯本地广播通知)
   let totalChars = 0;
   let totalMessages = 0;
 
   for (const msg of messages) {
+    // 过滤纯本地广播事件(如"xxx加入了房间"、"心跳跳过"等系统提示, 不计入统计)
+    if (msg.system || !msg.text?.trim()) {
+      continue;
+    }
+
     const isUser = msg.from === 'user' || msg.fromName === 'User';
-    const key = isUser ? 'user' : (msg.from || msg.fromName);
+    // 侦察员(scout)或显式 system 均归入系统角色
+    const isSystem = msg.from === 'system' || msg.fromName === '系统' || msg.from === 'scout';
+    const key = isUser ? 'user' : (isSystem ? 'system' : (msg.from || msg.fromName));
     if (!memberMap.has(key)) {
       memberMap.set(key, {
-        id: isUser ? 'user' : (msg.from || key),
-        name: isUser ? '用户 (User)' : msg.fromName,
-        color: isUser ? '#6366f1' : '#64748b',
-        adapter: isUser ? 'Human' : 'AI',
+        id: isUser ? 'user' : (isSystem ? 'system' : (msg.from || key)),
+        name: isUser ? '用户 (User)' : (isSystem ? '系统 (System)' : msg.fromName),
+        color: isUser ? '#6366f1' : (isSystem ? '#94a3b8' : '#64748b'),
+        adapter: isUser ? 'Human' : (isSystem ? 'System' : 'AI'),
         isUser,
         messageCount: 0,
         charCount: 0,
@@ -278,8 +319,17 @@ export async function computeSessionStats(
     };
   });
 
-  // 按发言条数倒序排序(优先展示话多的角色)
-  members.sort((a, b) => b.messageCount - a.messageCount || b.totalTokens - a.totalTokens);
+  // 排序规则: 固定 用户(第1位) -> 系统(第2位) -> 其余角色按发言条数与 Token 倒序
+  members.sort((a, b) => {
+    const getPriority = (item: typeof a) => {
+      if (item.id === 'user' || item.isUser) return 0;
+      if (item.id === 'system' || item.name === '系统' || item.name.includes('系统') || item.adapter === 'System') return 1;
+      return 2;
+    };
+    const pDiff = getPriority(a) - getPriority(b);
+    if (pDiff !== 0) return pDiff;
+    return b.messageCount - a.messageCount || b.totalTokens - a.totalTokens;
+  });
 
   return {
     totalMessages,

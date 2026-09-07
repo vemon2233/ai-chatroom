@@ -2,7 +2,7 @@
 // InspectorStats: 右侧边栏中的会话用量与开销度量统计面板
 // 统计每个角色的发言条数、活跃份额占比、Token 消耗、费用与耗时，支持导出 Markdown 简报
 
-import { onMounted, ref, watch } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { api } from '@/services/api';
 import type { SessionStats, MemberStats } from '@server/core/types';
 
@@ -14,6 +14,20 @@ const props = defineProps<{
 const stats = ref<SessionStats | null>(null);
 const isLoading = ref(false);
 const errorMsg = ref('');
+
+const sortedMembers = computed<MemberStats[]>(() => {
+  if (!stats.value?.members) return [];
+  return [...stats.value.members].sort((a, b) => {
+    const getPriority = (item: MemberStats) => {
+      if (item.id === 'user' || item.isUser) return 0;
+      if (item.id === 'system' || item.name === '系统' || item.name.includes('系统') || item.adapter === 'System') return 1;
+      return 2;
+    };
+    const pDiff = getPriority(a) - getPriority(b);
+    if (pDiff !== 0) return pDiff;
+    return b.messageCount - a.messageCount || b.totalTokens - a.totalTokens;
+  });
+});
 
 async function loadStats() {
   if (!props.sessionId) return;
@@ -130,10 +144,10 @@ function initialsFor(name: string): string {
 
           <div v-else class="member-cards-list">
             <div
-              v-for="m in stats.members"
+              v-for="m in sortedMembers"
               :key="m.id"
               class="member-stat-card"
-              :class="{ 'is-user-card': m.isUser }"
+              :class="{ 'is-user-card': m.isUser, 'is-system-card': m.id === 'system' || m.adapter === 'System' }"
             >
               <!-- 角色头部 -->
               <div class="card-top">
@@ -383,6 +397,11 @@ function initialsFor(name: string): string {
 .member-stat-card.is-user-card {
   background: var(--panel-softer);
   border-style: dashed;
+}
+
+.member-stat-card.is-system-card {
+  background: var(--panel-softer);
+  opacity: 0.92;
 }
 
 .card-top {

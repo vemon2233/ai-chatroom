@@ -101,6 +101,8 @@ export interface PrivateDigest {
   text: string;
   coveredMessageId: string;   // 锚点:最后一条被纪要覆盖的私聊消息 id
   updatedAt: number;
+  durationMs?: number;
+  usage?: { inputTokens?: number; outputTokens?: number; costUsd?: number };
 }
 
 /** 讨论摘要数据模型 */
@@ -114,6 +116,9 @@ export interface DiscussionSummary {
   coveredMessageId?: string;
   /** stateless 成员的私聊纪要(memberId -> digest;随 summary 文件持久化) */
   privateDigests?: Record<string, PrivateDigest>;
+  /** 本次大模型生成的耗时与用量(用于 Trace 与账单统计归集) */
+  durationMs?: number;
+  usage?: { inputTokens?: number; outputTokens?: number; costUsd?: number };
 }
 
 /** 摘要历史快照(单个独立文件存储) */

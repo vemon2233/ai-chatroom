@@ -64,6 +64,8 @@ export interface SpeakOutcome {
   durationMs: number;
   /** error 时的原因 */
   error?: string;
+  /** token 用量(尽力解析,字段缺失则略) */
+  usage?: AgentEvent['usage'];
 }
 
 /** 适配器:spawn 一次发言进程,把 CLI 原始输出解析为统一事件。

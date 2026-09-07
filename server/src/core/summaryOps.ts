@@ -271,6 +271,8 @@ export async function executePrivateDigest(input: {
     text,
     coveredMessageId: lastMsg?.id ?? '',
     updatedAt: Date.now(),
+    durationMs: outcome.durationMs,
+    usage: outcome.usage,
   };
 }
 

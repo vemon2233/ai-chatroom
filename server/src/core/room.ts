@@ -11,6 +11,8 @@ import type { ChatMessage, DiscussionSummary, MemberConfig, RoomConfig, RoomSett
 import { getAdapter as getAdapterByKind } from '../adapters/index';
 import { truncateMessages, prepareReroll, prepareEdit } from './historyOps';
 import { getSummary, saveSummarySnapshot } from '../store/summary';
+import { saveTrace } from '../store/trace';
+import type { AgentTraceLog } from './types';
 import {
   countUncoveredPublic,
   countUncoveredPrivateFor,
@@ -47,6 +49,7 @@ export class ChatRoom {
   private messages: ChatMessage[] = [];
   private orch: Orchestrator;
   private admin: Admin;
+  private adminCfg: AdminConfig;
   private currentSummary: DiscussionSummary | null = null;
   private summaryCfg: SummaryConfig;
   private adapterConfigs: Record<string, { kind: string; command: string; args: string[] }>;
@@ -62,6 +65,7 @@ export class ChatRoom {
   ) {
     this.config = cfg;
     this.adapterConfigs = adapterConfigs;
+    this.adminCfg = adminCfg;
     this.summaryCfg = summaryCfg ?? {
       model: 'haiku',
       autoThreshold: 30,
@@ -97,6 +101,26 @@ export class ChatRoom {
         const report = await this.admin.ensureScout(this.config.projectPath);
         if (report) {
           await this.pushMessage({ ...report, roomId: this.config.id });
+          const traceLog: AgentTraceLog = {
+            messageId: report.id,
+            roomId: this.config.id,
+            memberId: 'system',
+            memberName: '系统',
+            adapter: report.detail?.adapter || this.adminCfg.adapter || 'admin',
+            ts: report.ts,
+            durationMs: report.detail?.durationMs ?? 0,
+            status: 'ok',
+            trigger: '项目目录勘探',
+            input: {
+              prompt: report.detail?.trigger || '项目目录勘探',
+              cwd: this.config.projectPath,
+            },
+            output: {
+              result: report.text,
+              usage: (report.detail as any)?.usage,
+            },
+          };
+          void saveTrace('room', this.config.id, traceLog);
         }
         return report;
       },
@@ -123,9 +147,31 @@ export class ChatRoom {
 
   /** 应用并持久化广播最新摘要 */
   private async applySummary(sum: DiscussionSummary, trigger: 'auto' | 'manual' = 'auto'): Promise<void> {
-    await saveSummarySnapshot('room', this.config.id, sum, trigger);
+    const snap = await saveSummarySnapshot('room', this.config.id, sum, trigger);
     this.currentSummary = sum;
     this.bus.emitRoomSummary(this.config.id, sum);
+
+    if (sum.usage) {
+      const traceLog: AgentTraceLog = {
+        messageId: snap.id,
+        roomId: this.config.id,
+        memberId: 'system',
+        memberName: '系统',
+        adapter: this.adminCfg.adapter || 'admin',
+        ts: sum.updatedAt || Date.now(),
+        durationMs: sum.durationMs ?? 0,
+        status: sum.status === 'error' ? 'error' : 'ok',
+        trigger: '讨论大纲提炼',
+        input: {
+          prompt: '讨论大纲提炼',
+        },
+        output: {
+          result: sum.text,
+          usage: sum.usage,
+        },
+      };
+      void saveTrace('room', this.config.id, traceLog);
+    }
   }
 
   /** 手动触发管理员刷新生成讨论摘要 */
@@ -282,6 +328,28 @@ export class ChatRoom {
       });
 
       if (digest) {
+        if (digest.usage) {
+          const traceLog: AgentTraceLog = {
+            messageId: `digest_${member.id}_${Date.now()}`,
+            roomId: this.config.id,
+            memberId: member.id,
+            memberName: member.name,
+            adapter: member.adapter,
+            ts: digest.updatedAt || Date.now(),
+            durationMs: digest.durationMs ?? 0,
+            status: 'ok',
+            trigger: '私聊纪要自总结',
+            input: {
+              prompt: '私聊纪要自总结',
+            },
+            output: {
+              result: digest.text,
+              usage: digest.usage,
+            },
+          };
+          void saveTrace('room', this.config.id, traceLog);
+        }
+
         const base = this.currentSummary ?? {
           text: '',
           updatedAt: Date.now(),

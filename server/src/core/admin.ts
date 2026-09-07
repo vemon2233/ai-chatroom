@@ -88,6 +88,7 @@ export class Admin {
           adapter: this.cfg.adapter,
           trigger: '开场侦察:分析项目并播报,供全员讨论使用',
           durationMs: outcome.durationMs,
+          usage: outcome.usage,
         },
       };
     } catch {
@@ -256,6 +257,8 @@ export class Admin {
         privateDigests:
           Object.keys(preservedDigests).length > 0 ? preservedDigests : undefined,
         status: 'idle',
+        durationMs: outcome.durationMs,
+        usage: outcome.usage,
       };
     } catch (err: any) {
       this.summaryFailureCount++;

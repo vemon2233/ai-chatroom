@@ -316,7 +316,11 @@ describe('B2 讨论摘要与 Agent Trace 持久化测试', () => {
     expect(stats.totalInputTokens).toBe(1200);
     expect(stats.totalOutputTokens).toBe(300);
     expect(stats.totalTokens).toBe(1500);
-    expect(stats.members.length).toBe(3); // user, m1, m2
+    expect(stats.members.length).toBe(4); // user, system, m1, m2
+
+    // 验证固定排序: 第1位为用户, 第2位为系统
+    expect(stats.members[0]?.id).toBe('user');
+    expect(stats.members[1]?.id).toBe('system');
 
     const zhuge = stats.members.find((m) => m.id === 'm1');
     expect(zhuge).toBeDefined();
@@ -324,5 +328,117 @@ describe('B2 讨论摘要与 Agent Trace 持久化测试', () => {
     expect(zhuge?.totalTokens).toBe(1500);
     expect(zhuge?.costUsd).toBe(0.0081);
     expect(zhuge?.sharePct).toBeGreaterThan(0);
+  });
+
+  it('Stats: 过滤纯本地广播事件, 且将系统摘要与私聊自总结归集到正确角色', async () => {
+    // 1. 保存一条系统公聊摘要 Trace
+    await saveTrace('room', TEST_ROOM_ID, {
+      messageId: 'sum_test_1',
+      roomId: TEST_ROOM_ID,
+      memberId: 'system',
+      memberName: '系统',
+      adapter: 'admin',
+      ts: Date.now(),
+      durationMs: 1200,
+      status: 'ok',
+      trigger: '讨论大纲提炼',
+      input: { prompt: '提炼大纲' },
+      output: {
+        result: '### 讨论大纲',
+        usage: { inputTokens: 500, outputTokens: 200, costUsd: 0.0035 },
+      },
+    });
+
+    // 2. 保存一条周瑜(m2)的第一人称私聊自总结 Trace
+    await saveTrace('room', TEST_ROOM_ID, {
+      messageId: 'digest_m2_test',
+      roomId: TEST_ROOM_ID,
+      memberId: 'm2',
+      memberName: '周瑜',
+      adapter: 'claude',
+      ts: Date.now(),
+      durationMs: 900,
+      status: 'ok',
+      trigger: '私聊纪要自总结',
+      input: { prompt: '第一人称回忆' },
+      output: {
+        result: '吾与孔明私下计议...',
+        usage: { inputTokens: 300, outputTokens: 100, costUsd: 0.002 },
+      },
+    });
+
+    // 消息列表: 包含纯本地广播事件("xxx加入房间"、"心跳跳过")与正常发言
+    const testMessages: ChatMessage[] = [
+      {
+        id: 'msg_notice_1',
+        roomId: TEST_ROOM_ID,
+        from: 'system',
+        fromName: '系统',
+        text: '诸葛亮、周瑜 加入了房间',
+        system: true,
+        ts: Date.now() - 5000,
+      },
+      {
+        id: 'msg_notice_2',
+        roomId: TEST_ROOM_ID,
+        from: 'system',
+        fromName: '系统',
+        text: '心跳跳过',
+        system: true,
+        ts: Date.now() - 4000,
+      },
+      {
+        id: 'msg_scout',
+        roomId: TEST_ROOM_ID,
+        from: 'scout',
+        fromName: '🔍 侦察员',
+        text: '项目目录分析完毕，就绪。',
+        ts: Date.now() - 3000,
+      },
+      {
+        id: 'msg_user',
+        roomId: TEST_ROOM_ID,
+        from: 'user',
+        fromName: 'User',
+        text: '我们开始吧',
+        ts: Date.now() - 2000,
+      },
+      {
+        id: 'msg_m2',
+        roomId: TEST_ROOM_ID,
+        from: 'm2',
+        fromName: '周瑜',
+        text: '大都督在此。',
+        ts: Date.now() - 1000,
+      },
+    ];
+
+    const stats = await computeSessionStats('room', TEST_ROOM_ID, [
+      { id: 'm1', name: '诸葛亮' },
+      { id: 'm2', name: '周瑜' },
+    ], testMessages);
+
+    // 纯本地事件(msg_notice_1, msg_notice_2)被过滤, 仅剩下 scout(归入系统), user, m2
+    expect(stats.totalMessages).toBe(3);
+
+    // 系统条目检查
+    const sysStat = stats.members.find((m) => m.id === 'system');
+    expect(sysStat).toBeDefined();
+    expect(sysStat?.messageCount).toBe(1); // scout 消息归入系统
+    expect(sysStat?.inputTokens).toBe(500);
+    expect(sysStat?.outputTokens).toBe(200);
+    expect(sysStat?.costUsd).toBe(0.0035);
+
+    // 周瑜条目检查: 包含私聊自总结的 Token 与开销
+    const zhouyu = stats.members.find((m) => m.id === 'm2');
+    expect(zhouyu).toBeDefined();
+    expect(zhouyu?.messageCount).toBe(1);
+    expect(zhouyu?.inputTokens).toBe(300);
+    expect(zhouyu?.outputTokens).toBe(100);
+    expect(zhouyu?.costUsd).toBe(0.002);
+
+    // 排行榜首位与次位验证
+    expect(stats.members[0]?.id).toBe('user');
+    expect(stats.members[1]?.id).toBe('system');
   });
 });
