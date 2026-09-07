@@ -10,7 +10,7 @@ import { MEMBER_PALETTE } from './palette';
 import type { ChatMessage, DiscussionSummary, MemberConfig, RoomConfig, RoomSettings, RoomState, SummaryConfig } from './types';
 import { getAdapter as getAdapterByKind } from '../adapters/index';
 import { truncateMessages, prepareReroll, prepareEdit } from './historyOps';
-import { getSummary, saveSummary } from '../store/summary';
+import { getSummary, saveSummarySnapshot } from '../store/summary';
 import {
   countUncoveredPublic,
   countUncoveredPrivateFor,
@@ -122,21 +122,25 @@ export class ChatRoom {
   }
 
   /** 应用并持久化广播最新摘要 */
-  private async applySummary(sum: DiscussionSummary): Promise<void> {
-    await saveSummary('room', this.config.id, sum);
+  private async applySummary(sum: DiscussionSummary, trigger: 'auto' | 'manual' = 'auto'): Promise<void> {
+    await saveSummarySnapshot('room', this.config.id, sum, trigger);
     this.currentSummary = sum;
     this.bus.emitRoomSummary(this.config.id, sum);
   }
 
   /** 手动触发管理员刷新生成讨论摘要 */
   async refreshSummary(): Promise<DiscussionSummary | null> {
+    const uncovered = countUncoveredPublic(this.messages, this.currentSummary);
+    if (this.currentSummary?.text && uncovered === 0) {
+      return this.currentSummary;
+    }
     const res = await this.admin.generateSummary({
       messages: this.messages,
       topic: this.config.topic,
       prevSummary: this.currentSummary,
     });
     if (res && res.text) {
-      await this.applySummary(res);
+      await this.applySummary(res, 'manual');
     }
     return res;
   }

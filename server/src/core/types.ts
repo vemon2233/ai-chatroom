@@ -116,6 +116,28 @@ export interface DiscussionSummary {
   privateDigests?: Record<string, PrivateDigest>;
 }
 
+/** 摘要历史快照(单个独立文件存储) */
+export interface DiscussionSummarySnapshot extends DiscussionSummary {
+  id: string;                      // 快照唯一 ID, 例如 sum_1788801234_k8x1
+  scope: 'room' | 'direct';
+  targetId: string;                // roomId 或 direct characterId / threadId
+  createdAt: number;               // 产生时间戳
+  trigger?: 'auto' | 'manual';     // 触发方式
+}
+
+/** 摘要历史列表条目元数据 */
+export interface SummarySnapshotItem {
+  id: string;
+  scope: 'room' | 'direct';
+  targetId: string;
+  createdAt: number;
+  messageCount: number;
+  coveredMessageId?: string;
+  trigger?: 'auto' | 'manual';
+  status?: 'idle' | 'generating' | 'error';
+  error?: string;
+}
+
 /** agents.yaml summary 段;0=关 */
 export interface SummaryConfig {
   model: string;             // 摘要/compact 用模型,默认 'haiku'

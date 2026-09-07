@@ -14,7 +14,7 @@ import {
 } from '../store/directChats';
 import { truncateMessages, prepareReroll, prepareEdit } from './historyOps';
 import { saveTrace } from '../store/trace';
-import { getSummary, saveSummary } from '../store/summary';
+import { getSummary, saveSummarySnapshot } from '../store/summary';
 import type { Admin } from './admin';
 
 export interface DirectChatServiceDeps {
@@ -379,13 +379,20 @@ export class DirectChatService {
     if (!this.deps.admin) return null;
     const msgs = await loadDirectMessages(characterId);
     const prev = await this.getSummary(characterId);
+    const valid = msgs.filter((m) => !m.system && !!m.text?.trim());
+    if (prev?.text && prev.coveredMessageId && valid.length > 0) {
+      const lastMsg = valid[valid.length - 1];
+      if (lastMsg?.id === prev.coveredMessageId) {
+        return prev;
+      }
+    }
     const res = await this.deps.admin.generateSummary({
       messages: msgs,
       topic: `与 ${character.name} 的一对一私聊探讨`,
       prevSummary: prev,
     });
     if (res && res.text) {
-      await saveSummary('direct', characterId, res);
+      await saveSummarySnapshot('direct', characterId, res, 'manual');
       this.summaries.set(characterId, res);
       this.deps.bus.emitDirectSummary(characterId, res);
     }

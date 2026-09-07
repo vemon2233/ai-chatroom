@@ -116,12 +116,16 @@ export const api = {
   roomTraceDetail: (roomId: string, messageId: string) => req<import('@server/core/types').AgentTraceLog>(`/api/rooms/${roomId}/traces/${messageId}`),
   roomSummary: (roomId: string) => req<import('@server/core/types').DiscussionSummary>(`/api/rooms/${roomId}/summary`),
   refreshRoomSummary: (roomId: string) => req<import('@server/core/types').DiscussionSummary>(`/api/rooms/${roomId}/summary/refresh`, { method: 'POST' }),
+  roomSummaries: (roomId: string) => req<import('@server/core/types').SummarySnapshotItem[]>(`/api/rooms/${roomId}/summaries`),
+  roomSummaryDetail: (roomId: string, summaryId: string) => req<import('@server/core/types').DiscussionSummarySnapshot>(`/api/rooms/${roomId}/summaries/${summaryId}`),
 
   // 1v1 私聊 Trace & 讨论摘要
   directTraces: (characterId: string) => req<import('@server/store/trace').TraceSummaryItem[]>(`/api/characters/${characterId}/traces`),
   directTraceDetail: (characterId: string, messageId: string) => req<import('@server/core/types').AgentTraceLog>(`/api/characters/${characterId}/traces/${messageId}`),
   directSummary: (characterId: string) => req<import('@server/core/types').DiscussionSummary>(`/api/characters/${characterId}/summary`),
   refreshDirectSummary: (characterId: string) => req<import('@server/core/types').DiscussionSummary>(`/api/characters/${characterId}/summary/refresh`, { method: 'POST' }),
+  directSummaries: (characterId: string) => req<import('@server/core/types').SummarySnapshotItem[]>(`/api/characters/${characterId}/summaries`),
+  directSummaryDetail: (characterId: string, summaryId: string) => req<import('@server/core/types').DiscussionSummarySnapshot>(`/api/characters/${characterId}/summaries/${summaryId}`),
 
   // 会话用量与开销度量统计
   roomStats: (roomId: string) => req<import('@server/core/types').SessionStats>(`/api/rooms/${roomId}/stats`),

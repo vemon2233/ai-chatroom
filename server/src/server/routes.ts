@@ -9,6 +9,7 @@ import { DirectChatService } from '../core/direct';
 import { getAdapter as getAdapterByKind } from '../adapters/index';
 import { Admin } from '../core/admin';
 import { getTrace, listTraces, computeSessionStats } from '../store/trace';
+import { listSummarySnapshots, getSummarySnapshot } from '../store/summary';
 import type { Character, RoomSettings } from '../core/types';
 import type { AdapterConfig, AppConfig } from './config';
 
@@ -201,6 +202,19 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
           return json(res, 200, sum || { text: '', updatedAt: Date.now(), messageCount: 0 });
         }
 
+        // 1v1 私聊历史摘要快照列表与详情
+        if (sub === 'summaries' && method === 'GET') {
+          const list = await listSummarySnapshots('direct', id);
+          return json(res, 200, list);
+        }
+        const charSumMatch = sub?.match(/^summaries\/([^/]+)$/);
+        if (charSumMatch && method === 'GET') {
+          const sumId = decodeURIComponent(charSumMatch[1]!);
+          const snap = await getSummarySnapshot('direct', id, sumId);
+          if (!snap) return json(res, 404, { error: '未找到摘要快照' });
+          return json(res, 200, snap);
+        }
+
         // 1v1 私聊用量与开销度量统计
         if (sub === 'stats' && method === 'GET') {
           await characters.ensureLoaded();
@@ -371,6 +385,19 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
         if (sub === 'summary/refresh' && method === 'POST') {
           const sum = await room!.refreshSummary();
           return json(res, 200, sum || { text: '', updatedAt: Date.now(), messageCount: 0 });
+        }
+
+        // 房间历史摘要快照列表与详情
+        if (sub === 'summaries' && method === 'GET') {
+          const list = await listSummarySnapshots('room', roomId);
+          return json(res, 200, list);
+        }
+        const roomSumMatch = sub?.match(/^summaries\/([^/]+)$/);
+        if (roomSumMatch && method === 'GET') {
+          const sumId = decodeURIComponent(roomSumMatch[1]!);
+          const snap = await getSummarySnapshot('room', roomId, sumId);
+          if (!snap) return json(res, 404, { error: '未找到摘要快照' });
+          return json(res, 200, snap);
         }
 
         // 房间用量与开销度量统计

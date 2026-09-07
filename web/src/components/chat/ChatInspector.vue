@@ -3,7 +3,7 @@ import { computed, onUnmounted, ref, watch } from 'vue';
 import { api } from '@/services/api';
 import { store } from '@/store';
 import { renderMarkdown } from '@/utils/markdown';
-import type { AgentTraceLog, DiscussionSummary } from '@server/core/types';
+import type { AgentTraceLog, DiscussionSummary, DiscussionSummarySnapshot, SummarySnapshotItem } from '@server/core/types';
 import type { TraceSummaryItem } from '@server/store/trace';
 import InspectorRoomManage from './inspector/InspectorRoomManage.vue';
 import InspectorDirectManage from './inspector/InspectorDirectManage.vue';
@@ -20,14 +20,116 @@ const emit = defineEmits<{
   (e: 'close'): void;
 }>();
 
-// ---------- 讨论摘要逻辑 ----------
+// ---------- 讨论摘要历史与详情逻辑 ----------
+const summariesList = ref<SummarySnapshotItem[]>([]);
+const isLoadingSummaries = ref(false);
 const isRefreshingSummary = ref(false);
 const summaryError = ref('');
+const selectedSummaryId = ref<string | null>(null);
+const currentSummaryDetail = ref<DiscussionSummarySnapshot | null>(null);
+const isLoadingSummaryDetail = ref(false);
+const summarySubTab = ref<'public' | 'private'>('public');
+const copySummaryFeedback = ref(false);
 
-const summaryData = computed<DiscussionSummary | null>(() => store.currentSummary);
+const summaryData = computed<DiscussionSummary | null>(() => {
+  return currentSummaryDetail.value || store.currentSummary;
+});
+
+async function loadSummaries(isAuto: boolean | unknown = false) {
+  const isSilent = isAuto === true;
+  if (!isSilent) {
+    isLoadingSummaries.value = true;
+  }
+  try {
+    const list =
+      props.sessionType === 'room'
+        ? await api.roomSummaries(props.sessionId)
+        : await api.directSummaries(props.sessionId);
+
+    const prevFirstId = summariesList.value[0]?.id;
+    const wasTrackingTop = !selectedSummaryId.value || selectedSummaryId.value === prevFirstId;
+
+    summariesList.value = list;
+
+    if (list.length > 0) {
+      if (wasTrackingTop) {
+        void selectSummary(list[0]!.id);
+      } else {
+        const stillExists = list.some((item) => item.id === selectedSummaryId.value);
+        if (!stillExists) {
+          void selectSummary(list[0]!.id);
+        }
+      }
+    } else {
+      selectedSummaryId.value = null;
+      currentSummaryDetail.value = null;
+    }
+  } catch (err) {
+    console.error('加载讨论摘要文件列表失败:', err);
+  } finally {
+    if (!isSilent) {
+      isLoadingSummaries.value = false;
+    }
+  }
+}
+
+async function selectSummary(summaryId: string) {
+  selectedSummaryId.value = summaryId;
+  isLoadingSummaryDetail.value = true;
+  summaryError.value = '';
+  try {
+    if (props.sessionType === 'room') {
+      currentSummaryDetail.value = await api.roomSummaryDetail(props.sessionId, summaryId);
+    } else {
+      currentSummaryDetail.value = await api.directSummaryDetail(props.sessionId, summaryId);
+    }
+  } catch (err) {
+    console.error('加载摘要详情失败:', err);
+  } finally {
+    isLoadingSummaryDetail.value = false;
+  }
+}
+
+const hasNewMessagesForSummary = computed(() => {
+  const msgs = sessionMessages.value;
+  if (msgs.length === 0) return false;
+
+  // 有效消息: 排除系统消息，若是房间还排除私聊消息，并要求正文非空
+  const validMsgs = props.sessionType === 'room'
+    ? msgs.filter((m) => !m.system && (!m.audience || m.audience.length === 0) && !!m.text?.trim())
+    : msgs.filter((m) => !m.system && !!m.text?.trim());
+
+  if (validMsgs.length === 0) return false;
+
+  // 检查是否已有历史摘要
+  const latestItem = summariesList.value[0];
+  const currentSum = summaryData.value;
+  const hasExistingSummary = (latestItem && latestItem.messageCount > 0) || !!currentSum?.text;
+  if (!hasExistingSummary) {
+    // 从未生成过摘要，且当前有发言，允许生成首份
+    return true;
+  }
+
+  const coveredId = latestItem?.coveredMessageId ?? currentSum?.coveredMessageId;
+  // 若无锚点覆盖，比对数量
+  if (!coveredId) {
+    const coveredCount = latestItem?.messageCount ?? currentSum?.messageCount ?? 0;
+    return validMsgs.length > coveredCount;
+  }
+
+  // 检查 validMsgs 中是否包含该 coveredId，以及在 coveredId 之后是否有新的有效发言
+  const coveredIndex = validMsgs.findIndex((m) => m.id === coveredId);
+  if (coveredIndex === -1) {
+    // 锚点不在当前有效消息中(例如被截断/清空)，允许全量重新生成
+    return true;
+  }
+
+  // 只有当有效消息在 coveredIndex 之后还有新发言时，才算有新消息
+  return coveredIndex < validMsgs.length - 1;
+});
 
 async function handleRefreshSummary() {
-  if (isRefreshingSummary.value) return;
+  if (isRefreshingSummary.value || !hasNewMessagesForSummary.value) return;
   isRefreshingSummary.value = true;
   summaryError.value = '';
   try {
@@ -41,12 +143,58 @@ async function handleRefreshSummary() {
       summaryError.value = res.error || '生成摘要失败';
     } else {
       store.currentSummary = res;
+      await loadSummaries(false);
     }
   } catch (err: any) {
     summaryError.value = err?.message || '生成摘要失败';
   } finally {
     isRefreshingSummary.value = false;
   }
+}
+
+async function copySummaryText(text: string) {
+  try {
+    await navigator.clipboard.writeText(text);
+    copySummaryFeedback.value = true;
+    setTimeout(() => {
+      copySummaryFeedback.value = false;
+    }, 1500);
+  } catch { }
+}
+
+const hasPrivateDigests = computed(() => {
+  const digests = currentSummaryDetail.value?.privateDigests;
+  return !!(digests && Object.keys(digests).length > 0);
+});
+
+const privateDigestCount = computed(() => {
+  const digests = currentSummaryDetail.value?.privateDigests;
+  return digests ? Object.keys(digests).length : 0;
+});
+
+const privateDigestsMarkdown = computed(() => {
+  const digests = currentSummaryDetail.value?.privateDigests;
+  if (!digests || Object.keys(digests).length === 0) {
+    return '_暂无成员私聊纪要_';
+  }
+  const lines: string[] = [];
+  for (const [memberId, d] of Object.entries(digests)) {
+    // 尝试在房间成员里找名字
+    const member = props.sessionType === 'room'
+      ? store.currentRoom?.config.members.find((m) => m.id === memberId)
+      : null;
+    const name = member?.name ?? memberId;
+    lines.push(`### 【${name}】的私聊纪要\n`);
+    lines.push(d.text.trim());
+    lines.push('\n---\n');
+  }
+  return lines.join('\n');
+});
+
+function formatSummaryTitle(item: SummarySnapshotItem): string {
+  const time = formatTime(item.createdAt);
+  const typeStr = item.trigger === 'auto' ? '自动提炼' : '手动刷新';
+  return `${time} (${typeStr})`;
 }
 
 const formattedSummaryTime = computed(() => {
@@ -214,74 +362,91 @@ function onMouseUp() {
   } catch { }
 }
 
-// ---------- 拖拽调节轮次列表高度逻辑 ----------
-const TIMELINE_HEIGHT_KEY = 'ai-chatroom:timeline-height';
-const DEFAULT_TIMELINE_HEIGHT = 168;
-const MIN_TIMELINE_HEIGHT = 110;
-
-function getInitialTimelineHeight(): number {
-  try {
-    const saved = localStorage.getItem(TIMELINE_HEIGHT_KEY);
-    if (saved) {
-      const parsed = parseInt(saved, 10);
-      if (!Number.isNaN(parsed) && parsed >= MIN_TIMELINE_HEIGHT) {
-        return Math.min(parsed, 550);
+// ---------- 通用拖拽调节列表高度逻辑 ----------
+function createVerticalResize(storageKey: string, defaultHeight = 168, minHeight = 110) {
+  function getInitialHeight(): number {
+    try {
+      const saved = localStorage.getItem(storageKey);
+      if (saved) {
+        const parsed = parseInt(saved, 10);
+        if (!Number.isNaN(parsed) && parsed >= minHeight) {
+          return Math.min(parsed, 550);
+        }
       }
-    }
-  } catch { }
-  return DEFAULT_TIMELINE_HEIGHT;
+    } catch { }
+    return defaultHeight;
+  }
+
+  const height = ref<number>(getInitialHeight());
+  const isDragging = ref(false);
+  let startY = 0;
+  let startHeight = 0;
+
+  function onMouseDown(e: MouseEvent) {
+    isDragging.value = true;
+    startY = e.clientY;
+    startHeight = height.value;
+
+    document.body.style.userSelect = 'none';
+    document.body.style.cursor = 'row-resize';
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  }
+
+  function onMouseMove(e: MouseEvent) {
+    if (!isDragging.value) return;
+    const delta = e.clientY - startY;
+    const maxAllowed = Math.min(550, Math.round(window.innerHeight * 0.6));
+    const newHeight = Math.max(minHeight, Math.min(maxAllowed, startHeight + delta));
+    height.value = newHeight;
+  }
+
+  function onMouseUp() {
+    if (!isDragging.value) return;
+    isDragging.value = false;
+    document.body.style.userSelect = '';
+    document.body.style.cursor = '';
+
+    window.removeEventListener('mousemove', onMouseMove);
+    window.removeEventListener('mouseup', onMouseUp);
+
+    try {
+      localStorage.setItem(storageKey, height.value.toString());
+    } catch { }
+  }
+
+  function cleanup() {
+    window.removeEventListener('mousemove', onMouseMove);
+    window.removeEventListener('mouseup', onMouseUp);
+  }
+
+  return {
+    height,
+    isDragging,
+    onMouseDown,
+    cleanup,
+  };
 }
 
-const timelineHeight = ref<number>(getInitialTimelineHeight());
-const isTimelineDragging = ref(false);
-let startTimelineY = 0;
-let startTimelineHeight = 0;
-
-function onTimelineMouseDown(e: MouseEvent) {
-  isTimelineDragging.value = true;
-  startTimelineY = e.clientY;
-  startTimelineHeight = timelineHeight.value;
-
-  document.body.style.userSelect = 'none';
-  document.body.style.cursor = 'row-resize';
-
-  window.addEventListener('mousemove', onTimelineMouseMove);
-  window.addEventListener('mouseup', onTimelineMouseUp);
-}
-
-function onTimelineMouseMove(e: MouseEvent) {
-  if (!isTimelineDragging.value) return;
-  const delta = e.clientY - startTimelineY;
-  const maxAllowed = Math.min(550, Math.round(window.innerHeight * 0.6));
-  const newHeight = Math.max(MIN_TIMELINE_HEIGHT, Math.min(maxAllowed, startTimelineHeight + delta));
-  timelineHeight.value = newHeight;
-}
-
-function onTimelineMouseUp() {
-  if (!isTimelineDragging.value) return;
-  isTimelineDragging.value = false;
-  document.body.style.userSelect = '';
-  document.body.style.cursor = '';
-
-  window.removeEventListener('mousemove', onTimelineMouseMove);
-  window.removeEventListener('mouseup', onTimelineMouseUp);
-
-  try {
-    localStorage.setItem(TIMELINE_HEIGHT_KEY, timelineHeight.value.toString());
-  } catch { }
-}
+const summaryResize = createVerticalResize('ai-chatroom:summary-timeline-height', 168);
+const logsResize = createVerticalResize('ai-chatroom:timeline-height', 168);
 
 let autoRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 
 function triggerAutoRefresh() {
-  if (props.activeTab !== 'logs') return;
+  if (props.activeTab !== 'logs' && props.activeTab !== 'summary') return;
   if (autoRefreshTimer) clearTimeout(autoRefreshTimer);
   autoRefreshTimer = setTimeout(() => {
-    void loadTraces(true);
+    if (props.activeTab === 'logs') {
+      void loadTraces(true);
+    } else if (props.activeTab === 'summary') {
+      void loadSummaries(true);
+    }
   }, 300);
 }
 
-// 监听当前会话消息数量或末尾消息变化，实时自动静默同步日志
+// 监听当前会话消息数量或末尾消息变化，实时自动静默同步日志与摘要
 watch(
   () => {
     const msgs = sessionMessages.value;
@@ -300,18 +465,26 @@ watch(
     selectedMessageId.value = null;
     currentTraceDetail.value = null;
     tracesList.value = [];
+    selectedSummaryId.value = null;
+    currentSummaryDetail.value = null;
+    summariesList.value = [];
+
     if (props.activeTab === 'logs') {
       void loadTraces(false);
+    } else if (props.activeTab === 'summary') {
+      void loadSummaries(false);
     }
   },
 );
 
-// 切换到日志 Tab 时自动静默同步拉取
+// 切换到对应 Tab 时自动静默同步拉取
 watch(
   () => props.activeTab,
   (newTab) => {
     if (newTab === 'logs') {
       void loadTraces(true);
+    } else if (newTab === 'summary') {
+      void loadSummaries(true);
     }
   },
   { immediate: true },
@@ -324,8 +497,8 @@ onUnmounted(() => {
   }
   window.removeEventListener('mousemove', onMouseMove);
   window.removeEventListener('mouseup', onMouseUp);
-  window.removeEventListener('mousemove', onTimelineMouseMove);
-  window.removeEventListener('mouseup', onTimelineMouseUp);
+  summaryResize.cleanup();
+  logsResize.cleanup();
   document.body.style.userSelect = '';
   document.body.style.cursor = '';
 });
@@ -338,54 +511,115 @@ onUnmounted(() => {
       <div class="resizer-line"></div>
     </div>
 
-    <!-- Tab 1: 讨论摘要视图 -->
-    <div v-if="activeTab === 'summary'" class="tab-content summary-view">
-      <div class="summary-subbar">
-        <div class="subbar-meta">
-          <span class="meta-title">讨论摘要</span>
-          <span v-if="summaryData?.messageCount" class="meta-pill">涵盖 {{ summaryData.messageCount }} 条</span>
-          <span v-else class="meta-pill meta-pill-empty">未生成</span>
-          <span v-if="summaryData?.updatedAt" class="meta-time">{{ formattedSummaryTime }}</span>
+    <!-- Tab 1: 讨论摘要视图 (分栏列表 + 详情) -->
+    <div v-if="activeTab === 'summary'" class="tab-content logs-view"
+      :class="{ 'is-timeline-dragging': summaryResize.isDragging.value }">
+      <!-- 摘要文件列表条 -->
+      <div class="traces-timeline" :style="{ height: `${summaryResize.height.value}px` }">
+        <div class="logs-subbar">
+          <div class="subbar-meta">
+            <span class="meta-title">讨论摘要文件</span>
+            <span class="meta-pill">共 {{ summariesList.length }} 份</span>
+          </div>
+          <div class="subbar-actions">
+            <button type="button" class="btn-refresh btn btn-ghost"
+              :disabled="isRefreshingSummary || !hasNewMessagesForSummary"
+              :title="!hasNewMessagesForSummary ? '暂无新增发言，当前摘要已是最新' : (isRefreshingSummary ? '生成中...' : '提炼并保存最新摘要')"
+              @click="handleRefreshSummary">
+              <svg class="refresh-icon" :class="{ spinning: isRefreshingSummary }" viewBox="0 0 24 24" width="13"
+                height="13" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="23 4 23 10 17 10" />
+                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+              </svg>
+              {{ isRefreshingSummary ? '生成中...' : '生成摘要' }}
+            </button>
+            <button type="button" class="btn-refresh btn btn-ghost" :disabled="isLoadingSummaries"
+              title="刷新文件列表" @click="loadSummaries(false)">
+              <svg class="refresh-icon" :class="{ spinning: isLoadingSummaries }" viewBox="0 0 24 24" width="13"
+                height="13" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67" />
+              </svg>
+              刷新
+            </button>
+          </div>
         </div>
-        <button type="button" class="btn-refresh btn btn-ghost" :disabled="isRefreshingSummary"
-          @click="handleRefreshSummary">
-          <svg class="refresh-icon" :class="{ spinning: isRefreshingSummary }" viewBox="0 0 24 24" width="13"
-            height="13" fill="none" stroke="currentColor" stroke-width="2">
-            <polyline points="23 4 23 10 17 10" />
-            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
-          </svg>
-          {{ isRefreshingSummary ? '生成中...' : '刷新' }}
-        </button>
+
+        <div v-if="isLoadingSummaries && summariesList.length === 0" class="traces-loading">正在拉取摘要文件列表...</div>
+        <div v-else-if="summariesList.length === 0" class="traces-empty">暂无历史摘要文件</div>
+        <div v-else class="traces-items-scroll">
+          <button v-for="item in summariesList" :key="item.id" type="button" class="trace-item"
+            :class="{ active: selectedSummaryId === item.id, error: item.status === 'error' }"
+            @click="selectSummary(item.id)">
+            <div class="item-head">
+              <span class="item-name">{{ formatSummaryTitle(item) }}</span>
+              <span class="item-time">{{ formatTime(item.createdAt) }}</span>
+            </div>
+            <div class="item-sub">
+              <span class="item-adapter">涵盖 {{ item.messageCount }} 条</span>
+              <span class="item-duration">{{ item.trigger === 'auto' ? '自动' : '手动' }}</span>
+              <span class="item-status" :class="item.status ?? 'ok'">{{ item.status === 'error' ? '失败' : '有效' }}</span>
+            </div>
+          </button>
+        </div>
       </div>
 
-      <div class="summary-body">
+      <!-- 上下拖拽分界线 -->
+      <div class="timeline-v-resizer" title="按住上下拖动调节摘要列表高度" @mousedown.prevent="summaryResize.onMouseDown">
+        <div class="v-resizer-line"></div>
+      </div>
+
+      <!-- 选中摘要完整详情 -->
+      <div class="trace-detail-panel">
         <div v-if="summaryError" class="summary-error">
           {{ summaryError }}
         </div>
-
-        <div v-if="isRefreshingSummary && !summaryData?.text" class="summary-loading-placeholder">
-          <div class="shimmer-line short"></div>
-          <div class="shimmer-line"></div>
-          <div class="shimmer-line mid"></div>
-          <p class="loading-tip">管理员正在全面梳理近期发言并提炼共识...</p>
-        </div>
-
-        <div v-else-if="summaryData?.text" class="summary-markdown-box" v-html="renderMarkdown(summaryData.text)"></div>
-
-        <div v-else class="summary-empty-state">
+        <div v-if="isLoadingSummaryDetail" class="detail-loading">正在读取摘要详情...</div>
+        <div v-else-if="!currentSummaryDetail && !summaryData?.text" class="detail-empty">
           <div class="empty-icon">📝</div>
           <h4>暂无讨论摘要</h4>
-          <p>多 Agent 交流或私聊积累一定量后，点击右上角「刷新摘要」，管理员将提炼核心议题与分歧。</p>
-          <button type="button" class="btn btn-primary" @click="handleRefreshSummary">立即生成首份摘要</button>
+          <p>多 Agent 交流或私聊积累一定量后，点击上方「生成新摘要」，管理员将提炼核心议题与分歧。</p>
+          <button type="button" class="btn btn-primary"
+            :disabled="isRefreshingSummary || !hasNewMessagesForSummary"
+            :title="!hasNewMessagesForSummary ? '暂无有效发言，无法生成摘要' : '立即生成首份摘要'"
+            @click="handleRefreshSummary">
+            立即生成首份摘要
+          </button>
+        </div>
+        <div v-else-if="currentSummaryDetail" class="detail-content">
+          <!-- 详情顶栏切换与操作 -->
+          <div class="detail-switch-bar">
+            <div class="detail-tabs">
+              <button type="button" class="detail-tab-btn" :class="{ active: summarySubTab === 'public' }"
+                @click="summarySubTab = 'public'">
+                公聊大纲总结
+              </button>
+              <button v-if="hasPrivateDigests" type="button" class="detail-tab-btn"
+                :class="{ active: summarySubTab === 'private' }" @click="summarySubTab = 'private'">
+                成员私聊纪要 ({{ privateDigestCount }})
+              </button>
+            </div>
+            <button type="button" class="btn-copy-trace btn btn-ghost"
+              @click="copySummaryText(summarySubTab === 'public' ? currentSummaryDetail.text : privateDigestsMarkdown)">
+              {{ copySummaryFeedback ? '已复制' : '复制文本' }}
+            </button>
+          </div>
+
+          <!-- 详情正文展示区 -->
+          <div class="detail-body-scroll">
+            <div v-if="summarySubTab === 'public'" class="summary-markdown-box"
+              v-html="renderMarkdown(currentSummaryDetail.text)"></div>
+            <div v-else class="summary-markdown-box"
+              v-html="renderMarkdown(privateDigestsMarkdown)"></div>
+          </div>
         </div>
       </div>
     </div>
 
     <!-- Tab 2: 调用日志视图 (分栏列表 + 详情) -->
     <div v-else-if="activeTab === 'logs'" class="tab-content logs-view"
-      :class="{ 'is-timeline-dragging': isTimelineDragging }">
+      :class="{ 'is-timeline-dragging': logsResize.isDragging.value }">
       <!-- 轮次列表条 -->
-      <div class="traces-timeline" :style="{ height: `${timelineHeight}px` }">
+      <div class="traces-timeline" :style="{ height: `${logsResize.height.value}px` }">
         <div class="logs-subbar">
           <div class="subbar-meta">
             <span class="meta-title">Agent 调用轮次</span>
@@ -422,7 +656,7 @@ onUnmounted(() => {
       </div>
 
       <!-- 上下拖拽分界线 -->
-      <div class="timeline-v-resizer" title="按住上下拖动调节轮次列表高度" @mousedown.prevent="onTimelineMouseDown">
+      <div class="timeline-v-resizer" title="按住上下拖动调节轮次列表高度" @mousedown.prevent="logsResize.onMouseDown">
         <div class="v-resizer-line"></div>
       </div>
 
@@ -634,6 +868,21 @@ onUnmounted(() => {
   padding: 4px 10px;
   font-size: 12px;
   height: auto;
+  transition: all 0.15s ease;
+}
+
+.btn-refresh:disabled,
+.btn-refresh[disabled] {
+  opacity: 0.45 !important;
+  cursor: not-allowed !important;
+  color: var(--muted) !important;
+  pointer-events: auto !important;
+}
+
+.btn-refresh:disabled:hover,
+.btn-refresh[disabled]:hover {
+  background: transparent !important;
+  border-color: transparent !important;
 }
 
 .refresh-icon.spinning {
@@ -1093,5 +1342,28 @@ onUnmounted(() => {
   text-align: center;
   color: var(--muted);
   font-size: 13px;
+}
+
+.subbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.detail-body-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 20px;
+}
+
+.summary-error {
+  padding: 8px 12px;
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+  font-size: 12px;
+  border-radius: 6px;
+  margin: 10px 14px 0;
 }
 </style>
