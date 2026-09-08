@@ -178,6 +178,10 @@ export class ChatRoom {
     this.currentSummary = await this.summaryStore.getSummary('room', this.config.id);
     // 私聊协议从事实源派生重建(订阅房间重启后线程/硬闸计数恢复;同步纯内存微秒级)
     this.orch.rebuildPrivateProtocolFromHistory();
+    // 若历史中已有侦察员报告，同步标记侦察已完成，杜绝重启后首条消息重复勘探
+    if (this.messages.some((m) => m.from === 'scout')) {
+      this.admin.markScoutDone();
+    }
   }
 
   /** 获取当前讨论摘要 */

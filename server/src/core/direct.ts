@@ -411,9 +411,31 @@ export class DirectChatService {
       prevSummary: prev,
     });
     if (res && res.text) {
-      await this.summaryStore.saveSummarySnapshot('direct', characterId, res, 'manual');
+      const snap = await this.summaryStore.saveSummarySnapshot('direct', characterId, res, 'manual');
       this.summaries.set(characterId, res);
       this.deps.bus.emitDirectSummary(characterId, res);
+
+      if (res.usage) {
+        const traceLog: AgentTraceLog = {
+          messageId: snap.id,
+          roomId: characterId,
+          memberId: 'system',
+          memberName: '系统',
+          adapter: 'admin',
+          ts: res.updatedAt || Date.now(),
+          durationMs: res.durationMs ?? 0,
+          status: res.status === 'error' ? 'error' : 'ok',
+          trigger: '讨论大纲提炼',
+          input: {
+            prompt: '讨论大纲提炼',
+          },
+          output: {
+            result: res.text,
+            usage: res.usage,
+          },
+        };
+        void this.traceStore.saveTrace('direct', characterId, traceLog);
+      }
     }
     return res;
   }

@@ -135,6 +135,52 @@ describe('rooms store', () => {
     expect(found!.members[0]!.sessionIds).toBeUndefined();
     expect(found!.members[1]!.sessionIds).toBeUndefined();
   });
+
+  it('restore 时历史中已含 scout 消息，同步标记侦察完成避免重复触发', async () => {
+    const { ChatRoom, makeRoomConfig } = await import('../src/core/room');
+    const { MessageBus } = await import('../src/core/bus');
+    const bus = new MessageBus();
+    const cfg = {
+      id: 'room_scout_restore_test',
+      name: '侦察测试房',
+      topic: '项目研讨',
+      projectPath: 'd:/mock/project',
+      members: [
+        { id: 'm1', name: '甲', adapter: 'claude', persona: 'p', color: '#111' },
+      ],
+      createdAt: 123,
+    };
+    const roomConfig = makeRoomConfig(cfg);
+    const existingMessages = [
+      {
+        id: 'scout_msg_1',
+        roomId: roomConfig.id,
+        from: 'scout',
+        fromName: '🔍 侦察员',
+        text: '已完成项目目录勘探。',
+        ts: Date.now() - 5000,
+      },
+    ];
+    const persistence = {
+      persistRoom: async () => {},
+      loadMessages: async () => existingMessages as any,
+      rewriteMessages: async () => {},
+      appendMessage: async () => {},
+    };
+    const room = new ChatRoom(
+      roomConfig,
+      bus,
+      { claude: { kind: 'claude', command: 'echo', args: [] } },
+      { adapter: 'claude', model: 'haiku', allowedTools: '', timeoutMs: 1000, maxRetries: 1 },
+      persistence,
+    );
+
+    await room.restore();
+
+    // 验证 admin 内部已记录侦察完成，再次 ensureScout 直接返回 null
+    const res = await (room as any).admin.ensureScout(roomConfig.projectPath);
+    expect(res).toBeNull();
+  });
 });
 
 

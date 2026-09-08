@@ -130,7 +130,6 @@ export function runCliHarness(
   const child = spawnCli(req, resumeArgs);
   const started = Date.now();
   let settled = false;
-  let resultText = '';
   let errorText: string | undefined;
   // 外部主动终止(编排器 stop/点名打断):此时尚未 settled → cancelled;
   // 适配器拿到 result 后自行杀进程(settle 已置位)属正常完成,不算 cancelled。
@@ -183,7 +182,7 @@ export function runCliHarness(
           status: externallyCancelled ? 'cancelled'
             : errorText != null ? 'error'
               : 'ok',
-          result: errorText == null ? resultText : errorText,
+          result: errorText ?? '',
           durationMs: Date.now() - started,
           error: errorText,
         });

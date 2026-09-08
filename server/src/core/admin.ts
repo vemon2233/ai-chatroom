@@ -37,7 +37,10 @@ export class Admin {
     private adapterEntry: { command: string; args: string[] },
   ) {}
 
-  // ================= 任务一: 项目侦察 (原 Scout 职责) =================
+  /** 显式标记侦察已完成(如历史记录中已存在侦察消息时由 ChatRoom.restore 调用) */
+  markScoutDone(): void {
+    this.scoutDone = true;
+  }
 
   /** 若绑定项目且未跑过侦察，则跑一次并返回侦察消息 */
   ensureScout(projectPath: string | undefined): Promise<ChatMessage | null> {

@@ -159,5 +159,49 @@ describe('DirectChatService: 角色专属 1v1 私聊', () => {
     service.invalidateSession(testCharId);
     expect((service as any).sessionIds.get(testCharId)).toBeUndefined();
   });
+
+  it('refreshSummary: 能够提炼摘要快照并正确保存 TraceLog', async () => {
+    let savedTrace: any = null;
+    const fakeSummaryStore = {
+      getSummary: async () => null,
+      saveSummarySnapshot: async (_s: any, _id: any, sum: any) => ({ id: 'snap_123' }),
+    };
+    const fakeTraceStore = {
+      saveTrace: async (_s: any, _id: any, trace: any) => {
+        savedTrace = trace;
+      },
+    };
+    const fakeAdmin = {
+      generateSummary: async () => ({
+        text: '这是私聊摘要',
+        updatedAt: Date.now(),
+        messageCount: 5,
+        status: 'idle',
+        durationMs: 150,
+        usage: { inputTokens: 100, outputTokens: 50, costUsd: 0.001 },
+      }),
+    };
+
+    const directWithAdmin = new DirectChatService({
+      bus,
+      adapterConfigs,
+      resolveAdapter: () => mockAdapter,
+      store: memStore,
+      summaryStore: fakeSummaryStore as any,
+      traceStore: fakeTraceStore as any,
+      admin: fakeAdmin as any,
+    });
+
+    const sum = await directWithAdmin.refreshSummary(testCharId, testChar);
+    expect(sum).toBeDefined();
+    expect(sum?.text).toBe('这是私聊摘要');
+
+    // 验证 traceStore 正确接收到 TraceLog
+    expect(savedTrace).toBeDefined();
+    expect(savedTrace.messageId).toBe('snap_123');
+    expect(savedTrace.roomId).toBe(testCharId);
+    expect(savedTrace.output.usage.inputTokens).toBe(100);
+    expect(savedTrace.output.usage.costUsd).toBe(0.001);
+  });
 });
 
