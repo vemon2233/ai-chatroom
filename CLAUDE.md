@@ -25,8 +25,16 @@ cd server && npx tsx src/server/index.ts   # 只跑后端
 ```
 server/src/
 ├── paths.ts              REPO_ROOT 路径锚定(零依赖叶子,store/config 共用)
+├── protocolKeywords.ts   协议关键字真源(接棒/私聊/握手/沉默双语标签+词表+正则;根级零依赖
+│                         纯常量叶子,core/store/web 三方共用;匹配=中英并集,prompt 教学=
+│                         按语言单侧经 batonTagFor/dmTagFor/handshakeTagFor 取)
 ├── core/                 领域层
 │   ├── types.ts          领域类型(Character/MemberConfig/ChatMessage/RoomConfig/RoomState)
+│   ├── i18n/             语言层:lang.ts(Lang/LangGetter/DEFAULT_LANG)+ messages.ts
+│   │                     (A 类消息词典+t)+ promptTexts.ts(B 类 prompt 段落词典+pt);
+│   │                     语言经 getLang 构造注入(未注入恒 zh——现状不变量),纯函数组装器
+│   │                     显式 lang 参数;系统消息/prompt 发射时刻按语言烘焙,ChatMessage
+│   │                     契约零改动,历史消息保持落库时语言
 │   ├── orchestrator.ts   ★ 编排状态机:idle/baton/roundrobin/subscribe + 单长驻串行队列 + 世代计数器
 │   ├── room.ts           ChatRoom 薄门面(成员管理/依赖装配;持久化经 RoomPersistence 接口注入;
 │   │                     ★ 摘要串行链 summaryChain:生成并发、写回排队、链内槽位化合并)
@@ -35,10 +43,10 @@ server/src/
 │   ├── exec.ts           oneShotSpeak(超时必 clearTimeout+cancel——轻量一次性调用基建)
 │   ├── palette.ts        成员头像色板
 │   ├── naming.ts         matchMemberByName 叶子(名字匹配唯一真源,@点名/接棒/私聊受众共用)
-│   ├── render.ts         historyText/lengthBrief/permissionBrief 渲染叶子(消息→prompt 文本)
+│   ├── render.ts         historyText/lengthBrief/permissionBrief 渲染叶子(消息→prompt 文本;lang 尾参)
 │   ├── prompt.ts         buildPrompt/buildDeltaPrompt(全量/增量组装器;叶子已抽至 naming/render)
 │   ├── summaryOps.ts     ★ 上下文压缩层(链式公聊摘要/私聊自纪要/原生compact/锚点视窗组装)
-│   ├── historyOps.ts     截断/重roll/编辑的纯历史操作
+│   ├── historyOps.ts     截断/重roll/编辑的纯历史操作(lang 尾参)
 │   ├── projectContext.ts 目录树采集(5min 缓存)
 │   ├── bus.ts            WS 广播(消息落库经 emitMessage 钩子)
 │   └── modes/            讨论模式域
@@ -53,7 +61,8 @@ server/src/
 │   └── codex/gemini.ts   ⚠️ experimental,零实测
 ├── server/               HTTP+WS:index(启动含房间复活)、routes(REST)、config(agents.yaml)、ws
 └── store/                持久化(rooms.json 原子写+串行互斥、rooms/*.jsonl、characters.json、
-                         direct_chats/*.jsonl、summaries/(快照)、traces/(完整调用日志))
+                         direct_chats/*.jsonl、summaries/(快照)、traces/(完整调用日志)、
+                         settings.json(语言等全局设置,GET/PUT /api/settings/language))
 ```
 
 **依赖方向**(严格单向:server→core→adapters;store 只被 server 引用):
@@ -68,9 +77,13 @@ bus 是纯广播传输层(不落库);落库由 ChatRoom/DirectChat 在调 bus �
 ```
 web/src/
 ├── main.ts / App.vue / style.css
+├── i18n/                     vue-i18n(zh.ts/en.ts 词典 + index.ts locale 流转;
+│                             后端 settings 为语言权威,localStorage 首屏缓存;
+│                             Sidebar 品牌区 中/EN 切换;setLang 同步 PUT 后端)
 ├── services/                 通信层(api.ts REST 请求 / ws.ts WebSocket 客户端)
 ├── store/                    状态层(index.ts reactive 单例, 消息列表权威源)
-├── utils/                    工具算法层(mentions.ts @token 解析 / avatar.ts 头像色板计算)
+├── utils/                    工具算法层(mentions.ts @token 解析 / avatar.ts 头像色板计算 /
+│                             exportMarkdown.ts 导出文档——协议正则引 @server/protocolKeywords)
 ├── composables/useDialog.ts  Promise 化 confirm/prompt/alert
 └── components/
     ├── ui/                   覆盖层原语:Modal(唯一覆盖形态:居中窗口)+ DialogHost(z:90 压一切)+ SidebarCard
@@ -78,6 +91,8 @@ web/src/
     ├── chat/                 聊天舞台:RoomView / MemberBar / ChatFlow / MessageBubble / TraceDetail / Composer / ChatInspector
     └── modals/               业务弹窗与表单:AddMemberPanel / CharacterModal / NewRoomModal / RoomForm / CharacterForm
 ```
+
+**i18n 架构**(zh/en 双语):语言真源在后端 `data/settings.json`(`store/settings.ts`,GET/PUT `/api/settings/language`);core 经 `getLang?: LangGetter` 构造注入(未注入恒 zh——全部既有测试的默认路径不变量),`core/i18n/messages.ts`(A 类:系统消息/REST 错误/trace 标签)+ `promptTexts.ts`(B 类:prompt 段落)双语词典,发射时刻烘焙,**ChatMessage 契约与 JSONL 格式零改动**,历史消息保持落库时语言。协议标签(`<接棒>`/`<pass>`、`<私聊>`/`<dm>`、`<同意>`/`<agree>` 等)真源在 `server/src/protocolKeywords.ts`(根级零依赖叶子):解析=中英并集(不论当前语言,兼容历史与混写),prompt 教学=按语言单侧。web 经 `@server` 别名 runtime import 该叶子(vite.config 注释明示的唯一例外,其余仍 type-only)。zh 侧词典全部为改造前原文逐字节拷贝——既有 200+ 测试断言即行为锁,改词典 zh 侧必须同步测试。
 
 ### 核心数据流
 

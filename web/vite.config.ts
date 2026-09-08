@@ -6,7 +6,9 @@ export default defineConfig({
   plugins: [vue()],
   resolve: {
     alias: {
-      // 类型共享:web 经 type-only import 引用 server 源码类型
+      // 类型共享:web 经 type-only import 引用 server 源码类型;
+      // 唯一运行时例外:@server/protocolKeywords(根级零依赖纯常量叶子,协议标签真源——
+      // 零 node 依赖,vite 打包与 vue-tsc 均安全)
       '@server': fileURLToPath(new URL('../server/src', import.meta.url)),
       '@': fileURLToPath(new URL('./src', import.meta.url)),
     },
