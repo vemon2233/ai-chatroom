@@ -1,10 +1,10 @@
-// 配置加载:agents.yaml(适配器注册表 + scout 段 + server 段)。
+// 配置加载:agents.yaml(适配器注册表 + admin 段 + server 段)。
 
 import { readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { parse } from 'yaml';
-import type { AdminConfig, ScoutConfig } from '../core/admin';
+import type { AdminConfig } from '../core/admin';
 import { REPO_ROOT } from '../paths';
 
 export interface AdapterConfig {

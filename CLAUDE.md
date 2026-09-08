@@ -62,6 +62,7 @@ store 的 transcript 反向引用 core 的握手推算——**层间存在双向
 计划中的 StoragePorts 接缝重构(批次 4)将恢复单向;在那之前,改动这些文件时
 务必同时核对两个方向的调用点。
 
+```
 web/src/
 ├── main.ts / App.vue / style.css
 ├── services/                 通信层(api.ts REST 请求 / ws.ts WebSocket 客户端)

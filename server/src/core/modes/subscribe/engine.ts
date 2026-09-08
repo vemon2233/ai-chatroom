@@ -109,10 +109,6 @@ export class SubscribeEngine {
     });
   }
 
-  getProtocol(): PrivateChatProtocol {
-    return this.protocol;
-  }
-
   private currentExternalSpeakerId?: string;
 
   /** 设置外部执行态 (如 @点名或随机起头队列是否正在执行思考) */
@@ -163,13 +159,6 @@ export class SubscribeEngine {
   /** 成员被移除:关闭 TA 参与的全部私聊线程(对端永远无法回应) */
   closeThreadsForMember(memberId: string): void {
     this.protocol.closeThreadsForMember(memberId);
-  }
-
-  /**
-   * 当房间出现新消息时更新引擎态
-   */
-  onNewMessage(): void {
-    // 心跳周期自然推进, 增量位点会在各 Agent 醒来时动态计算
   }
 
   /**
