@@ -73,7 +73,7 @@ export class Admin {
       const ctx = await collectProjectContext(projectPath);
       const req: SpeakRequest = {
         member: 'admin',
-        prompt: buildScoutPrompt(ctx.root, ctx.tree),
+        prompt: buildScoutPrompt(ctx.root, ctx.tree, this.lang),
         command: this.adapterEntry.command,
         args: [
           ...this.adapterEntry.args,

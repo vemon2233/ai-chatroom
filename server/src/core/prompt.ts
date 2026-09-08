@@ -10,6 +10,8 @@ import { buildBatonPromptSection } from './modes/baton/prompt';
 import { parseBaton } from './modes/baton/baton';
 import { filterHistoryForViewer } from './modes/subscribe/audience';
 import { buildSubscribePromptSection } from './modes/subscribe/prompt';
+import type { Lang } from './i18n/lang';
+import { pt } from './i18n/promptTexts';
 
 import {
   isPublicSummaryUsable,
@@ -30,8 +32,11 @@ export async function buildPrompt(
     summary?: DiscussionSummary | string | null;
     /** 订阅模式:点名/起头等强制回应条目——禁跳过(两阶段自决段替换为点名必答) */
     mustRespond?: boolean;
+    /** prompt 语言(缺省 zh——与改造前逐字节一致) */
+    lang?: Lang;
   } = {},
 ): Promise<string> {
+  const lang = opts.lang ?? 'zh';
   const others = room.members
     .filter((m) => m.id !== member.id)
     .map((m) => `- ${m.name}`)
@@ -39,16 +44,16 @@ export async function buildPrompt(
 
   const parts: string[] = [];
 
-  parts.push(`# 你的角色\n你是 **【${member.name}】**。\n${member.persona}`);
+  parts.push(pt(lang, 'p.roleHeader', { name: member.name, persona: member.persona }));
 
-  parts.push(`# 房间:${room.name}\n讨论主题:${room.topic || '自由讨论'}`);
+  parts.push(pt(lang, 'p.roomHeader', { name: room.name, topic: room.topic || pt(lang, 'p.topicFallback') }));
 
   if (others) {
-    parts.push(`# 其他参与者\n${others}`);
+    parts.push(pt(lang, 'p.othersHeader', { list: others }));
   }
 
   if (room.userPersona && room.userPersona.persona?.trim()) {
-    parts.push(`# 对话者/房主设定\n当前在房间中与你们交流探讨的用户身份为 **【${room.userPersona.name}】**。\n其背景设定与立场如下:\n${room.userPersona.persona.trim()}`);
+    parts.push(pt(lang, 'p.ownerSection', { name: room.userPersona.name, persona: room.userPersona.persona.trim() }));
   }
 
   // 项目上下文:目录树 + 工具探索引导;若已有侦察报告则注入报告并阻止重复探索
@@ -57,22 +62,14 @@ export async function buildPrompt(
       (m) => m.from === 'scout' && typeof m.text === 'string',
     );
     if (scoutReport) {
-      parts.push(
-        `# 讨论对象:本地项目(侦察报告已有,无需重复探索)\n` +
-        `项目根目录:\`${room.projectPath}\`\n\n` +
-        `下方是侦察员已完成的项目分析报告,直接基于它讨论即可——\n` +
-        `**不要重复用工具浏览项目**,只有报告未覆盖且讨论确需某个具体文件细节时才单独去读。\n\n` +
-        `---\n${scoutReport.text}\n---`,
-      );
+      parts.push(pt(lang, 'p.projectScoutSection', { root: room.projectPath, report: scoutReport.text }));
     } else {
       const ctx = await collectProjectContext(room.projectPath);
-      parts.push(
-        `# 讨论对象:本地项目\n` +
-        `本次讨论围绕一个真实项目进行。项目根目录:\`${ctx.root}\`\n\n` +
-        `目录结构概览:\n\`\`\`\n${ctx.tree}\n\`\`\`\n\n` +
-        `${permissionBrief(room.toolPermission)}\n` +
-        `需要深入了解某个文件时,直接用工具去读,不要凭目录名猜测内容。首次发言前建议先浏览关键文件再表态。`,
-      );
+      parts.push(pt(lang, 'p.projectFreshSection', {
+        root: ctx.root,
+        tree: ctx.tree,
+        perm: permissionBrief(room.toolPermission, lang),
+      }));
     }
   }
 
@@ -94,15 +91,15 @@ export async function buildPrompt(
   if (publicSummaryText || privateDigestText || injectionWindow.length > 0) {
     const historySections: string[] = [];
     if (publicSummaryText) {
-      historySections.push(`【前期讨论摘要】\n${publicSummaryText}`);
+      historySections.push(`${pt(lang, 'p.publicSummaryLabel')}\n${publicSummaryText}`);
     }
     if (privateDigestText) {
-      historySections.push(`【你的私聊往来纪要(仅你可见)】\n${privateDigestText}`);
+      historySections.push(`${pt(lang, 'p.privateDigestLabel')}\n${privateDigestText}`);
     }
     if (injectionWindow.length > 0) {
-      historySections.push(`【近期讨论发言(按时间顺序,最新在后)】\n${historyText(injectionWindow, 40, member.id, member.name)}`);
+      historySections.push(`${pt(lang, 'p.recentHistoryLabel')}\n${historyText(injectionWindow, 40, member.id, member.name, lang)}`);
     }
-    parts.push(`# 聊天记录与讨论背景\n${historySections.join('\n\n')}`);
+    parts.push(`${pt(lang, 'p.historySectionHeader')}\n${historySections.join('\n\n')}`);
   }
 
 
@@ -110,18 +107,18 @@ export async function buildPrompt(
   if (opts.trigger) instructions.push(opts.trigger);
   if (opts.instruction) instructions.push(opts.instruction);
   instructions.push(
-    '请直接以你的角色身份发言。不要复述设定,不要使用 markdown 标题,直接说出你的观点/回应。',
-    lengthBrief(room.speechLength),
+    pt(lang, 'p.speakDirectly'),
+    lengthBrief(room.speechLength, lang),
   );
 
   // 模式规则段落: 订阅模式 vs 接棒模式
   if (room.mode === 'subscribe') {
-    parts.push(buildSubscribePromptSection(member, room.members, { mustRespond: opts.mustRespond }));
+    parts.push(buildSubscribePromptSection(member, room.members, { mustRespond: opts.mustRespond }, lang));
   } else if (opts.batonMode === 'chain' || opts.batonMode === 'callout') {
-    parts.push(buildBatonPromptSection(member, room.members, opts.batonMode));
+    parts.push(buildBatonPromptSection(member, room.members, opts.batonMode, lang));
   }
 
-  parts.push(`# 现在轮到你发言\n${instructions.join('\n')}`);
+  parts.push(pt(lang, 'p.nowTurn', { instructions: instructions.join('\n') }));
 
   return parts.join('\n\n---\n\n');
 }
@@ -159,8 +156,11 @@ export function buildDeltaPrompt(
     batonMode?: 'chain' | 'callout';
     /** 订阅模式:强制回应条目——禁跳过 */
     mustRespond?: boolean;
+    /** prompt 语言(缺省 zh——与改造前逐字节一致) */
+    lang?: Lang;
   } = {},
 ): string {
+  const lang = opts.lang ?? 'zh';
   const parts: string[] = [];
 
   // 0. 受众可见性过滤(与全量路径 buildInjectionWindow / 心跳路径 buildHeartbeatPrompt 同范式):
@@ -168,50 +168,35 @@ export function buildDeltaPrompt(
   const visibleDelta = filterHistoryForViewer(deltaMessages, member.id);
 
   // 1. 精炼身份锚点 (Identity Anchor, 防长程人设漂移)
-  parts.push(`你是 **【${member.name}】**。请始终保持你的 **既有人设与核心立场**。`);
+  parts.push(pt(lang, 'd.identityAnchor', { name: member.name }));
 
   // 2. 自上次发言以来的新增动态
   if (visibleDelta.length > 0) {
-    parts.push(`# 自你上次发言以来的最新未读动态:\n\n${historyText(visibleDelta, 40, member.id, member.name)}`);
+    parts.push(`${pt(lang, 'd.unreadHeader')}\n\n${historyText(visibleDelta, 40, member.id, member.name, lang)}`);
   } else {
-    parts.push(`# 自你上次发言以来暂无新增动态。`);
+    parts.push(pt(lang, 'd.noNewMsg'));
   }
 
   // 3. 极简行动指引 (按模式适配)
   if (room.mode === 'subscribe') {
-    parts.push(buildSubscribePromptSection(member, room.members, { mustRespond: opts.mustRespond }));
+    parts.push(buildSubscribePromptSection(member, room.members, { mustRespond: opts.mustRespond }, lang));
   } else {
-    const brief = lengthBrief(room.speechLength);
+    const brief = lengthBrief(room.speechLength, lang);
     const batonSec =
       opts.batonMode === 'chain' || opts.batonMode === 'callout'
-        ? buildBatonPromptSection(member, room.members, opts.batonMode)
+        ? buildBatonPromptSection(member, room.members, opts.batonMode, lang)
         : '';
-    parts.push([`# 你的行动任务:\n${brief}`, batonSec].filter(Boolean).join('\n'));
+    parts.push([`${pt(lang, 'd.taskHeader', { brief })}`, batonSec].filter(Boolean).join('\n'));
   }
 
   if (opts.instruction) {
-    parts.push(`# 额外指令:\n${opts.instruction}`);
+    parts.push(pt(lang, 'd.extraInstruction', { text: opts.instruction }));
   }
 
   return parts.join('\n\n---\n\n');
 }
 
 /** 侦察员 prompt:haiku 档、只读工具,产出结构化分析报告供全员共享。 */
-export function buildScoutPrompt(projectRoot: string, tree: string): string {
-  return [
-    `你是项目侦察员。快速分析下面的项目并输出一份精炼的《项目侦察报告》,供一组 AI 讨论者直接使用(他们不会再重复读文件)。`,
-    ``,
-    `报告结构(纯文本,总共 400 字以内):`,
-    `1. 项目是什么(一句话)`,
-    `2. 技术栈与关键依赖`,
-    `3. 目录结构与核心模块(各一行说明)`,
-    `4. 数据存储现状(如有:现有数据库/文件存储/无)`,
-    `5. 值得讨论者注意的 2-3 个特点/约束`,
-    ``,
-    `项目根目录:${projectRoot}`,
-    `目录概览:`,
-    tree,
-    ``,
-    `你可以使用 Read/Glob/Grep 工具查看必要文件(README、配置、入口代码),但控制在 10 次以内,快速完成。直接输出报告正文,不要客套。`,
-  ].join('\n');
+export function buildScoutPrompt(projectRoot: string, tree: string, lang: Lang = 'zh'): string {
+  return pt(lang, 's.scoutPrompt', { root: projectRoot, tree });
 }

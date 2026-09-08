@@ -9,6 +9,7 @@ import { truncateMessages, prepareReroll, prepareEdit } from './historyOps';
 import { assertSessionConfigMutable } from './sessionGuard';
 import type { Admin } from './admin';
 import { t } from './i18n/messages';
+import { pt } from './i18n/promptTexts';
 import type { SummaryStorePort, TraceStorePort } from './room';
 
 /** direct 私聊的持久化窄接口(JSONL 五件,server 装配注入) */
@@ -240,9 +241,9 @@ export class DirectChatService {
           prompt = this.buildDirectFullPrompt(character, history, summary, meta.userPersona);
         } else {
           prompt = [
-            `你是 **【${character.name}】**。请保持你的 **既有人设与核心立场**。`,
-            `\n以下是用户发来的新增消息:\n${historyText(delta, 30, character.id, character.name)}`,
-            `\n请回复用户:`,
+            pt(this.lang, 'dv.keepPersona', { name: character.name }),
+            `\n${pt(this.lang, 'dv.deltaIntro')}\n${historyText(delta, 30, character.id, character.name, this.lang)}`,
+            `\n${pt(this.lang, 'dv.replyPrompt')}`,
           ].join('\n\n');
         }
       } else {
@@ -419,28 +420,28 @@ export class DirectChatService {
     userPersona?: UserPersonaSnapshot | null,
   ): string {
     const userGreeting = userPersona?.name
-      ? `现在你正在与 **【${userPersona.name}】** 进行一对一的专属私聊。`
-      : `现在你正在与用户进行一对一的专属私聊。`;
+      ? pt(this.lang, 'dv.greetingNamed', { name: userPersona.name })
+      : pt(this.lang, 'dv.greetingAnon');
 
     const parts: string[] = [
-      `你是 **【${character.name}】**。`,
-      `你的人设与立场如下:\n${character.persona}`,
+      pt(this.lang, 'dv.identity', { name: character.name }),
+      pt(this.lang, 'dv.personaIntro', { persona: character.persona }),
       userGreeting,
     ];
 
     if (userPersona?.persona?.trim()) {
-      parts.push(`对方（用户）的身份设定与背景如下:\n${userPersona.persona.trim()}`);
+      parts.push(pt(this.lang, 'dv.userPersonaIntro', { persona: userPersona.persona.trim() }));
     }
 
-    parts.push(`请完全符合你的人设特点，自然、真诚地回复对方的提问或探讨。`);
+    parts.push(pt(this.lang, 'dv.replyGuide'));
 
     if (isPublicSummaryUsable(summary, history) && summary?.text?.trim()) {
-      parts.push(`【前期对话摘要】\n${summary.text.trim()}`);
+      parts.push(`${pt(this.lang, 'dv.prevSummaryLabel')}\n${summary.text.trim()}`);
     }
 
     const visibleHistory = splitHistoryByAnchor(history, summary?.coveredMessageId).after;
-    parts.push(`\n以下是你们此前的对话记录:\n${historyText(visibleHistory, 30, character.id, character.name)}`);
-    parts.push(`\n请回复对方:`);
+    parts.push(`\n${pt(this.lang, 'dv.historyLabel')}\n${historyText(visibleHistory, 30, character.id, character.name, this.lang)}`);
+    parts.push(`\n${pt(this.lang, 'dv.replyPrompt')}`);
 
     return parts.join('\n\n');
   }

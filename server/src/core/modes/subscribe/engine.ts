@@ -422,6 +422,7 @@ export class SubscribeEngine {
         otherMemberName,
         isStatefulResumed ? undefined : ctx?.summary,
         allHistory, // 供摘要/纪要锚点失效校验(截断后不注入幽灵摘要)
+        this.lang,
       );
       const outcome = await this.deps.speak(member, prompt);
 

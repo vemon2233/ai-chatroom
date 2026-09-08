@@ -576,6 +576,7 @@ export class Orchestrator {
           batonMode: entry.batonMode,
           summary: this.deps.getSummary?.(),
           mustRespond: entry.mustRespond,
+          lang: this.lang,
         });
       } else {
         // 正常增量调用：只注入自上次发言以来的新增对话与精简行动指引
@@ -584,6 +585,7 @@ export class Orchestrator {
           instruction: entry.instruction,
           batonMode: entry.batonMode,
           mustRespond: entry.mustRespond,
+          lang: this.lang,
         });
       }
     } else {
@@ -594,6 +596,7 @@ export class Orchestrator {
         batonMode: entry.batonMode,
         summary: this.deps.getSummary?.(),
         mustRespond: entry.mustRespond,
+        lang: this.lang,
       });
       resumeSessionId = undefined;
     }
@@ -938,6 +941,7 @@ export class Orchestrator {
       await this.deps.persistRoom();
       const fallbackPrompt = await buildPrompt(this.deps.room, member, this.historySnapshot(), {
         summary: this.deps.getSummary?.(),
+        lang: this.lang,
       });
       return this.invoke(member, fallbackPrompt, undefined);
     }

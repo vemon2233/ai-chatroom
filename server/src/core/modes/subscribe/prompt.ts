@@ -1,11 +1,16 @@
 // 订阅模式: 增量消息视窗与自决 Prompt 组装。
+// i18n:文案走 promptTexts 词典;标签经 protocolKeywords 的 *For(lang) 注入参数。
 
 import type { ChatMessage, DiscussionSummary, MemberConfig, RoomConfig } from '../../types';
 import { historyText } from '../../render';
 import { filterHistoryForViewer } from './audience';
 import { isPublicSummaryUsable, isDigestUsable } from '../../summaryOps';
 import type { PrivateThread } from './protocol';
-import { isSilentText } from '../../../protocolKeywords';
+import type { Lang } from '../../i18n/lang';
+import { pt } from '../../i18n/promptTexts';
+import {
+  batonTagFor, dmTagFor, handshakeTagFor, isSilentText,
+} from '../../../protocolKeywords';
 
 /**
  * 组装心跳唤醒时的一步全价自决 Prompt。
@@ -19,6 +24,7 @@ export function buildHeartbeatPrompt(
   otherMemberName?: string,
   summary?: DiscussionSummary | null,
   fullHistory?: readonly ChatMessage[],
+  lang: Lang = 'zh',
 ): string {
   // 锚点失效校验:摘要锚点不在历史 → 整份不注入(含纪要);
   // 摘要有效但本人纪要锚点失效 → 仅剔除该成员纪要段
@@ -47,74 +53,69 @@ export function buildHeartbeatPrompt(
 
   // 只看针对当前成员可见的增量消息
   const visibleDelta = filterHistoryForViewer(effectiveDelta, member.id);
-  const snippet = historyText(visibleDelta, 10, member.id, member.name);
+  const snippet = historyText(visibleDelta, 10, member.id, member.name, lang);
 
   const candidateNames = room.members.filter((m) => m.id !== member.id).map((m) => m.name);
-  const whitelistJson = JSON.stringify({ 可互动同事白名单: candidateNames }, null, 2);
+  // whitelist JSON 的 key 按语言(zh 保持现状字段名)
+  const whitelistJson = JSON.stringify(
+    lang === 'en' ? { colleagues: candidateNames } : { 可互动同事白名单: candidateNames },
+    null, 2,
+  );
 
   const sections: string[] = [
-    `# 你的身份`,
-    `你是 **【${member.name}】**。`,
-    `立场/人设: ${member.persona}`,
+    pt(lang, 'h.identity', { name: member.name, persona: member.persona }),
     ``,
-    `# 可互动同事白名单 (本名单已排除你自己;**严禁给自己发私聊**;**严禁脑补数字后缀如 @名字1**)`,
-    `\`\`\`json\n${whitelistJson}\n\`\`\``,
+    pt(lang, 'h.whitelistHeader'),
+    "```json\n" + whitelistJson + "\n```",
     ``,
-    `# 讨论主题: ${room.topic}`,
+    pt(lang, 'h.topic', { topic: room.topic }),
   ];
 
   // 注入公聊长程摘要与私聊纪要
   if (usableSummary?.text?.trim()) {
-    sections.push(``, `# 前期讨论摘要`, usableSummary.text.trim());
+    sections.push(``, pt(lang, 'h.summaryLabel'), usableSummary.text.trim());
   }
   const memberDigest = usableSummary?.privateDigests?.[member.id];
   if (memberDigest?.text?.trim()) {
-    sections.push(``, `# 你的私聊往来纪要 (仅你可见)`, memberDigest.text.trim());
+    sections.push(``, pt(lang, 'h.digestLabel'), memberDigest.text.trim());
   }
 
   sections.push(
     ``,
-    `# 自上次查看以来的最新未读消息`,
-    snippet || '(自上次查看以来暂无新消息)',
+    pt(lang, 'h.unreadHeader'),
+    snippet || pt(lang, 'h.noNewMsg'),
     ``,
-    `# 你的行动决策 (两阶段自决法则)`,
-    `阅读上述最新讨论，你有完全的自主决定权。请务必按以下两阶段推进你的思考：`,
-    ``,
-    `【第一阶段：意向自评 (先评估意图，再构思内容)】`,
-    `请在心中自评两件事：`,
-    `1. **公聊意愿 (0 ~ 100 分)**：你此时在大群公开发言的迫切度。`,
-    `   - < 60分：观点刚才已表达清楚、或话题与你关系不大、或想先看别人怎么吵、保持沉默更有利。`,
-    `   - ≥ 60分：被他人直接质问、面临重大危机、或有不可不发的新立场/新反驳必须公开宣布。`,
-    `2. **私聊意向 (有 / 无)**：审视上方同事白名单，你此刻是否想私下给某人单独通个气、对个暗号、商量对策、提醒兄弟、或暗中结盟？`,
-    `   - 若有，明确私聊对象是谁，核心想私下沟通什么 (支持单人如 @名字，也支持同时找多个人如 @名字A @名字B)。`,
-    ``,
-    `【第二阶段：按自评结果执行输出】`,
-    `- 若【公聊意愿 < 60 且 无私聊意向】：**严格直接输出 <跳过>** (保持潜水观望局势，绝不多言)。`,
-    `- 若【公聊意愿 ≥ 60 且 无私聊意向】：**直接输出公开发言正文** (纯公聊，无需附带私聊)。`,
-    `- 若【公聊意愿 < 60 但 有私聊意向】：**直接输出: <私聊>@同事名字 私信内容** (纯私聊，不发大群公聊)。`,
-    `- 若【公聊意愿 ≥ 60 且 有私聊意向】：**先写公开发言，并在结尾另起一行附带: <私聊>@同事名字 私信内容** (系统会自动拆分为公聊与私聊两个独立气泡)。`,
+    pt(lang, 'h.twoPhase', {
+      silentTag: lang === 'en' ? '<skip>' : '<跳过>',
+      dmTag: dmTagFor(lang),
+    }),
   );
 
 
   if (activeThread && activeThread.status === 'active' && otherMemberName) {
     sections.push(
       ``,
-      `# 当前私聊通道`,
-      `你与 **${otherMemberName}** 此前开启过私聊 (第 **${activeThread.count}/3** 轮)。`,
-      `若你认为私聊话题已达成共识或已破裂，可直接发公聊；若仍需在私信中回复对方，可按需在私聊末尾附带态度标签:`,
-      `- **<同意>** (认同对方意见，终结私聊)`,
-      `- **<拒绝>** (拒绝对方方案，终结私聊)`,
-      `- **<想法> @${otherMemberName}** (提出补充条件继续私聊)`,
+      pt(lang, 'h.dmChannel', {
+        name: otherMemberName,
+        count: activeThread.count,
+        agreeTag: handshakeTagFor('agree', lang),
+        rejectTag: handshakeTagFor('reject', lang),
+        ideaTag: handshakeTagFor('idea', lang),
+      }),
     );
   }
 
   sections.push(
     ``,
-    `【重要规则】**禁止输出 <接棒> 标签**。若公聊意愿低于60分且无私聊意向，**严格仅输出 <跳过> 四个字符**，不要输出多余废话。`,
+    pt(lang, 'h.noBatonRule', {
+      batonTag: batonTagFor(lang),
+      silentTag: lang === 'en' ? '<skip>' : '<跳过>',
+    }),
   );
 
   return sections.join('\n');
 }
+
 
 /**
  * 检查输出是否为跳过或沉默指令(真源:protocolKeywords.isSilentText,中英并集)
@@ -132,28 +133,28 @@ export function buildSubscribePromptSection(
   member: MemberConfig,
   members: MemberConfig[],
   opts: { mustRespond?: boolean } = {},
+  lang: Lang = 'zh',
 ): string {
   const candidateNames = members.filter((m) => m.id !== member.id).map((m) => m.name);
-  const whitelistJson = JSON.stringify({ 可互动同事白名单: candidateNames }, null, 2);
+  const whitelistJson = JSON.stringify(
+    lang === 'en' ? { colleagues: candidateNames } : { 可互动同事白名单: candidateNames },
+    null, 2,
+  );
 
   if (opts.mustRespond) {
-    return (
-      `# 讨论模式说明(订阅模式 · 你被直接点名)\n` +
-      `用户或同事直接点名要你回应——这是强制发言,你没有跳过权。\n` +
-      `**禁止输出 <跳过> 或 <沉默>**,必须就当前话题做出实质性回应(观点/反驳/补充均可)。\n` +
-      `若想私下沟通,可在发言中附带: <私聊>@名字 悄悄话内容 (系统会自动拆分为独立气泡发布)。\n` +
-      `不要在文末输出 <接棒> 标签。\n` +
-      `可互动同事白名单(严禁给自己发私聊,严禁脑补数字后缀):\n\`\`\`json\n${whitelistJson}\n\`\`\``
-    );
+    return pt(lang, 'sb.mustRespond', {
+      whitelist: whitelistJson,
+      silentTag: lang === 'en' ? '<skip>' : '<跳过>',
+      silentTag2: lang === 'en' ? '<silent>' : '<沉默>',
+      dmTag: dmTagFor(lang),
+      batonTag: batonTagFor(lang),
+    });
   }
 
-  return (
-    `# 讨论模式说明(订阅模式 · 自主在线群聊)\n` +
-    `本次讨论由心跳自主驱动，无需指定接棒人，不要在文末输出 <接棒> 标签。\n` +
-    `【两阶段自决】发言前请先自省：1. 公聊意愿是否≥60分？ 2. 是否有必要私下找人通气？\n` +
-    `- 若公聊意愿不足60分且无需私聊，直接输出 <跳过> 潜水观望；\n` +
-    `- 若需公开发言，直接阐述你的观点；\n` +
-    `- 若想私下找某位或多位同事单聊/通气/结盟，可在发言中(或独立)附带: <私聊>@名字 悄悄话内容 (系统会自动将公开发言与私信拆分为独立气泡发布)；\n` +
-    `可互动同事白名单(严禁给自己发私聊，严禁脑补数字后缀):\n\`\`\`json\n${whitelistJson}\n\`\`\``
-  );
+  return pt(lang, 'sb.auto', {
+    whitelist: whitelistJson,
+    silentTag: lang === 'en' ? '<skip>' : '<跳过>',
+    dmTag: dmTagFor(lang),
+    batonTag: batonTagFor(lang),
+  });
 }
