@@ -354,6 +354,32 @@ describe('编排器状态机:@allN 轮流', () => {
     expect(memberMsgs[0]!.text).toContain('轮流发言');
   });
 
+  it('@all 词边界:不吞 "all" 开头的成员名(@allan 走点名,不再误触发轮流)', async () => {
+    const members = makeMembers(2, ['allan', '乙']);
+    const h = makeHarness(
+      [{ result: '我是 allan' }, { result: '补一句' }],
+      {},
+      members,
+    );
+    await h.orch.onUserMessage('@allan 说说看');
+    await settle(120);
+    // 点名语义:仅 allan(m1) 被唤醒一次,不是全员轮流,更不是 N 轮
+    expect(h.orch.state).not.toBe('roundrobin');
+    const speakers = h.fake.requests.map((r) => r.member);
+    expect(speakers.filter((s) => s === 'm1').length).toBe(1);
+    expect(speakers).not.toContain('m2');
+  });
+
+  it('@all 空格轮数(@all 2)与紧贴轮数(@all3)都正常命中轮流', async () => {
+    const h = makeHarness(Array.from({ length: 12 }, (_, i) => ({ result: `s${i}` })));
+    await h.orch.onUserMessage('@all 1');
+    await settle(400);
+    expect(h.orch.state).toBe('idle');
+    const sys = h.messages.filter((m) => m.system).map((m) => m.text).join('|');
+    expect(sys).toContain('轮流发言 1 轮'); // 空格形态轮数被解析
+    expect(h.fake.callCount()).toBe(4); // 3 成员 × 1 轮 + 终局
+  });
+
   it('轮流中 stop:剩余条目全部丢弃(世代计数)', async () => {
     const h = makeHarness(
       Array.from({ length: 10 }, (_, i) => ({ result: `发言${i}` })),

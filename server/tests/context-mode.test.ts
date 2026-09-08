@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { extractDeltaMessages, buildDeltaPrompt, historyText } from '../src/core/prompt';
+import { extractDeltaMessages, buildDeltaPrompt } from '../src/core/prompt';
+import { historyText } from '../src/core/render';
 import { DirectChatService } from '../src/core/direct';
 import { MessageBus } from '../src/core/bus';
 import type { ChatMessage, Character, RoomConfig } from '../src/core/types';
@@ -75,6 +76,32 @@ describe('双上下文模式 (Dual Context Mode) 单元测试', () => {
       expect(formatted).toContain('**[反方] (全员公聊)：**\n公聊消息');
       expect(formatted).toContain('> 🔒 **【私聊密信 ── 反方 对 你 悄悄说】：**\n> 密谋对策');
       expect(formatted).toContain('**🎯【@提及了你】[反方] (全员公聊)：**\n请问 @正方 怎么看？');
+    });
+
+    it('增量 Prompt 绝不泄漏第三方私聊原文(受众过滤与全量/心跳路径同范式)', () => {
+      // 三人房:A↔B 私聊密谋,C 是旁观者
+      const threeRoom: RoomConfig = {
+        ...mockRoom,
+        members: [
+          ...mockRoom.members,
+          { id: 'c3', name: '旁观者', adapter: 'claude', persona: '吃瓜', color: '#0000ff' },
+        ],
+      };
+      const deltaWithOthersPrivate: ChatMessage[] = [
+        { id: 'p1', roomId: 'room_1', from: 'c1', fromName: '正方', text: '咱们私下结盟吧', ts: 1000, audience: ['c2'] },
+        { id: 'p2', roomId: 'room_1', from: 'c2', fromName: '反方', text: '好,密谋细节如下…', ts: 2000, audience: ['c1'] },
+        { id: 'g1', roomId: 'room_1', from: 'user', fromName: '用户', text: '大家怎么看?', ts: 3000 },
+      ];
+      // C(旁观者)的增量 prompt:不得含 A↔B 私聊任何原文
+      const promptForC = buildDeltaPrompt(threeRoom, threeRoom.members[2]!, deltaWithOthersPrivate);
+      expect(promptForC).not.toContain('咱们私下结盟吧');
+      expect(promptForC).not.toContain('密谋细节');
+      expect(promptForC).not.toContain('私聊密信');
+      expect(promptForC).toContain('大家怎么看?'); // 公聊正常注入
+      // 当事人 B 的增量 prompt:自己的私聊往来正常可见
+      const promptForB = buildDeltaPrompt(threeRoom, threeRoom.members[1]!, deltaWithOthersPrivate);
+      expect(promptForB).toContain('咱们私下结盟吧');
+      expect(promptForB).toContain('密谋细节如下');
     });
   });
 

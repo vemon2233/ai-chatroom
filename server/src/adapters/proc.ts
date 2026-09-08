@@ -41,7 +41,11 @@ export function spawnCli(req: SpeakRequest, resumeArgs?: string[]) {
     cwd: req.cwd || ensureSpeakCwd(),
   });
 
-  // prompt 写入 stdin 后立即关闭,CLI 从管道读取
+  // prompt 写入 stdin 后立即关闭,CLI 从管道读取。
+  // EPIPE 必须吞掉:CLI 秒退(命令错/二进制缺失)时大 prompt 的异步 flush 落在已关管道上,
+  // 无监听器的流 error = uncaughtException = 整个 server 崩溃;
+  // 真正的失败信号由 close(code) → finish(false) 权威判定,EPIPE 只是冗余回声
+  child.stdin?.on('error', () => {});
   if (req.prompt && req.prompt.length > 0) {
     child.stdin?.write(req.prompt);
   }

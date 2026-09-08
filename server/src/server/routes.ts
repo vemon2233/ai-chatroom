@@ -13,14 +13,6 @@ import { listSummarySnapshots, getSummarySnapshot } from '../store/summary';
 import type { Character, RoomSettings } from '../core/types';
 import type { AdapterConfig, AppConfig } from './config';
 
-/** 组装 ChatRoom 的持久化接缝(server 层负责把 store 实现注入 core——依赖单向)。 */
-const roomPersistence = {
-  persistRoom,
-  loadMessages: (roomId: string) => loadRoomMessages(roomId),
-  rewriteMessages: (roomId: string, messages: import('../core/types').ChatMessage[]) =>
-    rewriteRoomMessages(roomId, messages),
-};
-
 function readBody(req: IncomingMessage): Promise<any> {
   return new Promise((resolve, reject) => {
     let data = '';
@@ -296,7 +288,16 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
           return json(res, 400, { error: `项目目录不存在: ${body.projectPath}` });
         }
         const rcfg = makeRoomConfig(body);
-        const room = new ChatRoom(rcfg, bus, adapterConfigs, cfg.scout, roomPersistence, cfg.summary);
+        const room = new ChatRoom(
+          rcfg, bus, adapterConfigs, cfg.admin,
+          {
+            persistRoom,
+            loadMessages: (roomId: string) => loadRoomMessages(roomId),
+            rewriteMessages: (roomId: string, messages: import('../core/types').ChatMessage[]) =>
+              rewriteRoomMessages(roomId, messages),
+          },
+          cfg.summary,
+        );
         rooms.set(room.id, room);
         await persistRoom(rcfg);
         bus.broadcast({ type: 'rooms' });
@@ -467,6 +468,9 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
 
         // 删除房间(config 移除,历史 JSONL 保留)
         if (!sub && method === 'DELETE') {
+          // 先停止编排(杀进程/清心跳/收拢状态):否则运行中房间被删后,
+          // 发言尾部 persistRoom 会把 config 写回 rooms.json → 房间"复活"成僵尸
+          if (room) await room.stop();
           rooms.delete(roomId);
           await deleteRoom(roomId);
           bus.broadcast({ type: 'rooms' });

@@ -24,7 +24,8 @@
 //  - cancelled → 跳过落库跳过接棒
 
 import { randomUUID } from 'node:crypto';
-import { buildPrompt, buildDeltaPrompt, extractDeltaMessages, matchMemberByName } from './prompt';
+import { buildPrompt, buildDeltaPrompt, extractDeltaMessages } from './prompt';
+import { matchMemberByName } from './naming';
 import { parseBaton, stripBatonLine } from './modes/baton/baton';
 import {
   parseAudience,
@@ -42,7 +43,6 @@ import type {
   MemberStatus,
   RoomConfig,
   OrchestrationState,
-  DiscussionMode,
   DiscussionSummary,
   SummaryConfig,
 } from './types';
@@ -267,11 +267,17 @@ export class Orchestrator {
     this.onStatuses();
   }
 
-  /** 成员移除:状态清除 + 队列中该成员的条目一并移除(队列归编排器所有,防御内聚于此) */
+  /** 历史重置(clearMessages)时彻底清空私聊协议(线程与硬闸计数归零) */
+  clearPrivateProtocol(): void {
+    this.subscribeEngine.clearProtocol();
+  }
+
+  /** 成员移除:状态清除 + 队列中该成员的条目一并移除 + 关闭 TA 的私聊线程(队列归编排器所有,防御内聚于此) */
   memberRemoved(memberId: string): void {
     delete this.statuses[memberId];
     if (this.pendingNextId === memberId) this.pendingNextId = undefined;
     this.queue = this.queue.filter((e) => e.memberId !== memberId);
+    this.subscribeEngine.closeThreadsForMember(memberId); // 幽灵通道防御:对端不在了,线程必关
     if (this.currentSpeaker === memberId) this.cancelAll();
     this.onStatuses();
   }
@@ -346,14 +352,6 @@ export class Orchestrator {
     const cmd = this.parseUserCommand(text);
 
     switch (cmd.kind) {
-      case 'mode': {
-        await this.stop();
-        this.deps.room.mode = cmd.mode;
-        await this.deps.persistRoom();
-        const modeLabel = cmd.mode === 'subscribe' ? '订阅模式(意愿驱动)' : '接棒模式';
-        await this.sysMessage(`已切换为【${modeLabel}】。`);
-        return;
-      }
       case 'start': {
         // <接棒>@xx:直接指定起手进接棒链
         this.bumpGeneration();
@@ -1029,7 +1027,7 @@ export class Orchestrator {
     const adapter = this.deps.resolveAdapter(member.adapter);
 
     this.statuses[member.id] = 'thinking';
-    if (!this.currentSpeaker || this.currentSpeaker === 'multiple') {
+    if (!this.currentSpeaker) {
       this.currentSpeaker = member.id;
     }
     this.onStatuses();
@@ -1091,13 +1089,7 @@ export class Orchestrator {
     | { kind: 'start'; member: MemberConfig; fromName: string }
     | { kind: 'mention'; member?: MemberConfig; members: MemberConfig[] }
     | { kind: 'all'; rounds: number }
-    | { kind: 'mode'; mode: DiscussionMode }
     | { kind: 'none' } {
-    // /mode 命令解析
-    const modeMatch = text.match(/^\/mode\s+(baton|subscribe)\b/i);
-    if (modeMatch) {
-      return { kind: 'mode', mode: modeMatch[1]!.toLowerCase() as DiscussionMode };
-    }
     // <接棒>@xx / 【接棒】@xx(与 agent 同一语法):直接指定起手进链
     const startMatch = text.match(/(?:<接棒>|【接棒】)\s*@([^\s@,，。]+)/);
     if (startMatch) {
@@ -1105,7 +1097,9 @@ export class Orchestrator {
       if (hit) return { kind: 'start', member: hit, fromName: '用户' };
       return { kind: 'none' };
     }
-    const allMatch = text.match(/@all\s*(\d*)/);
+    // @allN 轮流:负向前瞻防吞 "all" 开头的成员名(@allan 落入下方成员名匹配)。
+    // 保留字优先:名为 "all3" 的成员无法被 @all3 点到(恒解析为 3 轮轮流)——文档写明的边界。
+    const allMatch = text.match(/@all(\d*)(?![^\s@,，。])/);
     if (allMatch) {
       return { kind: 'all', rounds: allMatch[1] ? Math.max(1, parseInt(allMatch[1])) : 1 };
     }
