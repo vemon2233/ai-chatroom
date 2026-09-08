@@ -173,7 +173,7 @@ describe('B2 讨论摘要与 Agent Trace 持久化测试', () => {
       { id: '2', roomId: 'r1', from: 'm1', fromName: '诸葛亮', text: '曹军远道而来，不习水战，何足惧哉', ts: 2 },
     ];
 
-    const summary = await admin.generateSummary(messages, '赤壁抗曹战役研讨');
+    const summary = await admin.generateSummary({ messages, topic: '赤壁抗曹战役研讨' });
     expect(summary).toBeDefined();
     expect(summary?.status).toBe('idle');
     expect(summary?.text).toContain('### 1. 核心议题与讨论背景');

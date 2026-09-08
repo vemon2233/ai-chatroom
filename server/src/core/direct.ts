@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto';
 import type { AgentAdapter, AgentEvent } from '../adapters/base';
 import type { AgentTraceLog, Character, ChatMessage, DiscussionSummary, ContextMode } from './types';
 import type { MessageBus } from './bus';
-import { historyText, extractDeltaMessages } from './prompt';
+import { extractDeltaMessages } from './prompt';
+import { historyText } from './render';
 import { isPublicSummaryUsable, splitHistoryByAnchor } from './summaryOps';
 
 import {
@@ -151,189 +152,189 @@ export class DirectChatService {
   /** 执行适配器调用并生成回复流 */
   private generateReply(character: Character, history: ChatMessage[]): Promise<void> {
     const task = (async () => {
-      const acfg = this.deps.adapterConfigs[character.adapter];
-    if (!acfg) {
-      const errText = `适配器未配置: ${character.adapter}`;
-      const sysMsg: ChatMessage = {
-        id: randomUUID(),
-        roomId: `direct_${character.id}`,
-        from: 'system',
-        fromName: '系统',
-        text: errText,
-        ts: Date.now(),
-        system: true,
-      };
-      await appendDirectMessage(character.id, sysMsg);
-      this.deps.bus.emitDirectMessage(character.id, sysMsg);
-      return;
-    }
-
-    const adapter = this.deps.resolveAdapter(acfg.kind ?? character.adapter);
-    const contextMode = this.getContextMode(character.id);
-    const existingSessionId = this.sessionIds.get(character.id);
-
-    const summary = await this.getSummary(character.id);
-    let prompt: string;
-    let effectiveResumeSessionId: string | undefined = undefined;
-
-    if (contextMode === 'stateful' && existingSessionId) {
-      const lastSeenId = this.lastSeenMessageIds.get(character.id);
-      const { delta, isReanchored } = extractDeltaMessages(history, lastSeenId);
-      effectiveResumeSessionId = existingSessionId;
-      if (isReanchored) {
-        prompt = this.buildDirectFullPrompt(character, history, summary);
-      } else {
-        prompt = [
-          `你是 **【${character.name}】**。请保持你的 **既有人设与核心立场**。`,
-          `\n以下是用户发来的新增消息:\n${historyText(delta, 30, character.id, character.name)}`,
-          `\n请回复用户:`,
-        ].join('\n\n');
+        const acfg = this.deps.adapterConfigs[character.adapter];
+      if (!acfg) {
+        const errText = `适配器未配置: ${character.adapter}`;
+        const sysMsg: ChatMessage = {
+          id: randomUUID(),
+          roomId: `direct_${character.id}`,
+          from: 'system',
+          fromName: '系统',
+          text: errText,
+          ts: Date.now(),
+          system: true,
+        };
+        await appendDirectMessage(character.id, sysMsg);
+        this.deps.bus.emitDirectMessage(character.id, sysMsg);
+        return;
       }
-    } else {
-      prompt = this.buildDirectFullPrompt(character, history, summary);
-      effectiveResumeSessionId = undefined;
-    }
 
+      const adapter = this.deps.resolveAdapter(acfg.kind ?? character.adapter);
+      const contextMode = this.getContextMode(character.id);
+      const existingSessionId = this.sessionIds.get(character.id);
 
-    const trace: import('./types').TraceEntry[] = [];
-    let thinking = '';
-    let usage: NonNullable<ChatMessage['detail']>['usage'] = undefined;
+      const summary = await this.getSummary(character.id);
+      let prompt: string;
+      let effectiveResumeSessionId: string | undefined = undefined;
 
-    const req: import('../adapters/base').SpeakRequest = {
-      member: character.id,
-      prompt,
-      command: acfg.command,
-      args: [...acfg.args, ...(character.extraArgs ?? [])],
-      resumeSessionId: effectiveResumeSessionId,
-      permission: 'readonly',
-    };
-
-    const handle = adapter.speak(req, (ev: AgentEvent) => {
-      if (ev.sessionId) {
-        this.sessionIds.set(character.id, ev.sessionId);
-      }
-      if (ev.phase === 'thinking') {
-        if (ev.thinkingDelta) {
-          thinking += ev.thinkingDelta;
-          trace.push({ kind: 'thinking', ts: Date.now(), content: ev.thinkingDelta });
+      if (contextMode === 'stateful' && existingSessionId) {
+        const lastSeenId = this.lastSeenMessageIds.get(character.id);
+        const { delta, isReanchored } = extractDeltaMessages(history, lastSeenId);
+        effectiveResumeSessionId = existingSessionId;
+        if (isReanchored) {
+          prompt = this.buildDirectFullPrompt(character, history, summary);
+        } else {
+          prompt = [
+            `你是 **【${character.name}】**。请保持你的 **既有人设与核心立场**。`,
+            `\n以下是用户发来的新增消息:\n${historyText(delta, 30, character.id, character.name)}`,
+            `\n请回复用户:`,
+          ].join('\n\n');
         }
-      } else if (ev.phase === 'streaming' && ev.textDelta) {
-        trace.push({ kind: 'text', ts: Date.now(), content: ev.textDelta });
-      } else if (ev.phase === 'done') {
-        usage = ev.usage;
+      } else {
+        prompt = this.buildDirectFullPrompt(character, history, summary);
+        effectiveResumeSessionId = undefined;
       }
-      this.deps.bus.emitDirectEvent(character.id, ev);
-    });
 
-    this.activeRuns.set(character.id, { cancel: handle.cancel, done: handle.done });
 
-    let outcome;
-    try {
-      outcome = await handle.done;
-    } finally {
-      this.activeRuns.delete(character.id);
-    }
+      const trace: import('./types').TraceEntry[] = [];
+      let thinking = '';
+      let usage: NonNullable<ChatMessage['detail']>['usage'] = undefined;
 
-    const recordTrace = (messageId: string, outputText: string) => {
-      const traceLog: AgentTraceLog = {
-        messageId,
-        roomId: `direct_${character.id}`,
-        memberId: character.id,
-        memberName: character.name,
-        adapter: character.adapter,
-        ts: Date.now(),
-        durationMs: outcome.durationMs,
-        status: outcome.status,
-        error: outcome.error,
-        trigger: '1v1用户对话',
-        input: {
-          prompt,
-          command: req.command,
-          args: req.args,
-          cwd: req.cwd,
-          resumeSessionId: req.resumeSessionId,
-          contextMode: req.resumeSessionId ? 'stateful' : 'stateless',
-        },
-        output: {
-          result: outputText,
-          thinking: thinking || undefined,
-          trace: trace ?? [],
-          usage,
-        },
+      const req: import('../adapters/base').SpeakRequest = {
+        member: character.id,
+        prompt,
+        command: acfg.command,
+        args: [...acfg.args, ...(character.extraArgs ?? [])],
+        resumeSessionId: effectiveResumeSessionId,
+        permission: 'readonly',
       };
-      void saveTrace('direct', character.id, traceLog);
-    };
 
-    if (outcome.status === 'cancelled') {
-      const streamed = trace
-        .filter((t) => t.kind === 'text')
-        .map((t) => t.content)
-        .join('');
-      const text = streamed.trim() || '(已停止思考)';
-      const msgId = randomUUID();
-      recordTrace(msgId, text);
-      const cancelledMsg: ChatMessage = {
-        id: msgId,
-        roomId: `direct_${character.id}`,
-        from: character.id,
-        fromName: character.name,
-        text,
-        ts: Date.now(),
-        detail: {
-          trace,
-          thinking: thinking || undefined,
-          durationMs: outcome.durationMs,
-          adapter: character.adapter,
-          hasTrace: true,
-        },
-      };
-      await appendDirectMessage(character.id, cancelledMsg);
-      this.deps.bus.emitDirectMessage(character.id, cancelledMsg);
-      return;
-    }
+      const handle = adapter.speak(req, (ev: AgentEvent) => {
+        if (ev.sessionId) {
+          this.sessionIds.set(character.id, ev.sessionId);
+        }
+        if (ev.phase === 'thinking') {
+          if (ev.thinkingDelta) {
+            thinking += ev.thinkingDelta;
+            trace.push({ kind: 'thinking', ts: Date.now(), content: ev.thinkingDelta });
+          }
+        } else if (ev.phase === 'streaming' && ev.textDelta) {
+          trace.push({ kind: 'text', ts: Date.now(), content: ev.textDelta });
+        } else if (ev.phase === 'done') {
+          usage = ev.usage;
+        }
+        this.deps.bus.emitDirectEvent(character.id, ev);
+      });
 
-    if (outcome.status === 'error') {
-      if (effectiveResumeSessionId) {
-        this.sessionIds.delete(character.id);
-        this.lastSeenMessageIds.delete(character.id);
+      this.activeRuns.set(character.id, { cancel: handle.cancel, done: handle.done });
+
+      let outcome;
+      try {
+        outcome = await handle.done;
+      } finally {
+        this.activeRuns.delete(character.id);
       }
-      const errMsg: ChatMessage = {
-        id: randomUUID(),
-        roomId: `direct_${character.id}`,
-        from: 'system',
-        fromName: '系统',
-        text: `${character.name} 回复失败: ${outcome.error ?? '未知错误'}`,
-        ts: Date.now(),
-        system: true,
-      };
-      await appendDirectMessage(character.id, errMsg);
-      this.deps.bus.emitDirectMessage(character.id, errMsg);
-      return;
-    }
 
-      // ok
-      const text = outcome.result || '(无输出)';
-      const msgId = randomUUID();
-      recordTrace(msgId, text);
-      const botMsg: ChatMessage = {
-        id: msgId,
-        roomId: `direct_${character.id}`,
-        from: character.id,
-        fromName: character.name,
-        text,
-        ts: Date.now(),
-        detail: {
-          trace,
-          thinking: thinking || undefined,
-          usage,
-          durationMs: outcome.durationMs,
+      const recordTrace = (messageId: string, outputText: string) => {
+        const traceLog: AgentTraceLog = {
+          messageId,
+          roomId: `direct_${character.id}`,
+          memberId: character.id,
+          memberName: character.name,
           adapter: character.adapter,
-          hasTrace: true,
-        },
+          ts: Date.now(),
+          durationMs: outcome.durationMs,
+          status: outcome.status,
+          error: outcome.error,
+          trigger: '1v1用户对话',
+          input: {
+            prompt,
+            command: req.command,
+            args: req.args,
+            cwd: req.cwd,
+            resumeSessionId: req.resumeSessionId,
+            contextMode: req.resumeSessionId ? 'stateful' : 'stateless',
+          },
+          output: {
+            result: outputText,
+            thinking: thinking || undefined,
+            trace: trace ?? [],
+            usage,
+          },
+        };
+        void saveTrace('direct', character.id, traceLog);
       };
-      await appendDirectMessage(character.id, botMsg);
-      this.deps.bus.emitDirectMessage(character.id, botMsg);
-      this.lastSeenMessageIds.set(character.id, msgId);
+
+      if (outcome.status === 'cancelled') {
+        const streamed = trace
+          .filter((t) => t.kind === 'text')
+          .map((t) => t.content)
+          .join('');
+        const text = streamed.trim() || '(已停止思考)';
+        const msgId = randomUUID();
+        recordTrace(msgId, text);
+        const cancelledMsg: ChatMessage = {
+          id: msgId,
+          roomId: `direct_${character.id}`,
+          from: character.id,
+          fromName: character.name,
+          text,
+          ts: Date.now(),
+          detail: {
+            trace,
+            thinking: thinking || undefined,
+            durationMs: outcome.durationMs,
+            adapter: character.adapter,
+            hasTrace: true,
+          },
+        };
+        await appendDirectMessage(character.id, cancelledMsg);
+        this.deps.bus.emitDirectMessage(character.id, cancelledMsg);
+        return;
+      }
+
+      if (outcome.status === 'error') {
+        if (effectiveResumeSessionId) {
+          this.sessionIds.delete(character.id);
+          this.lastSeenMessageIds.delete(character.id);
+        }
+        const errMsg: ChatMessage = {
+          id: randomUUID(),
+          roomId: `direct_${character.id}`,
+          from: 'system',
+          fromName: '系统',
+          text: `${character.name} 回复失败: ${outcome.error ?? '未知错误'}`,
+          ts: Date.now(),
+          system: true,
+        };
+        await appendDirectMessage(character.id, errMsg);
+        this.deps.bus.emitDirectMessage(character.id, errMsg);
+        return;
+      }
+
+        // ok
+        const text = outcome.result || '(无输出)';
+        const msgId = randomUUID();
+        recordTrace(msgId, text);
+        const botMsg: ChatMessage = {
+          id: msgId,
+          roomId: `direct_${character.id}`,
+          from: character.id,
+          fromName: character.name,
+          text,
+          ts: Date.now(),
+          detail: {
+            trace,
+            thinking: thinking || undefined,
+            usage,
+            durationMs: outcome.durationMs,
+            adapter: character.adapter,
+            hasTrace: true,
+          },
+        };
+        await appendDirectMessage(character.id, botMsg);
+        this.deps.bus.emitDirectMessage(character.id, botMsg);
+        this.lastSeenMessageIds.set(character.id, msgId);
     })();
 
     this.runningReplies.set(character.id, task);

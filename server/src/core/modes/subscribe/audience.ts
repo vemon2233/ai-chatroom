@@ -1,7 +1,7 @@
 // 订阅模式: 私聊受众解析与历史消息投影纯函数。
 
 import type { ChatMessage, MemberConfig } from '../../types';
-import { matchMemberByName } from '../../prompt';
+import { matchMemberByName } from '../../naming';
 
 /** 私聊行正则: 匹配末尾 `<私聊>@A @B` 或 `【私聊】@A @B` */
 export const AUDIENCE_LINE = /(?:<私聊>|【私聊】)\s*(.+)/;

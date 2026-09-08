@@ -19,7 +19,6 @@ import type { SummaryConfig } from '../core/types';
 export interface AppConfig {
   adapters: Record<string, AdapterConfig>;
   admin: AdminConfig;
-  scout: ScoutConfig;
   summary: SummaryConfig;
   server: { port: number; host: string };
 }
@@ -53,7 +52,6 @@ export async function loadConfig(): Promise<AppConfig> {
   return {
     adapters: parsed.adapters,
     admin: adminCfg,
-    scout: adminCfg,
     summary: summaryCfg,
     server: parsed.server ?? { port: 3220, host: '127.0.0.1' },
   };

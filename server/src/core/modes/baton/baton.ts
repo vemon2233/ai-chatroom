@@ -1,6 +1,6 @@
 // 接棒模式: 尾行解析与接棒决策纯函数。
 
-import { matchMemberByName } from '../../prompt';
+import { matchMemberByName } from '../../naming';
 
 /** 接棒行正则: 新语法 <接棒>(用户/agent 统一) + 旧语法 【接棒】(兼容旧 session 的记忆惯性)。 */
 export const BATON_LINE = /(?:<接棒>|【接棒】)\s*(.+)/;

@@ -1,7 +1,10 @@
 // 单测:接棒解析 + 成员名匹配(移植 v1 tests/baton-match.test.ts 全部断言)。
 
 import { describe, it, expect } from 'vitest';
-import { parseBaton, matchMemberByName, buildPrompt, historyText } from '../src/core/prompt';
+import { parseBaton } from '../src/core/modes/baton/baton';
+import { matchMemberByName } from '../src/core/naming';
+import { buildPrompt } from '../src/core/prompt';
+import { historyText } from '../src/core/render';
 import type { ChatMessage, MemberConfig, RoomConfig } from '../src/core/types';
 
 const members = [

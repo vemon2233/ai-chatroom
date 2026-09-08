@@ -1,7 +1,7 @@
 // 订阅模式: 增量消息视窗与自决 Prompt 组装。
 
 import type { ChatMessage, DiscussionSummary, MemberConfig, RoomConfig } from '../../types';
-import { historyText } from '../../prompt';
+import { historyText } from '../../render';
 import { filterHistoryForViewer } from './audience';
 import { isPublicSummaryUsable, isDigestUsable } from '../../summaryOps';
 import type { PrivateThread } from './protocol';
