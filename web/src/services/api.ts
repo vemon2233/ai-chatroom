@@ -1,12 +1,14 @@
 // fetch API 客户端:薄封装,错误统一抛 Error(message 来自后端 {error})。
 
+import { t } from '@/i18n';
+
 async function req<T>(url: string, init?: RequestInit): Promise<T> {
   const r = await fetch(url, {
     headers: { 'Content-Type': 'application/json' },
     ...init,
   });
   const j = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error((j as any).error ?? `请求失败(${r.status})`);
+  if (!r.ok) throw new Error((j as any).error ?? t('api.requestFailed', { status: r.status }));
   return j as T;
 }
 
@@ -46,6 +48,10 @@ export interface CreateRoomBody {
 
 export const api = {
   adapters: () => req<{ adapters: AdapterInfo[] }>('/api/adapters'),
+
+  settings: () => req<{ lang: string }>('/api/settings'),
+  setLanguage: (lang: 'zh' | 'en') =>
+    req<{ lang: string }>('/api/settings/language', { method: 'PUT', body: JSON.stringify({ lang }) }),
 
   characters: () => req<Character[]>('/api/characters'),
   createCharacter: (body: Omit<Character, 'id' | 'createdAt'>) =>

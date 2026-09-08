@@ -1,13 +1,18 @@
 <script setup lang="ts">
-import { onUnmounted, ref } from 'vue';
+import { computed, onUnmounted, ref } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { store, refreshRooms, refreshCharacters, openRoom, closeRoom, closeSession, openDirectChat, openInspector } from '@/store';
 import { api, type RoomListItem } from '@/services/api';
 import { dialog } from '@/composables/useDialog';
 import { downloadFile } from '@/utils/download';
+import { currentLang, setLang } from '@/i18n';
 import NewRoomModal from '@/components/modals/NewRoomModal.vue';
 import CharacterModal from '@/components/modals/CharacterModal.vue';
 import SidebarCard from '@/components/ui/SidebarCard.vue';
 import logoUrl from '@/assets/icon.png';
+
+const { t } = useI18n();
+const lang = computed(() => currentLang());
 
 const emit = defineEmits<{ (e: 'enter-room', id: string): void }>();
 
@@ -46,7 +51,7 @@ async function onFileChange(e: Event) {
         lastRoomId = res.id;
       }
     } catch (err: any) {
-      void dialog.alert('导入失败', `文件「${file.name}」导入失败: ${err?.message || String(err)}`);
+      void dialog.alert(t('sidebar.importFailedTitle'), t('sidebar.importFailedBody', { file: file.name, reason: err?.message || String(err) }));
     }
   }
 
@@ -75,9 +80,9 @@ function onExportCharacter(c: import('@server/core/types').Character) {
 
 async function onDeleteRoom(id: string, name: string) {
   const ok = await dialog.confirm(
-    '删除房间',
-    `删除房间「${name}」?聊天历史文件将保留(重启后不再复活)。`,
-    { danger: true, confirmText: '删除' },
+    t('sidebar.deleteRoomTitle'),
+    t('sidebar.deleteRoomBody', { name }),
+    { danger: true, confirmText: t('sidebar.delete') },
   );
   if (!ok) return;
   await api.deleteRoom(id);
@@ -87,9 +92,9 @@ async function onDeleteRoom(id: string, name: string) {
 
 async function onDeleteCharacter(id: string, name: string) {
   const ok = await dialog.confirm(
-    '删除角色',
-    `删除角色「${name}」?已拉进房间的成员不受影响，专属私聊记录将被清理。`,
-    { danger: true, confirmText: '删除' },
+    t('sidebar.deleteCharTitle'),
+    t('sidebar.deleteCharBody', { name }),
+    { danger: true, confirmText: t('sidebar.delete') },
   );
   if (!ok) return;
   await closeSession({ type: 'direct', characterId: id });
@@ -173,41 +178,45 @@ onUnmounted(() => {
     :style="{ width: `${sidebarWidth}px` }"
     :class="{ 'is-dragging': isDragging }"
   >
-    <!-- 顶部品牌区:logo + 项目名 -->
+    <!-- 顶部品牌区:logo + 项目名 + 语言切换 -->
     <header class="brand">
-      <img class="brand-mark" :src="logoUrl" alt="AI 聊天室 logo" />
-      <span class="brand-name">AI 聊天室</span>
+      <img class="brand-mark" :src="logoUrl" alt="AI Chatroom logo" />
+      <span class="brand-name">{{ t('app.title') }}</span>
+      <div class="lang-switch" :title="lang === 'zh' ? 'Switch to English' : '切换为中文'">
+        <button type="button" class="lang-btn" :class="{ active: lang === 'zh' }" @click="setLang('zh')">{{ t('sidebar.langZh') }}</button>
+        <button type="button" class="lang-btn" :class="{ active: lang === 'en' }" @click="setLang('en')">{{ t('sidebar.langEn') }}</button>
+      </div>
     </header>
 
     <header class="tabs">
-      <button class="tab" :class="{ active: store.sidebarTab === 'rooms' }" @click="switchTab('rooms')">房间</button>
-      <button class="tab" :class="{ active: store.sidebarTab === 'chars' }" @click="switchTab('chars')">角色</button>
+      <button class="tab" :class="{ active: store.sidebarTab === 'rooms' }" @click="switchTab('rooms')">{{ t('sidebar.rooms') }}</button>
+      <button class="tab" :class="{ active: store.sidebarTab === 'chars' }" @click="switchTab('chars')">{{ t('sidebar.chars') }}</button>
     </header>
 
     <div v-show="store.sidebarTab === 'rooms'" class="panel">
       <div class="actions">
-        <button class="new-btn" @click="showNewRoom = true">＋ 新房间</button>
-        <button class="import-btn" @click="triggerImport">导入</button>
+        <button class="new-btn" @click="showNewRoom = true">{{ t('sidebar.newRoom') }}</button>
+        <button class="import-btn" @click="triggerImport">{{ t('sidebar.import') }}</button>
       </div>
       <div class="list">
-        <SidebarCard v-for="r in store.rooms" :key="r.config.id" :title="r.config.name" :badge="`${r.config.members.length}人`"
+        <SidebarCard v-for="r in store.rooms" :key="r.config.id" :title="r.config.name" :badge="`${r.config.members.length}${t('sidebar.memberUnit')}`"
           :sub="roomSub(r)" :color="r.config.color" :active="store.activeSession?.type === 'room' && store.activeSession.id === r.config.id"
-          :can-export="true" export-title="导出配置" @click="openRoom(r.config.id)" @export="onExportRoom(r)"
+          :can-export="true" :export-title="t('sidebar.exportCfg')" @click="openRoom(r.config.id)" @export="onExportRoom(r)"
           @remove="onDeleteRoom(r.config.id, r.config.name)" />
-        <div v-if="store.rooms.length === 0" class="list-empty">还没有房间</div>
+        <div v-if="store.rooms.length === 0" class="list-empty">{{ t('sidebar.noRooms') }}</div>
       </div>
     </div>
 
     <div v-show="store.sidebarTab === 'chars'" class="panel">
       <div class="actions">
-        <button class="new-btn" @click="showCharModal = true">＋ 新角色</button>
-        <button class="import-btn" @click="triggerImport">导入</button>
+        <button class="new-btn" @click="showCharModal = true">{{ t('sidebar.newChar') }}</button>
+        <button class="import-btn" @click="triggerImport">{{ t('sidebar.import') }}</button>
       </div>
       <div class="list">
         <SidebarCard v-for="c in store.characters" :key="c.id" :title="c.name" :badge="c.adapter" :sub="c.persona"
-          :color="c.color" :can-export="true" export-title="导出角色" :active="store.activeSession?.type === 'direct' && store.activeSession.characterId === c.id"
+          :color="c.color" :can-export="true" :export-title="t('sidebar.exportChar')" :active="store.activeSession?.type === 'direct' && store.activeSession.characterId === c.id"
           @click="openDirectChat(c)" @export="onExportCharacter(c)" @remove="onDeleteCharacter(c.id, c.name)" />
-        <div v-if="store.characters.length === 0" class="list-empty">还没有角色</div>
+        <div v-if="store.characters.length === 0" class="list-empty">{{ t('sidebar.noChars') }}</div>
       </div>
     </div>
 
@@ -220,7 +229,7 @@ onUnmounted(() => {
     <!-- 右侧可拖拽分割线 -->
     <div
       class="sidebar-resizer"
-      title="按住左右拖动调节侧边栏宽度"
+      :title="t('sidebar.resizeHint')"
       @mousedown.prevent="onMouseDown"
     >
       <div class="resizer-line"></div>
@@ -239,6 +248,38 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   position: relative;
+}
+
+/* 语言切换(品牌区右缘) */
+.lang-switch {
+  margin-left: auto;
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.lang-btn {
+  border: none;
+  background: transparent;
+  color: var(--sidebar-text);
+  font-size: 11px;
+  line-height: 1;
+  padding: 4px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  opacity: 0.65;
+  transition: background 0.15s ease, opacity 0.15s ease;
+}
+
+.lang-btn:hover {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.lang-btn.active {
+  opacity: 1;
+  background: var(--accent);
+  color: #fff;
 }
 
 /* 拖拽把手与分割线高光 */
