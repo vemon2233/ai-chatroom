@@ -60,10 +60,11 @@ const mockConfig: AppConfig = {
   admin: {
     adapter: 'claude',
     model: 'haiku',
-    timeoutSec: 30,
-    circuitBreakerConsecutiveErrors: 2,
-    circuitBreakerCooldownSec: 10,
+    allowedTools: 'Read Glob Grep',
+    timeoutMs: 30000,
+    maxRetries: 2,
   },
+  server: { port: 3220, host: '127.0.0.1' },
   adapters: {
     claude: {
       displayName: 'Claude',
@@ -165,7 +166,7 @@ describe('Import & Export REST Routes', () => {
       name: '原开发组',
       topic: '架构设计讨论',
       chainBudget: 5,
-      speechLength: 'medium',
+      speechLength: 'normal',
       members: [
         {
           name: '爱丽丝',

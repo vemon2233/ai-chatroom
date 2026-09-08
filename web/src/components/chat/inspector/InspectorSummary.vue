@@ -5,6 +5,7 @@ import { store } from '@/store';
 import { renderMarkdown } from '@/utils/markdown';
 import type { DiscussionSummary, DiscussionSummarySnapshot, SummarySnapshotItem } from '@server/core/types';
 import { useVerticalResize } from './useInspectorResize';
+import { exportSummaryMarkdown } from '@/utils/exportMarkdown';
 
 const props = defineProps<{
   sessionType: 'room' | 'direct';
@@ -20,6 +21,8 @@ const currentSummaryDetail = ref<DiscussionSummarySnapshot | null>(null);
 const isLoadingSummaryDetail = ref(false);
 const summarySubTab = ref<'public' | 'private'>('public');
 const copySummaryFeedback = ref(false);
+const exportingItemIds = ref<Set<string>>(new Set());
+let detailRequestId = 0;
 
 const summaryResize = useVerticalResize('ai-chatroom:summary-timeline-height', 168);
 
@@ -42,19 +45,14 @@ async function loadSummaries(isAuto: boolean | unknown = false) {
         ? await api.roomSummaries(props.sessionId)
         : await api.directSummaries(props.sessionId);
 
-    const prevFirstId = summariesList.value[0]?.id;
-    const wasTrackingTop = !selectedSummaryId.value || selectedSummaryId.value === prevFirstId;
-
+    const currentSelectedId = selectedSummaryId.value;
     summariesList.value = list;
 
     if (list.length > 0) {
-      if (wasTrackingTop) {
+      // 若当前尚未选择，或用户选中的快照已被删除，才重新定位到最新一项
+      const stillExists = currentSelectedId && list.some((item) => item.id === currentSelectedId);
+      if (!stillExists) {
         void selectSummary(list[0]!.id);
-      } else {
-        const stillExists = list.some((item) => item.id === selectedSummaryId.value);
-        if (!stillExists) {
-          void selectSummary(list[0]!.id);
-        }
       }
     } else {
       selectedSummaryId.value = null;
@@ -71,20 +69,30 @@ async function loadSummaries(isAuto: boolean | unknown = false) {
 
 async function selectSummary(summaryId: string) {
   selectedSummaryId.value = summaryId;
+  currentSummaryDetail.value = null; // 切换时立即清空旧快照，杜绝误导出上一次的快照内容
   isLoadingSummaryDetail.value = true;
   summaryError.value = '';
+  const reqId = ++detailRequestId;
   try {
-    if (props.sessionType === 'room') {
-      currentSummaryDetail.value = await api.roomSummaryDetail(props.sessionId, summaryId);
-    } else {
-      currentSummaryDetail.value = await api.directSummaryDetail(props.sessionId, summaryId);
+    const detail =
+      props.sessionType === 'room'
+        ? await api.roomSummaryDetail(props.sessionId, summaryId)
+        : await api.directSummaryDetail(props.sessionId, summaryId);
+    if (reqId === detailRequestId) {
+      currentSummaryDetail.value = detail;
     }
   } catch (err) {
-    console.error('加载摘要详情失败:', err);
+    if (reqId === detailRequestId) {
+      console.error('加载摘要详情失败:', err);
+      summaryError.value = '加载摘要详情失败';
+    }
   } finally {
-    isLoadingSummaryDetail.value = false;
+    if (reqId === detailRequestId) {
+      isLoadingSummaryDetail.value = false;
+    }
   }
 }
+
 
 const hasNewMessagesForSummary = computed(() => {
   const msgs = sessionMessages.value;
@@ -150,6 +158,61 @@ async function copySummaryText(text: string) {
     }, 1500);
   } catch { }
 }
+
+function getSummaryExportTitle(): string {
+  return props.sessionType === 'room'
+    ? (store.currentRoom?.config.name || '讨论摘要')
+    : (`与 ${store.currentDirectChar?.name || '角色'} 的讨论摘要`);
+}
+
+function getMemberNamesMap(): Record<string, string> {
+  const memberNames: Record<string, string> = {};
+  if (props.sessionType === 'room' && store.currentRoom) {
+    for (const m of store.currentRoom.config.members) {
+      memberNames[m.id] = m.name;
+    }
+  }
+  return memberNames;
+}
+
+function doExportSummary(summary: DiscussionSummary | DiscussionSummarySnapshot) {
+  exportSummaryMarkdown({
+    title: getSummaryExportTitle(),
+    sessionType: props.sessionType,
+    summary,
+    memberNames: getMemberNamesMap(),
+  });
+}
+
+function handleExportSummary() {
+  if (isLoadingSummaryDetail.value || !currentSummaryDetail.value) return;
+  doExportSummary(currentSummaryDetail.value);
+}
+
+async function handleExportItem(item: SummarySnapshotItem) {
+  // 若当前面板已打开此快照且已加载完成，直接复用
+  if (currentSummaryDetail.value && currentSummaryDetail.value.id === item.id) {
+    doExportSummary(currentSummaryDetail.value);
+    return;
+  }
+
+  if (exportingItemIds.value.has(item.id)) return;
+  exportingItemIds.value.add(item.id);
+  try {
+    const detail =
+      props.sessionType === 'room'
+        ? await api.roomSummaryDetail(props.sessionId, item.id)
+        : await api.directSummaryDetail(props.sessionId, item.id);
+    if (detail) {
+      doExportSummary(detail);
+    }
+  } catch (err) {
+    console.error(`导出历史摘要快照 [${item.id}] 失败:`, err);
+  } finally {
+    exportingItemIds.value.delete(item.id);
+  }
+}
+
 
 const hasPrivateDigests = computed(() => {
   const digests = currentSummaryDetail.value?.privateDigests;
@@ -289,7 +352,8 @@ onUnmounted(() => {
               stroke="currentColor"
               stroke-width="2"
             >
-              <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67" />
+              <polyline points="23 4 23 10 17 10" />
+              <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
             </svg>
             刷新
           </button>
@@ -309,7 +373,23 @@ onUnmounted(() => {
         >
           <div class="item-head">
             <span class="item-name">{{ formatSummaryTitle(item) }}</span>
-            <span class="item-time">{{ formatTime(item.createdAt) }}</span>
+            <div class="item-head-right">
+              <span class="item-time">{{ formatTime(item.createdAt) }}</span>
+              <button
+                type="button"
+                class="btn-item-export"
+                :class="{ spinning: exportingItemIds.has(item.id) }"
+                :disabled="exportingItemIds.has(item.id)"
+                title="直接导出此份讨论摘要快照为 Markdown"
+                @click.stop="handleExportItem(item)"
+              >
+                <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="7 10 12 15 17 10" />
+                  <line x1="12" y1="15" x2="12" y2="3" />
+                </svg>
+              </button>
+            </div>
           </div>
           <div class="item-sub">
             <span class="item-adapter">涵盖 {{ item.messageCount }} 条</span>
@@ -367,14 +447,26 @@ onUnmounted(() => {
               成员私聊纪要 ({{ privateDigestCount }})
             </button>
           </div>
-          <button
-            type="button"
-            class="btn-copy-trace btn btn-ghost"
-            @click="copySummaryText(summarySubTab === 'public' ? currentSummaryDetail.text : privateDigestsMarkdown)"
-          >
-            {{ copySummaryFeedback ? '已复制' : '复制文本' }}
-          </button>
+          <div class="detail-actions">
+            <button
+              type="button"
+              class="btn-copy-trace btn btn-ghost"
+              :disabled="isLoadingSummaryDetail || !currentSummaryDetail"
+              title="导出当前讨论摘要与私聊纪要为 Markdown 文档"
+              @click="handleExportSummary"
+            >
+              {{ isLoadingSummaryDetail ? '加载中...' : '导出' }}
+            </button>
+            <button
+              type="button"
+              class="btn-copy-trace btn btn-ghost"
+              @click="copySummaryText(summarySubTab === 'public' ? currentSummaryDetail.text : privateDigestsMarkdown)"
+            >
+              {{ copySummaryFeedback ? '已复制' : '复制文本' }}
+            </button>
+          </div>
         </div>
+
 
         <!-- 详情正文展示区 -->
         <div class="detail-body-scroll">
@@ -487,6 +579,8 @@ onUnmounted(() => {
   padding: 4px 10px;
   font-size: 12px;
   height: auto;
+  border-radius: 6px;
+  font-weight: 500;
   transition: all 0.15s ease;
 }
 
@@ -557,16 +651,52 @@ onUnmounted(() => {
 .item-head {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   font-size: 12px;
   font-weight: 500;
   color: var(--text);
   margin-bottom: 3px;
 }
 
+.item-head-right {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
 .item-time {
   font-size: 11px;
   color: var(--faint);
 }
+
+.btn-item-export {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+  color: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+  line-height: 1;
+}
+
+.btn-item-export:hover:not(:disabled) {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.btn-item-export:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-item-export.spinning svg {
+  animation: spin 1s linear infinite;
+}
+
 
 .item-sub {
   display: flex;
@@ -717,6 +847,12 @@ onUnmounted(() => {
   font-size: 11.5px;
   padding: 4px 10px;
   height: auto;
+}
+
+.detail-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .detail-body-scroll {

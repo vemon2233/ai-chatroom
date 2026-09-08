@@ -3,6 +3,7 @@ import { computed } from 'vue';
 import { store, resetDirect, toggleInspector } from '@/store';
 import { streamPlaceholder } from '@/utils/chat';
 import { dialog } from '@/composables/useDialog';
+import { exportChatHistoryMarkdown } from '@/utils/exportMarkdown';
 import ChatHeader from './ChatHeader.vue';
 import ChatFlow from './ChatFlow.vue';
 import Composer from './Composer.vue';
@@ -42,6 +43,16 @@ async function handleReset() {
   );
   if (!ok) return;
   await resetDirect();
+}
+
+function handleExport() {
+  if (!char.value) return;
+  exportChatHistoryMarkdown({
+    title: `与 ${char.value.name} 的私聊`,
+    sessionType: 'direct',
+    members: [char.value.name, '用户'],
+    messages: store.directMessages,
+  });
 }
 </script>
 
@@ -91,6 +102,14 @@ async function handleReset() {
             @click="toggleInspector('manage')"
           >
             管理
+          </button>
+          <button
+            class="btn btn-ghost"
+            type="button"
+            title="导出当前私聊记录为 Markdown"
+            @click="handleExport"
+          >
+            导出
           </button>
           <button class="btn btn-ghost btn-danger" type="button" @click="handleReset">
             清空

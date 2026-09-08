@@ -163,28 +163,30 @@ onUnmounted(() => {
           <span class="meta-title">Agent 调用轮次</span>
           <span class="meta-pill">共 {{ tracesList.length }} 次</span>
         </div>
-        <button
-          type="button"
-          class="btn-refresh btn btn-ghost"
-          :disabled="isLoadingTraces"
-          title="刷新日志列表"
-          @click="loadTraces(false)"
-        >
-          <svg
-            class="refresh-icon"
-            :class="{ spinning: isLoadingTraces }"
-            viewBox="0 0 24 24"
-            width="13"
-            height="13"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
+        <div class="subbar-actions">
+          <button
+            type="button"
+            class="btn-refresh btn btn-ghost"
+            :disabled="isLoadingTraces"
+            title="刷新日志列表"
+            @click="loadTraces(false)"
           >
-            <polyline points="23 4 23 10 17 10" />
-            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
-          </svg>
-          刷新
-        </button>
+            <svg
+              class="refresh-icon"
+              :class="{ spinning: isLoadingTraces }"
+              viewBox="0 0 24 24"
+              width="13"
+              height="13"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <polyline points="23 4 23 10 17 10" />
+              <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+            </svg>
+            刷新
+          </button>
+        </div>
       </div>
 
       <div v-if="isLoadingTraces && tracesList.length === 0" class="traces-loading">正在拉取日志列表...</div>
@@ -356,6 +358,12 @@ onUnmounted(() => {
   font-weight: 550;
 }
 
+.subbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .btn-refresh {
   display: flex;
   align-items: center;
@@ -363,6 +371,8 @@ onUnmounted(() => {
   padding: 4px 10px;
   font-size: 12px;
   height: auto;
+  border-radius: 6px;
+  font-weight: 500;
   transition: all 0.15s ease;
 }
 

@@ -73,15 +73,17 @@ function initialsFor(name: string): string {
         <span class="meta-title">用量与开销统计</span>
         <span v-if="stats" class="meta-pill">涵盖 {{ stats.totalMessages }} 条消息</span>
       </div>
-      <button type="button" class="btn-refresh btn btn-ghost" :disabled="isLoading" title="刷新统计数据"
-        @click="loadStats">
-        <svg class="refresh-icon" :class="{ spinning: isLoading }" viewBox="0 0 24 24" width="13" height="13"
-          fill="none" stroke="currentColor" stroke-width="2">
-          <polyline points="23 4 23 10 17 10" />
-          <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
-        </svg>
-        刷新
-      </button>
+      <div class="subbar-actions">
+        <button type="button" class="btn-refresh btn btn-ghost" :disabled="isLoading" title="刷新统计数据"
+          @click="loadStats">
+          <svg class="refresh-icon" :class="{ spinning: isLoading }" viewBox="0 0 24 24" width="13" height="13"
+            fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="23 4 23 10 17 10" />
+            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+          </svg>
+          刷新
+        </button>
+      </div>
     </div>
 
     <!-- 主体滚动区 -->
@@ -270,6 +272,12 @@ function initialsFor(name: string): string {
   max-width: 140px;
 }
 
+.subbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .btn-refresh {
   display: flex;
   align-items: center;
@@ -277,6 +285,17 @@ function initialsFor(name: string): string {
   padding: 4px 10px;
   font-size: 12px;
   height: auto;
+  border-radius: 6px;
+  font-weight: 500;
+  transition: all 0.15s ease;
+}
+
+.btn-refresh:disabled,
+.btn-refresh[disabled] {
+  opacity: 0.45 !important;
+  cursor: not-allowed !important;
+  color: var(--muted) !important;
+  pointer-events: auto !important;
 }
 
 .refresh-icon.spinning {

@@ -12,10 +12,16 @@ export interface Character {
   name: string;
   /** 头像背景颜色(CSS 颜色) */
   color?: string;
+  /** 头像图片(data URL;SillyTavern 卡片导入的立绘等) */
+  avatar?: string;
   /** 适配器 key(agents.yaml 中 adapters.*) */
   adapter: string;
+  /** 模型档位(如 sonnet/haiku;缺省用适配器默认) */
+  model?: string;
   /** 人设/立场 */
   persona: string;
+  /** 是否启用扩展思考(适配器支持时) */
+  thinking?: boolean;
   /** 可选 CLI 附加参数(如 claude 的 --model sonnet) */
   extraArgs?: string[];
   /** 备注(用户自己看) */

@@ -22,7 +22,7 @@ describe('User Persona & Plan A Invariant Audit', () => {
         }),
         bus,
         { mock: { kind: 'mock', command: 'node', args: [] } },
-        { adapter: 'mock' },
+        { adapter: 'mock', model: 'haiku', allowedTools: 'Read Glob Grep', timeoutMs: 5000, maxRetries: 2 },
         {
           persistRoom: async () => {},
           loadMessages: async () => [],
@@ -61,7 +61,7 @@ describe('User Persona & Plan A Invariant Audit', () => {
         }),
         bus,
         { claude: { kind: 'claude', command: 'node', args: [] } },
-        { adapter: 'claude' },
+        { adapter: 'claude', model: 'haiku', allowedTools: 'Read Glob Grep', timeoutMs: 5000, maxRetries: 2 },
         {
           persistRoom: async () => {},
           loadMessages: async () => savedMessages,

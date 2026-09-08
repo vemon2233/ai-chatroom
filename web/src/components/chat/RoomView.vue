@@ -5,6 +5,7 @@ import { api } from '@/services/api';
 import { initialsFor } from '@/utils/avatar';
 import { streamPlaceholder } from '@/utils/chat';
 import { dialog } from '@/composables/useDialog';
+import { exportChatHistoryMarkdown } from '@/utils/exportMarkdown';
 import ChatHeader from './ChatHeader.vue';
 import MemberBar from './MemberBar.vue';
 import ChatFlow from './ChatFlow.vue';
@@ -64,6 +65,16 @@ async function handleClear() {
   if (!ok) return;
   await clearRoomMessages(room.value.config.id);
 }
+
+function handleExport() {
+  if (!room.value) return;
+  exportChatHistoryMarkdown({
+    title: room.value.config.name,
+    sessionType: 'room',
+    members: room.value.config.members.map((m) => m.name),
+    messages: store.messages,
+  });
+}
 </script>
 
 <template>
@@ -97,6 +108,9 @@ async function handleClear() {
           <button class="btn btn-ghost btn-panel-toggle" :class="{ active: store.activeInspectorTab === 'manage' }"
             type="button" title="管理房间设置与成员" @click="toggleInspector('manage')">
             管理
+          </button>
+          <button class="btn btn-ghost" type="button" title="导出当前房间聊天记录为 Markdown" @click="handleExport">
+            导出
           </button>
           <button class="btn btn-ghost btn-danger" type="button" @click="handleClear">
             清空
