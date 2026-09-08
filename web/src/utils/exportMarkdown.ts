@@ -9,7 +9,7 @@ import { downloadFile } from './download';
 import { t } from '@/i18n';
 
 /** 调度流水消息识别(历史系统消息文本,中英并集——落库已是烘焙后文本) */
-const SCHEDULER_MSG_RE = /把接棒交给|指定.*接棒|宣布讨论结束|把话题交还给了你|passed the baton|declared the discussion closed|handed the topic back|designated .*接棒/i;
+const SCHEDULER_MSG_RE = /把接棒交给|指定.*接棒|宣布讨论结束|把话题交还给了你|passed the baton|declared the discussion closed|handed the topic back|designated .* to pass baton/i;
 
 /** 清洗跨平台非法文件名字符 (Windows/macOS/Linux: \\ / : * ? " < > |) */
 export function sanitizeFileName(name: string, fallback = ''): string {

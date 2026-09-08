@@ -148,7 +148,7 @@ export const api = {
       body: file,
     });
     const j = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error((j as any).error ?? `角色导入失败(${res.status})`);
+    if (!res.ok) throw new Error((j as any).error ?? t('api.requestFailed', { status: res.status }));
     return j as Character;
   },
   importRoom: async (file: File): Promise<{ id: string; state: RoomState }> => {
@@ -158,7 +158,7 @@ export const api = {
       body: file,
     });
     const j = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error((j as any).error ?? `房间导入失败(${res.status})`);
+    if (!res.ok) throw new Error((j as any).error ?? t('api.requestFailed', { status: res.status }));
     return j as { id: string; state: RoomState };
   },
   smartImport: async (
@@ -173,7 +173,7 @@ export const api = {
       body: file,
     });
     const j = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error((j as any).error ?? `导入失败(${res.status})`);
+    if (!res.ok) throw new Error((j as any).error ?? t('api.requestFailed', { status: res.status }));
     return j;
   },
 

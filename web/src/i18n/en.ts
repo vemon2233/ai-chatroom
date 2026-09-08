@@ -1,6 +1,10 @@
-// 前端英文词典:key 集与 zh.ts 严格一致(缺 key 由 missingWarn 开发期告警)。
+import { zh } from './zh';
 
-export const en = {
+type I18nShape<T> = {
+  [K in keyof T]: T[K] extends object ? I18nShape<T[K]> : string;
+};
+
+export const en: I18nShape<typeof zh> = {
   app: {
     title: 'AI Chatroom',
   },
@@ -134,6 +138,7 @@ export const en = {
     memberUnit: '{count} members',
     projectPerm: '{project}({perm})',
     thinkingText: 'Reasoning…',
+    startingText: 'Starting…',
     tabSummary: 'Summary',
     tabStats: 'Stats',
     tabLogs: 'Logs',
@@ -250,7 +255,7 @@ export const en = {
       generateTitleNoNew: 'No new messages; the current summary is up to date',
       generateTitleBusy: 'Generating...',
       generating: 'Generating...',
-      generateSummary: 'Generate Summary',
+      generateSummary: 'Generate',
       refreshTitle: 'Refresh file list',
       refresh: 'Refresh',
       loadingList: 'Loading summary file list...',
@@ -423,6 +428,16 @@ export const en = {
     fileSummaryPrefix: '[Discussion summary]',
     roomSummaryFallback: 'Room discussion summary',
     directSummaryFallback: 'Private chat summary',
+  },
+  color: {
+    indigo: 'Indigo',
+    pink: 'Pink',
+    amber: 'Amber',
+    purple: 'Purple',
+    emerald: 'Emerald',
+    rose: 'Rose',
+    sky: 'Sky Blue',
+    magenta: 'Magenta',
   },
 };
 

@@ -477,9 +477,9 @@ export class DirectChatService {
           ts: res.updatedAt || Date.now(),
           durationMs: res.durationMs ?? 0,
           status: res.status === 'error' ? 'error' : 'ok',
-          trigger: '讨论大纲提炼',
+          trigger: t(this.lang, 'trace.summaryDistill'),
           input: {
-            prompt: '讨论大纲提炼',
+            prompt: t(this.lang, 'trace.summaryDistill'),
           },
           output: {
             result: res.text,

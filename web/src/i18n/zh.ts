@@ -135,6 +135,7 @@ export const zh = {
     memberUnit: '{count} 成员',
     projectPerm: '{project}({perm})',
     thinkingText: '推理中…',
+    startingText: '启动中…',
     tabSummary: '摘要',
     tabStats: '统计',
     tabLogs: '日志',
@@ -424,6 +425,16 @@ export const zh = {
     fileSummaryPrefix: '[讨论摘要]',
     roomSummaryFallback: '房间讨论摘要',
     directSummaryFallback: '私聊讨论摘要',
+  },
+  color: {
+    indigo: '靛蓝',
+    pink: '亮粉',
+    amber: '琥珀',
+    purple: '紫罗兰',
+    emerald: '翠绿',
+    rose: '玫瑰红',
+    sky: '天蓝',
+    magenta: '洋红',
   },
 } as const;
 

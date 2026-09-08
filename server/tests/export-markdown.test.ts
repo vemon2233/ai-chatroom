@@ -128,6 +128,59 @@ describe('Markdown 导出模块 (exportMarkdown)', () => {
     expect(markdown).not.toContain('推理中…');
   });
 
+  it('buildChatHistoryMarkdown: 过滤英文系统调度流水噪点', () => {
+    const fixedNow = new Date('2026-09-08T18:00:00Z').getTime();
+    const messages: ChatMessage[] = [
+      {
+        id: 'm1',
+        roomId: 'r1',
+        from: 'user',
+        fromName: 'User',
+        text: 'What do you think?',
+        ts: fixedNow - 30000,
+      },
+      {
+        id: 'sys_en1',
+        roomId: 'r1',
+        from: 'system',
+        fromName: 'System',
+        text: '🎯 Alice passed the baton to Bob',
+        system: true,
+        ts: fixedNow - 20000,
+      },
+      {
+        id: 'sys_en2',
+        roomId: 'r1',
+        from: 'system',
+        fromName: 'System',
+        text: '⏸ Alice designated Bob to pass baton. Next message from you starts them.',
+        system: true,
+        ts: fixedNow - 10000,
+      },
+      {
+        id: 'sys_en3',
+        roomId: 'r1',
+        from: 'system',
+        fromName: 'System',
+        text: 'Round-robin speech completed.',
+        system: true,
+        ts: fixedNow - 5000,
+      },
+    ];
+
+    const { markdown } = buildChatHistoryMarkdown({
+      title: 'English Room',
+      sessionType: 'room',
+      members: ['Alice', 'Bob'],
+      messages,
+      now: fixedNow,
+    });
+
+    expect(markdown).not.toContain('🎯 Alice passed the baton to Bob');
+    expect(markdown).not.toContain('⏸ Alice designated Bob to pass baton');
+    expect(markdown).toContain('Round-robin speech completed.');
+  });
+
   it('buildSummaryMarkdown: 正确输出大纲及各成员私聊纪要', () => {
     const fixedNow = new Date('2026-09-08T18:00:00Z').getTime();
     const summarySnapshot: DiscussionSummarySnapshot = {

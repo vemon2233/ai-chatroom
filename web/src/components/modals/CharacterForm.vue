@@ -96,7 +96,7 @@ defineExpose({ submit, valid, reset });
           <span class="color-dot" :style="{ background: color }"></span>
           <select v-model="color" class="color-select" :title="t('form.pickAvatarColor')">
             <option v-for="opt in COLOR_OPTIONS" :key="opt.value" :value="opt.value">
-              {{ opt.label }}
+              {{ t('color.' + opt.key) }}
             </option>
           </select>
         </div>

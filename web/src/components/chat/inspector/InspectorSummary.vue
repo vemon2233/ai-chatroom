@@ -313,7 +313,6 @@ onUnmounted(() => {
       <div class="logs-subbar">
         <div class="subbar-meta">
           <span class="meta-title">{{ t('inspector.summary.filesTitle') }}</span>
-          <span class="meta-pill">{{ t('inspector.summary.filesCount', { count: summariesList.length }) }}</span>
         </div>
         <div class="subbar-actions">
           <button

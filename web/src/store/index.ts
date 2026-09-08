@@ -8,6 +8,7 @@ import type { AgentEvent } from '@server/adapters/base';
 import type { AdapterInfo, RoomListItem } from '@/services/api';
 import { api } from '@/services/api';
 import { connectWs } from '@/services/ws';
+import { t } from '@/i18n';
 export interface StreamBuf { text: string; thinking: string }
 
 export interface EditingContext {
@@ -108,7 +109,7 @@ export async function enterRoom(roomId: string): Promise<void> {
   // 权威状态核对与兜底：若成员处于 thinking 或 streaming，确保有缓冲，防止气泡不可见
   for (const [mid, status] of Object.entries(state.statuses)) {
     if (status === 'thinking' || status === 'streaming') {
-      currentBufs[mid] ??= { text: '', thinking: status === 'thinking' ? '推理中…' : '' };
+      currentBufs[mid] ??= { text: '', thinking: status === 'thinking' ? (t('chat.thinkingText') as string) : '' };
     } else {
       delete currentBufs[mid];
     }

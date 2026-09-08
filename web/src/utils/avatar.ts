@@ -11,19 +11,20 @@ export const AVATAR_PALETTE = [
 ] as const;
 
 export interface ColorOption {
+  key: 'indigo' | 'pink' | 'amber' | 'purple' | 'emerald' | 'rose' | 'sky' | 'magenta';
   label: string;
   value: string;
 }
 
 export const COLOR_OPTIONS: ColorOption[] = [
-  { label: '靛蓝', value: '#5B6AFF' },
-  { label: '亮粉', value: '#EC4899' },
-  { label: '琥珀', value: '#F59E0B' },
-  { label: '紫罗兰', value: '#8B5CF6' },
-  { label: '翠绿', value: '#10B981' },
-  { label: '玫瑰红', value: '#F43F5E' },
-  { label: '天蓝', value: '#0EA5E9' },
-  { label: '洋红', value: '#D946EF' },
+  { key: 'indigo', label: '靛蓝', value: '#5B6AFF' },
+  { key: 'pink', label: '亮粉', value: '#EC4899' },
+  { key: 'amber', label: '琥珀', value: '#F59E0B' },
+  { key: 'purple', label: '紫罗兰', value: '#8B5CF6' },
+  { key: 'emerald', label: '翠绿', value: '#10B981' },
+  { key: 'rose', label: '玫瑰红', value: '#F43F5E' },
+  { key: 'sky', label: '天蓝', value: '#0EA5E9' },
+  { key: 'magenta', label: '洋红', value: '#D946EF' },
 ];
 
 export function initialsFor(name: string): string {

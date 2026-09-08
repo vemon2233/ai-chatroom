@@ -192,7 +192,7 @@ async function onEdit() {
 }
 
 const hasCustomUserPersona = computed(() =>
-  isMe.value && !!props.msg.fromName && props.msg.fromName !== '用户'
+  isMe.value && !!props.msg.fromName && !USER_NAME_ALIASES.includes(props.msg.fromName.toLowerCase())
 );
 
 const avatarBg = computed(() => {
