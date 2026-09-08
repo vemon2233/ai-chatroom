@@ -12,7 +12,6 @@ import { matchMemberByName } from '../../naming';
 import { PrivateChatProtocol } from './protocol';
 import { buildHeartbeatPrompt, isSilentDecision } from './prompt';
 import { publishSpeechResult } from './publish';
-import { saveTrace } from '../../../store/trace';
 
 /** 心跳调用素材(供首气泡落一份完整 Trace;由 orchestrator.speak 回调返回) */
 export interface HeartbeatInvocation {
@@ -52,6 +51,8 @@ export interface SubscribeEngineDeps {
   onIdle: () => void;
   /** 获取当前讨论上下文摘要(供心跳注入长程记忆) */
   getSummaryContext?: () => { summary?: import('../../types').DiscussionSummary | null };
+  /** Trace 落库接缝(未注入时跳过——测试场景) */
+  saveTrace?: (scope: 'room' | 'direct', id: string, trace: AgentTraceLog) => Promise<void>;
 }
 
 
@@ -410,7 +411,7 @@ export class SubscribeEngine {
             usage: outcome.usage,
           },
         };
-        void saveTrace('room', room.id, traceLog);
+        void this.deps.saveTrace?.('room', room.id, traceLog);
       }
     } finally {
       this.isSpeaking = false;

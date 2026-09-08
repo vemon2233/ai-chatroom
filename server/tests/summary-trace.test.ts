@@ -228,6 +228,7 @@ describe('B2 讨论摘要与 Agent Trace 持久化测试', () => {
       persistRoom: async () => {},
       runScout: async () => null,
       pushAgentEvent: () => {},
+      saveTrace, // 接缝注入真实 store 实现(隔离目录,验证落盘)
     });
 
     // 模拟运行单次发言

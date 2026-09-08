@@ -1,4 +1,5 @@
 import type { ChatMessage } from './types';
+import { inferHandshakeFromText } from './modes/subscribe/audience';
 
 /**
  * 截断指定消息之后的所有后续消息(保留目标消息本身，后续消息全部清除)
@@ -50,4 +51,39 @@ export function prepareEdit(
     isUser: target.from === 'user',
     updatedTarget: target,
   };
+}
+
+/**
+ * 历史旧消息兼容补齐: 给缺少 privateRound / handshake 的存量私聊消息推算字段。
+ * 数据迁移逻辑归 core(读领域模型、写领域字段);store 只返回原始 parse 结果。
+ * - privateRound: 同一消息对(pair)按出现顺序分配连续编号(已有编号则沿用并推进序列)
+ * - handshake/privateAction: 无显式标签时按语气语义推算(inferHandshakeFromText)
+ */
+export function backfillHandshake(messages: ChatMessage[]): ChatMessage[] {
+  let threadSeq = 0;
+  const pairThreadMap = new Map<string, number>();
+  for (const m of messages) {
+    if (m.audience && m.audience.length > 0) {
+      const pairKey = [m.from, ...m.audience].sort().join(':');
+      if (m.privateRound == null) {
+        if (!pairThreadMap.has(pairKey)) {
+          threadSeq++;
+          pairThreadMap.set(pairKey, threadSeq);
+        }
+        m.privateRound = pairThreadMap.get(pairKey)!;
+      } else {
+        pairThreadMap.set(pairKey, m.privateRound);
+        if (m.privateRound > threadSeq) threadSeq = m.privateRound;
+      }
+
+      if (!m.handshake && !m.privateAction) {
+        const inferred = inferHandshakeFromText(m.text);
+        if (inferred) {
+          m.handshake = inferred;
+          m.privateAction = inferred;
+        }
+      }
+    }
+  }
+  return messages;
 }

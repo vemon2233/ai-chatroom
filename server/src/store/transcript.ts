@@ -1,10 +1,12 @@
 // 聊天记录持久化:每房间一个 JSONL 文件,追加写入,重开可回放。
+// 本层纯存储:读文件 → JSON parse → 返回原始消息。
+// 存量私聊消息的 privateRound/handshake 兼容推算是领域规则,
+// 归 core/historyOps.backfillHandshake(由 ChatRoom.restore 应用)——store 不 import core。
 
 import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import type { ChatMessage } from '../core/types';
-import { inferHandshakeFromText } from '../core/modes/subscribe/audience';
 import { REPO_ROOT } from '../paths';
 
 const DATA_DIR = path.join(REPO_ROOT, 'data', 'rooms');
@@ -38,35 +40,6 @@ export async function loadRoomMessages(roomId: string): Promise<ChatMessage[]> {
       // 损坏行跳过(进程被杀时可能的半行)
     }
   }
-
-  // 针对历史旧消息: 兼容推算补齐缺少 privateRound / handshake 的私聊消息
-  let threadSeq = 0;
-  const pairThreadMap = new Map<string, number>();
-  for (const m of out) {
-    if (m.audience && m.audience.length > 0) {
-      const pairKey = [m.from, ...m.audience].sort().join(':');
-      if (m.privateRound == null) {
-        if (!pairThreadMap.has(pairKey)) {
-          threadSeq++;
-          pairThreadMap.set(pairKey, threadSeq);
-        }
-        m.privateRound = pairThreadMap.get(pairKey)!;
-      } else {
-        pairThreadMap.set(pairKey, m.privateRound);
-        if (m.privateRound > threadSeq) threadSeq = m.privateRound;
-      }
-
-      // 若历史消息缺少 handshake/privateAction，智能语义兜底推算
-      if (!m.handshake && !m.privateAction) {
-        const inferred = inferHandshakeFromText(m.text);
-        if (inferred) {
-          m.handshake = inferred;
-          m.privateAction = inferred;
-        }
-      }
-    }
-  }
-
   return out;
 }
 

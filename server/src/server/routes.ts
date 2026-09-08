@@ -3,15 +3,33 @@ import { existsSync } from 'node:fs';
 import { ChatRoom, makeRoomConfig, type CreateRoomInput } from '../core/room';
 import type { MessageBus } from '../core/bus';
 import { deleteRoom, persistRoom } from '../store/rooms';
-import { loadRoomMessages, rewriteRoomMessages } from '../store/transcript';
+import { appendMessage, loadRoomMessages, rewriteRoomMessages } from '../store/transcript';
 import { CharacterStore } from '../store/characters';
 import { DirectChatService } from '../core/direct';
 import { getAdapter as getAdapterByKind } from '../adapters/index';
 import { Admin } from '../core/admin';
-import { getTrace, listTraces, computeSessionStats } from '../store/trace';
-import { listSummarySnapshots, getSummarySnapshot } from '../store/summary';
+import { getTrace, listTraces, computeSessionStats, saveTrace } from '../store/trace';
+import { listSummarySnapshots, getSummarySnapshot, getSummary, saveSummarySnapshot } from '../store/summary';
+import {
+  appendDirectMessage,
+  loadDirectMessages,
+  rewriteDirectMessages,
+  resetDirectChat,
+  deleteDirectChat,
+} from '../store/directChats';
 import type { Character, RoomSettings } from '../core/types';
 import type { AdapterConfig, AppConfig } from './config';
+
+/** core 窄接口的 store 实现(server 层装配——core 不 import store,依赖单向) */
+const summaryStore = { getSummary, saveSummarySnapshot };
+const traceStore = { saveTrace };
+const directChatStore = {
+  appendDirectMessage,
+  loadDirectMessages,
+  rewriteDirectMessages,
+  resetDirectChat,
+  deleteDirectChat,
+};
 
 function readBody(req: IncomingMessage): Promise<any> {
   return new Promise((resolve, reject) => {
@@ -60,6 +78,9 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
       return getAdapterByKind(entry.kind);
     },
     admin: adminInstance,
+    store: directChatStore,
+    summaryStore,
+    traceStore,
   });
 
   return {
@@ -295,8 +316,10 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
             loadMessages: (roomId: string) => loadRoomMessages(roomId),
             rewriteMessages: (roomId: string, messages: import('../core/types').ChatMessage[]) =>
               rewriteRoomMessages(roomId, messages),
+            appendMessage,
           },
           cfg.summary,
+          { summaryStore, traceStore },
         );
         rooms.set(room.id, room);
         await persistRoom(rcfg);
@@ -318,9 +341,9 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
           return json(res, 200, room!.getState());
         }
 
-        // 历史消息(持久化读取,支持重启后回看)
+        // 历史消息(房间运行态内存权威源——restore 时已 backfill;已删房间降级读磁盘 JSONL 供回看)
         if (sub === 'messages' && method === 'GET') {
-          const msgs = await loadRoomMessages(roomId);
+          const msgs = room ? room.history : await loadRoomMessages(roomId);
           return json(res, 200, msgs);
         }
 

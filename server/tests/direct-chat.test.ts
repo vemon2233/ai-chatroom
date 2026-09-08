@@ -1,12 +1,28 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { DirectChatService } from '../src/core/direct';
+import { DirectChatService, type DirectChatStore } from '../src/core/direct';
 import { MessageBus } from '../src/core/bus';
-import type { Character } from '../src/core/types';
+import type { ChatMessage, Character } from '../src/core/types';
 import type { AgentAdapter, SpeakOutcome } from '../src/adapters/base';
+
+/** 内存 fake store(接缝注入——单测不触磁盘) */
+function makeMemoryStore(): DirectChatStore & { clear(): void } {
+  const db = new Map<string, ChatMessage[]>();
+  return {
+    clear: () => db.clear(),
+    appendDirectMessage: async (id, msg) => {
+      (db.get(id) ?? db.set(id, []).get(id)!).push(msg);
+    },
+    loadDirectMessages: async (id) => [...(db.get(id) ?? [])],
+    rewriteDirectMessages: async (id, msgs) => { db.set(id, [...msgs]); },
+    resetDirectChat: async (id) => { db.set(id, []); },
+    deleteDirectChat: async (id) => { db.delete(id); },
+  };
+}
 
 describe('DirectChatService: 角色专属 1v1 私聊', () => {
   const bus = new MessageBus();
   const testCharId = 'char-test-unit-1';
+  const memStore = makeMemoryStore();
 
   const mockAdapter: AgentAdapter = {
     speak(req, onEvent) {
@@ -34,6 +50,7 @@ describe('DirectChatService: 角色专属 1v1 私聊', () => {
     bus,
     adapterConfigs,
     resolveAdapter: () => mockAdapter,
+    store: memStore,
   });
 
   const testChar: Character = {

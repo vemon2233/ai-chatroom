@@ -5,13 +5,11 @@
 import { randomUUID } from 'node:crypto';
 import type { MessageBus } from './bus';
 import { Orchestrator } from './orchestrator';
-import { Admin, type AdminConfig, type ScoutConfig } from './admin';
+import { Admin, type AdminConfig } from './admin';
 import { MEMBER_PALETTE } from './palette';
 import type { ChatMessage, DiscussionSummary, MemberConfig, RoomConfig, RoomSettings, RoomState, SummaryConfig } from './types';
 import { getAdapter as getAdapterByKind } from '../adapters/index';
-import { truncateMessages, prepareReroll, prepareEdit } from './historyOps';
-import { getSummary, saveSummarySnapshot } from '../store/summary';
-import { saveTrace } from '../store/trace';
+import { truncateMessages, prepareReroll, prepareEdit, backfillHandshake } from './historyOps';
 import type { AgentTraceLog } from './types';
 import {
   countUncoveredPublic,
@@ -20,7 +18,10 @@ import {
   executePrivateDigest,
 } from './summaryOps';
 
-/** ChatRoom 的持久化接缝(构造注入,core 层不 import store——依赖保持单向:server→core→adapters)。 */
+/**
+ * 持久化/落库窄接口(构造注入,server 层装配;core 不 import store——依赖单向)。
+ * 按"谁消费谁声明"切窄:房间需要消息接缝 + 摘要接缝 + trace 接缝。
+ */
 export interface RoomPersistence {
   /** rooms.json 写穿(config 全量替换该 entry) */
   persistRoom(cfg: RoomConfig): Promise<void>;
@@ -28,6 +29,24 @@ export interface RoomPersistence {
   loadMessages(roomId: string): Promise<ChatMessage[]>;
   /** JSONL 历史全量重写(截断/编辑/回溯) */
   rewriteMessages(roomId: string, messages: ChatMessage[]): Promise<void>;
+  /** JSONL 消息追加(单条落库) */
+  appendMessage(msg: ChatMessage): Promise<void>;
+}
+
+/** 摘要快照存取接缝(公聊摘要与私聊纪要共用落盘通道) */
+export interface SummaryStorePort {
+  getSummary(scope: 'room' | 'direct', id: string): Promise<DiscussionSummary | null>;
+  saveSummarySnapshot(
+    scope: 'room' | 'direct',
+    id: string,
+    summary: DiscussionSummary,
+    trigger: 'auto' | 'manual',
+  ): Promise<{ id: string }>;
+}
+
+/** Trace 落库接缝(完整调用日志) */
+export interface TraceStorePort {
+  saveTrace(scope: 'room' | 'direct', id: string, trace: AgentTraceLog): Promise<void>;
 }
 
 export interface CreateRoomInput {
@@ -54,6 +73,22 @@ export class ChatRoom {
   private summaryCfg: SummaryConfig;
   private adapterConfigs: Record<string, { kind: string; command: string; args: string[] }>;
   private privateDigestRunning = new Set<string>();
+  /** store 窄接口(摘要快照/trace;server 装配注入) */
+  private ports: { summaryStore?: SummaryStorePort; traceStore?: TraceStorePort };
+
+  private get summaryStore(): SummaryStorePort {
+    // 未注入时降级为空实现(trace/快照落盘跳过,消息链路不受影响——纯内存运行/测试场景)
+    return this.ports.summaryStore ?? {
+      getSummary: async () => null,
+      saveSummarySnapshot: async () => ({ id: `noop_${Date.now()}` }),
+    };
+  }
+
+  private get traceStore(): TraceStorePort {
+    return this.ports.traceStore ?? {
+      saveTrace: async () => {},
+    };
+  }
 
   constructor(
     cfg: RoomConfig,
@@ -62,10 +97,15 @@ export class ChatRoom {
     adminCfg: AdminConfig,
     private persistence: RoomPersistence,
     summaryCfg?: SummaryConfig,
+    ports?: {
+      summaryStore?: SummaryStorePort;
+      traceStore?: TraceStorePort;
+    },
   ) {
     this.config = cfg;
     this.adapterConfigs = adapterConfigs;
     this.adminCfg = adminCfg;
+    this.ports = ports ?? {};
     this.summaryCfg = summaryCfg ?? {
       model: 'haiku',
       autoThreshold: 30,
@@ -120,27 +160,28 @@ export class ChatRoom {
               usage: (report.detail as any)?.usage,
             },
           };
-          void saveTrace('room', this.config.id, traceLog);
+          void this.traceStore.saveTrace('room', this.config.id, traceLog);
         }
         return report;
       },
       getHistory: () => this.messages,
       pushAgentEvent: (ev) => this.bus.emitAgentEvent(this.config.id, ev),
       getSummary: () => this.currentSummary,
+      saveTrace: (scope, id, traceLog) => this.traceStore.saveTrace(scope, id, traceLog),
       summaryCfg: this.summaryCfg,
     });
   }
 
   /** 从持久化恢复历史和摘要(服务重启后,listen 前 await)。 */
   async restore(): Promise<void> {
-    this.messages = await this.persistence.loadMessages(this.config.id);
-    this.currentSummary = await getSummary('room', this.config.id);
+    this.messages = backfillHandshake(await this.persistence.loadMessages(this.config.id));
+    this.currentSummary = await this.summaryStore.getSummary('room', this.config.id);
   }
 
   /** 获取当前讨论摘要 */
   async getSummary(): Promise<DiscussionSummary | null> {
     if (!this.currentSummary) {
-      this.currentSummary = await getSummary('room', this.config.id);
+      this.currentSummary = await this.summaryStore.getSummary('room', this.config.id);
     }
     return this.currentSummary;
   }
@@ -172,7 +213,7 @@ export class ChatRoom {
         ? { ...base, ...sum, privateDigests: base.privateDigests }
         : sum;
       this.currentSummary = merged;
-      const snap = await saveSummarySnapshot('room', this.config.id, merged, trigger);
+      const snap = await this.summaryStore.saveSummarySnapshot('room', this.config.id, merged, trigger);
       this.bus.emitRoomSummary(this.config.id, merged);
 
       if (sum.usage) {
@@ -194,7 +235,7 @@ export class ChatRoom {
             usage: sum.usage,
           },
         };
-        void saveTrace('room', this.config.id, traceLog);
+        void this.traceStore.saveTrace('room', this.config.id, traceLog);
       }
       return merged;
     });
@@ -279,7 +320,11 @@ export class ChatRoom {
   private async pushMessage(msg: ChatMessage) {
     this.messages.push(msg);
     this.orch.noteMessageForCompact(msg); // stateful compact 计数唯一收口(用户/agent/心跳消息全覆盖)
-    await this.bus.emitMessage(msg);
+    // 先落库后广播;落库失败不拦广播(实时体验优先——重启少一条历史 < 用户当场丢消息)
+    await this.persistence
+      .appendMessage(msg)
+      .catch((e) => console.error(`[room] 消息落库失败 room=${msg.roomId}:`, e));
+    this.bus.broadcastMessage(msg);
     void this.maybeAutoSummarize(msg);
   }
 
@@ -373,7 +418,7 @@ export class ChatRoom {
               usage: digest.usage,
             },
           };
-          void saveTrace('room', this.config.id, traceLog);
+          void this.traceStore.saveTrace('room', this.config.id, traceLog);
         }
 
         // 合并进链:只覆写该成员的纪要槽位,其余槽位(公聊摘要 text/他人纪要)保留最新
@@ -391,7 +436,7 @@ export class ChatRoom {
             },
           };
           this.currentSummary = merged;
-          await saveSummarySnapshot('room', this.config.id, merged, 'auto');
+          await this.summaryStore.saveSummarySnapshot('room', this.config.id, merged, 'auto');
           this.bus.emitRoomSummary(this.config.id, merged);
         });
       }

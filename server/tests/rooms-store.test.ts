@@ -112,6 +112,7 @@ describe('rooms store', () => {
       persistRoom: (c: any) => store.persistRoom(c),
       loadMessages: async () => [],
       rewriteMessages: async () => {},
+      appendMessage: async () => {},
     };
     const room = new ChatRoom(
       roomConfig,

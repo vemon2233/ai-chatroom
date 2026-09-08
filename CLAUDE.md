@@ -56,11 +56,14 @@ server/src/
                          direct_chats/*.jsonl、summaries/(快照)、traces/(完整调用日志))
 ```
 
-**依赖方向实况**(与旧文档不同,以此为准):core 目前直接 import store 的
-trace/summary/directChats/transcript 落库函数(saveTrace/getSummary/saveSummarySnapshot 等),
-store 的 transcript 反向引用 core 的握手推算——**层间存在双向渗透,尚未收口**。
-计划中的 StoragePorts 接缝重构(批次 4)将恢复单向;在那之前,改动这些文件时
-务必同时核对两个方向的调用点。
+**依赖方向**(严格单向:server→core→adapters;store 只被 server 引用):
+core 经构造注入的窄接口访问持久化——`RoomPersistence`(含 appendMessage)、
+`SummaryStorePort`/`TraceStorePort`(room.ts 定义,direct 复用)、`DirectChatStore`
+(direct.ts 定义),server 层装配时把 store 实现注入(core 零 store import,已用 grep 验证)。
+store 仅保留对 core/types 的 type-only 引用(领域类型无运行时耦合)。
+bus 是纯广播传输层(不落库);落库由 ChatRoom/DirectChat 在调 bus 前经各自接缝完成,
+落库失败不拦广播。**契约防线:改 core 时严禁 import '../store'**(eslint 未引入,
+以本条文字契约为准;引入 lint 工具链是独立立项决策)。
 
 ```
 web/src/

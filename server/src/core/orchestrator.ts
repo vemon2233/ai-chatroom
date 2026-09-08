@@ -30,7 +30,6 @@ import { parseBaton, stripBatonLine } from './modes/baton/baton';
 import { stripAudienceLine } from './modes/subscribe/audience';
 import { publishSpeechResult } from './modes/subscribe/publish';
 import { SubscribeEngine } from './modes/subscribe/engine';
-import { saveTrace } from '../store/trace';
 import type { AgentAdapter, AgentEvent, SpeakOutcome } from '../adapters/base';
 import type {
   AgentTraceLog,
@@ -69,6 +68,8 @@ export interface OrchestratorDeps {
   getSummary?: () => DiscussionSummary | null;
   /** 压缩层配置(autoThreshold, privateThreshold, compactThreshold) */
   summaryCfg?: SummaryConfig;
+  /** Trace 落库接缝(未注入时跳过——测试场景) */
+  saveTrace?: (scope: 'room' | 'direct', id: string, trace: AgentTraceLog) => Promise<void>;
 }
 
 
@@ -120,6 +121,7 @@ export class Orchestrator {
       getRoom: () => this.deps.room,
       getHistory: () => this.historySnapshot(),
       getSummaryContext: () => ({ summary: this.deps.getSummary?.() ?? null }),
+      saveTrace: this.deps.saveTrace,
       speak: async (member, prompt) => {
         try {
           const contextMode = this.deps.room.contextMode ?? 'stateless';
@@ -611,7 +613,7 @@ export class Orchestrator {
           usage,
         },
       };
-      void saveTrace('room', this.deps.room.id, traceLog);
+      void this.deps.saveTrace?.('room', this.deps.room.id, traceLog);
     };
 
     switch (outcome.status) {

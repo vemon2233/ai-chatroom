@@ -66,6 +66,7 @@ async function makeRoom(speakImpl: (req: SpeakRequest) => Promise<{ status: 'ok'
       persistRoom: async () => {},
       loadMessages: async () => [],
       rewriteMessages: async () => {},
+      appendMessage: async () => {},
     },
     { model: 'haiku', autoThreshold: 1, privateThreshold: 1, compactThreshold: 0 },
   );

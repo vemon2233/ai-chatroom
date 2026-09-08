@@ -110,6 +110,18 @@ describe('双上下文模式 (Dual Context Mode) 单元测试', () => {
     const charId = 'test-char-ctx';
     let capturedRequests: any[] = [];
 
+    /** 内存 fake store(接缝注入——单测不触磁盘) */
+    const memStore: import('../src/core/direct').DirectChatStore = (() => {
+      const db = new Map<string, import('../src/core/types').ChatMessage[]>();
+      return {
+        appendDirectMessage: async (id, msg) => { (db.get(id) ?? db.set(id, []).get(id)!).push(msg); },
+        loadDirectMessages: async (id) => [...(db.get(id) ?? [])],
+        rewriteDirectMessages: async (id, msgs) => { db.set(id, [...msgs]); },
+        resetDirectChat: async (id) => { db.set(id, []); },
+        deleteDirectChat: async (id) => { db.delete(id); },
+      };
+    })();
+
     const mockAdapter: AgentAdapter = {
       speak(req, onEvent) {
         capturedRequests.push(req);
@@ -128,6 +140,7 @@ describe('双上下文模式 (Dual Context Mode) 单元测试', () => {
       bus,
       adapterConfigs: { mock: { kind: 'mock', command: 'mock', args: [] } },
       resolveAdapter: () => mockAdapter,
+      store: memStore,
     });
 
     const testChar: Character = {

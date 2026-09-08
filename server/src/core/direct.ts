@@ -5,24 +5,28 @@ import type { MessageBus } from './bus';
 import { extractDeltaMessages } from './prompt';
 import { historyText } from './render';
 import { isPublicSummaryUsable, splitHistoryByAnchor } from './summaryOps';
-
-import {
-  appendDirectMessage,
-  loadDirectMessages,
-  rewriteDirectMessages,
-  resetDirectChat,
-  deleteDirectChat,
-} from '../store/directChats';
 import { truncateMessages, prepareReroll, prepareEdit } from './historyOps';
-import { saveTrace } from '../store/trace';
-import { getSummary, saveSummarySnapshot } from '../store/summary';
 import type { Admin } from './admin';
+import type { SummaryStorePort, TraceStorePort } from './room';
+
+/** direct 私聊的持久化窄接口(JSONL 五件,server 装配注入) */
+export interface DirectChatStore {
+  appendDirectMessage(characterId: string, msg: ChatMessage): Promise<void>;
+  loadDirectMessages(characterId: string): Promise<ChatMessage[]>;
+  rewriteDirectMessages(characterId: string, messages: ChatMessage[]): Promise<void>;
+  resetDirectChat(characterId: string): Promise<void>;
+  deleteDirectChat(characterId: string): Promise<void>;
+}
 
 export interface DirectChatServiceDeps {
   bus: MessageBus;
   adapterConfigs: Record<string, { kind: string; command: string; args: string[] }>;
   resolveAdapter: (adapterKey: string) => AgentAdapter;
   admin?: Admin;
+  /** store 窄接口(未注入时空实现降级——消息链路不受影响,测试场景) */
+  store?: DirectChatStore;
+  summaryStore?: SummaryStorePort;
+  traceStore?: TraceStorePort;
 }
 
 interface ActiveDirectRun {
@@ -30,8 +34,22 @@ interface ActiveDirectRun {
   done: Promise<any>;
 }
 
+/** direct 私聊 store 空实现(未注入时降级) */
+const noopStore: DirectChatStore = {
+  appendDirectMessage: async () => {},
+  loadDirectMessages: async () => [],
+  rewriteDirectMessages: async () => {},
+  resetDirectChat: async () => {},
+  deleteDirectChat: async () => {},
+};
+
 export class DirectChatService {
   private activeRuns = new Map<string, ActiveDirectRun>();
+  private get store(): DirectChatStore { return this.deps.store ?? noopStore; }
+  private get summaryStore(): SummaryStorePort {
+    return this.deps.summaryStore ?? { getSummary: async () => null, saveSummarySnapshot: async () => ({ id: `noop_${Date.now()}` }) };
+  }
+  private get traceStore(): TraceStorePort { return this.deps.traceStore ?? { saveTrace: async () => {} }; }
   private sessionIds = new Map<string, string>(); // characterId -> CLI session id
   private contextModes = new Map<string, ContextMode>(); // characterId -> ContextMode
   private lastSeenMessageIds = new Map<string, string>(); // characterId -> lastSeenMessageId
@@ -40,14 +58,14 @@ export class DirectChatService {
   constructor(private deps: DirectChatServiceDeps) {}
 
   async getMessages(characterId: string): Promise<ChatMessage[]> {
-    return await loadDirectMessages(characterId);
+    return await this.store.loadDirectMessages(characterId);
   }
 
   async reset(characterId: string): Promise<void> {
     this.stop(characterId);
     this.sessionIds.delete(characterId);
     this.lastSeenMessageIds.delete(characterId);
-    await resetDirectChat(characterId);
+    await this.store.resetDirectChat(characterId);
     this.deps.bus.emitDirectReset(characterId);
   }
 
@@ -55,7 +73,7 @@ export class DirectChatService {
     this.stop(characterId);
     this.sessionIds.delete(characterId);
     this.lastSeenMessageIds.delete(characterId);
-    await deleteDirectChat(characterId);
+    await this.store.deleteDirectChat(characterId);
   }
 
   stop(characterId: string): void {
@@ -89,9 +107,9 @@ export class DirectChatService {
     this.stop(characterId);
     this.sessionIds.delete(characterId);
     this.lastSeenMessageIds.delete(characterId);
-    const msgs = await loadDirectMessages(characterId);
+    const msgs = await this.store.loadDirectMessages(characterId);
     const remaining = truncateMessages(msgs, messageId);
-    await rewriteDirectMessages(characterId, remaining);
+    await this.store.rewriteDirectMessages(characterId, remaining);
     this.deps.bus.emitDirectMessages(characterId, remaining);
     return remaining;
   }
@@ -110,9 +128,9 @@ export class DirectChatService {
   async reroll(character: Character, messageId: string): Promise<void> {
     this.stop(character.id);
     this.sessionIds.delete(character.id);
-    const msgs = await loadDirectMessages(character.id);
+    const msgs = await this.store.loadDirectMessages(character.id);
     const { remaining } = prepareReroll(msgs, messageId);
-    await rewriteDirectMessages(character.id, remaining);
+    await this.store.rewriteDirectMessages(character.id, remaining);
     this.deps.bus.emitDirectMessages(character.id, remaining);
     void this.generateReply(character, remaining);
   }
@@ -120,9 +138,9 @@ export class DirectChatService {
   /** 保存编辑:更新消息文本,若是用户发言则重置 session 并重新触发角色回答 */
   async saveEdit(character: Character, messageId: string, newText: string): Promise<void> {
     this.stop(character.id);
-    const msgs = await loadDirectMessages(character.id);
+    const msgs = await this.store.loadDirectMessages(character.id);
     const { remaining, isUser } = prepareEdit(msgs, messageId, newText);
-    await rewriteDirectMessages(character.id, remaining);
+    await this.store.rewriteDirectMessages(character.id, remaining);
     this.deps.bus.emitDirectMessages(character.id, remaining);
     if (isUser) {
       this.sessionIds.delete(character.id);
@@ -142,10 +160,10 @@ export class DirectChatService {
       text: userText,
       ts: Date.now(),
     };
-    await appendDirectMessage(character.id, userMsg);
+    await this.store.appendDirectMessage(character.id, userMsg);
     this.deps.bus.emitDirectMessage(character.id, userMsg);
 
-    const history = await loadDirectMessages(character.id);
+    const history = await this.store.loadDirectMessages(character.id);
     void this.generateReply(character, history);
   }
 
@@ -164,7 +182,7 @@ export class DirectChatService {
           ts: Date.now(),
           system: true,
         };
-        await appendDirectMessage(character.id, sysMsg);
+        await this.store.appendDirectMessage(character.id, sysMsg);
         this.deps.bus.emitDirectMessage(character.id, sysMsg);
         return;
       }
@@ -262,7 +280,7 @@ export class DirectChatService {
             usage,
           },
         };
-        void saveTrace('direct', character.id, traceLog);
+        void this.traceStore.saveTrace('direct', character.id, traceLog);
       };
 
       if (outcome.status === 'cancelled') {
@@ -288,7 +306,7 @@ export class DirectChatService {
             hasTrace: true,
           },
         };
-        await appendDirectMessage(character.id, cancelledMsg);
+        await this.store.appendDirectMessage(character.id, cancelledMsg);
         this.deps.bus.emitDirectMessage(character.id, cancelledMsg);
         return;
       }
@@ -307,7 +325,7 @@ export class DirectChatService {
           ts: Date.now(),
           system: true,
         };
-        await appendDirectMessage(character.id, errMsg);
+        await this.store.appendDirectMessage(character.id, errMsg);
         this.deps.bus.emitDirectMessage(character.id, errMsg);
         return;
       }
@@ -332,7 +350,7 @@ export class DirectChatService {
             hasTrace: true,
           },
         };
-        await appendDirectMessage(character.id, botMsg);
+        await this.store.appendDirectMessage(character.id, botMsg);
         this.deps.bus.emitDirectMessage(character.id, botMsg);
         this.lastSeenMessageIds.set(character.id, msgId);
     })();
@@ -349,7 +367,7 @@ export class DirectChatService {
     if (this.summaries.has(characterId)) {
       return this.summaries.get(characterId)!;
     }
-    const sum = await getSummary('direct', characterId);
+    const sum = await this.summaryStore.getSummary('direct', characterId);
     if (sum) this.summaries.set(characterId, sum);
     return sum;
   }
@@ -378,7 +396,7 @@ export class DirectChatService {
 
   async refreshSummary(characterId: string, character: Character): Promise<DiscussionSummary | null> {
     if (!this.deps.admin) return null;
-    const msgs = await loadDirectMessages(characterId);
+    const msgs = await this.store.loadDirectMessages(characterId);
     const prev = await this.getSummary(characterId);
     const valid = msgs.filter((m) => !m.system && !!m.text?.trim());
     if (prev?.text && prev.coveredMessageId && valid.length > 0) {
@@ -393,7 +411,7 @@ export class DirectChatService {
       prevSummary: prev,
     });
     if (res && res.text) {
-      await saveSummarySnapshot('direct', characterId, res, 'manual');
+      await this.summaryStore.saveSummarySnapshot('direct', characterId, res, 'manual');
       this.summaries.set(characterId, res);
       this.deps.bus.emitDirectSummary(characterId, res);
     }

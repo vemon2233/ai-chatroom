@@ -12,7 +12,9 @@ import { REPO_ROOT } from '../paths';
 import { MessageBus } from '../core/bus';
 import { ChatRoom } from '../core/room';
 import { loadAllRooms, persistRoom } from '../store/rooms';
-import { loadRoomMessages, rewriteRoomMessages } from '../store/transcript';
+import { appendMessage, loadRoomMessages, rewriteRoomMessages } from '../store/transcript';
+import { getSummary, saveSummarySnapshot } from '../store/summary';
+import { saveTrace } from '../store/trace';
 import { createRoutes } from './routes';
 import { setupWs } from './ws';
 
@@ -22,6 +24,11 @@ const roomPersistence = {
   loadMessages: (roomId: string) => loadRoomMessages(roomId),
   rewriteMessages: (roomId: string, messages: import('../core/types').ChatMessage[]) =>
     rewriteRoomMessages(roomId, messages),
+  appendMessage,
+};
+const ports = {
+  summaryStore: { getSummary, saveSummarySnapshot },
+  traceStore: { saveTrace },
 };
 
 const MIME: Record<string, string> = {
@@ -42,7 +49,7 @@ async function main() {
   const persisted = await loadAllRooms();
   for (const rcfg of persisted) {
     // 适配器被删的角色:成员保留,首次发言时报错并提示(不阻塞复活)
-    const room = new ChatRoom(rcfg, bus, cfg.adapters, cfg.admin, roomPersistence, cfg.summary);
+    const room = new ChatRoom(rcfg, bus, cfg.adapters, cfg.admin, roomPersistence, cfg.summary, ports);
     await room.restore(); // JSONL 历史进内存(listen 前完成)
     rooms.set(room.id, room);
   }

@@ -1,10 +1,10 @@
-// MessageBus:房间内消息路由 + WebSocket 广播 + JSONL 持久化。
-// 服务器全局唯一;编排器经它收发,前端经 ws 收实时事件。
+// MessageBus:纯广播传输层(房间内消息路由 + WebSocket 推送)。
+// 服务器全局唯一;不持有任何持久化依赖——落库由调用方(ChatRoom/DirectChat)
+// 经各自注入的 store 接缝完成,总线只管把已定稿的消息推给前端。
 
 import type { WebSocket } from 'ws';
 import type { AgentEvent } from '../adapters/base';
 import type { ChatMessage, RoomState } from './types';
-import { appendMessage } from '../store/transcript';
 
 /** 推送给前端的事件包 */
 export type WsEvent =
@@ -37,11 +37,8 @@ export class MessageBus {
     }
   }
 
-  /** 成员/用户的一条聊天消息:持久化 + 广播。 */
-  async emitMessage(msg: ChatMessage) {
-    await appendMessage(msg).catch((e) =>
-      console.error(`[bus] 持久化失败 room=${msg.roomId}:`, e),
-    );
+  /** 广播一条聊天消息(落库由调用方先行完成;本层纯传输) */
+  broadcastMessage(msg: ChatMessage) {
     this.broadcast({ type: 'message', message: msg });
   }
 
