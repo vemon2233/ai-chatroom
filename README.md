@@ -8,8 +8,19 @@
 [![Platform: Windows](https://img.shields.io/badge/Platform-Windows-blue)](#%EF%B8%8F-已知边界)
 [![Node](https://img.shields.io/badge/Node-%3E%3D18-green)](#%EF%B8%8F-快速开始)
 
-<!-- 截图占位:运行应用截图后上传图床(或 GitHub Issue 附图),替换下方外链
-![截图](https://raw.githubusercontent.com/vemon2233/ai-chatroom/main/docs/screenshot-main.png) -->
+<!-- 截图占位:跑三个场景各截一张,上传图床(或 GitHub Issue 附图)后替换下方链接并取消注释
+### 🎬 辩论:多个 agent 就一个话题正反对垒
+
+![辩论](https://raw.githubusercontent.com/vemon2233/ai-chatroom/main/docs/screenshot-debate.png)
+
+### 🏗️ 架构讨论:绑定项目目录,agent 读码议设计
+
+![架构讨论](https://raw.githubusercontent.com/vemon2233/ai-chatroom/main/docs/screenshot-architecture.png)
+
+### 🎭 角色扮演:人设角色同台,沉浸式互动
+
+![角色扮演](https://raw.githubusercontent.com/vemon2233/ai-chatroom/main/docs/screenshot-roleplay.png)
+-->
 
 ---
 

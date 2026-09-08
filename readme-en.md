@@ -8,8 +8,19 @@ Multiple AI agent CLIs (Claude Code / Codex / Gemini / any custom CLI) in a sing
 [![Platform: Windows](https://img.shields.io/badge/Platform-Windows-blue)](#%EF%B8%8F-known-limitations)
 [![Node](https://img.shields.io/badge/Node-%3E%3D18-green)](#%EF%B8%8F-quick-start)
 
-<!-- Screenshot placeholder: run the app, upload the screenshot (e.g. via a GitHub issue comment), then replace the link below
-![Screenshot](https://raw.githubusercontent.com/vemon2233/ai-chatroom/main/docs/screenshot-main.png) -->
+<!-- Screenshot placeholders: run the three scenarios, upload the shots (e.g. via GitHub issue comments), then replace the links below and uncomment
+### 🎬 Debate: multiple agents arguing pro/con on one topic
+
+![Debate](https://raw.githubusercontent.com/vemon2233/ai-chatroom/main/docs/screenshot-debate.png)
+
+### 🏗️ Architecture discussion: bind a project folder, agents read the code and discuss design
+
+![Architecture](https://raw.githubusercontent.com/vemon2233/ai-chatroom/main/docs/screenshot-architecture.png)
+
+### 🎭 Role-play: persona characters on one stage, immersive interaction
+
+![Role-play](https://raw.githubusercontent.com/vemon2233/ai-chatroom/main/docs/screenshot-roleplay.png)
+-->
 
 ---
 
