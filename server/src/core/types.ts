@@ -94,6 +94,10 @@ export interface ChatMessage {
   privateRound?: number;
   /** 私聊行为: 发起新私聊 / 同意 / 拒绝 / 提出想法 / 回复 */
   privateAction?: 'start' | 'agree' | 'reject' | 'idea' | 'reply';
+  /** 接棒模式: 接棒目标成员名字 (若指定了接棒) */
+  batonTarget?: string;
+  /** 接棒模式: 是否交还给用户/房主 */
+  batonToUser?: boolean;
 }
 
 /** 成员私聊纪要(第一人称,只注入该成员本人) */

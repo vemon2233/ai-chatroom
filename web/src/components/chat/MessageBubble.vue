@@ -12,8 +12,13 @@ const showDetail = ref(false);
 const textEl = ref<HTMLElement | null>(null);
 const isMultiLine = ref(false);
 
-function checkMultiLine() {
+const cleanText = computed(() => {
   const raw = props.msg.text || '';
+  return raw.replace(/(?:<接棒>|【接棒】)[^\n]*/g, '').trimEnd();
+});
+
+function checkMultiLine() {
+  const raw = cleanText.value;
   // 1. 若含有显式换行符，必定是多行
   if (raw.includes('\n')) {
     isMultiLine.value = true;
@@ -76,7 +81,7 @@ const isMe = computed(() => props.msg.from === 'user');
 const isScout = computed(() => props.msg.from === 'scout');
 const isSystem = computed(() => props.msg.system === true);
 
-const canCopy = computed(() => !isSystem.value && !props.msg.streaming && !!props.msg.text?.trim());
+const canCopy = computed(() => !isSystem.value && !props.msg.streaming && !!cleanText.value.trim());
 const canReroll = computed(() =>
   !isMe.value && !isSystem.value && !isScout.value && !props.msg.streaming,
 );
@@ -85,7 +90,7 @@ const canEdit = computed(() =>
 );
 
 async function onCopy() {
-  const text = props.msg.text || '';
+  const text = cleanText.value;
   if (!text) return;
   try {
     if (navigator.clipboard && window.isSecureContext) {
@@ -175,7 +180,7 @@ async function onEdit() {
       messageId: props.msg.id,
       from: props.msg.from,
       fromName: senderName.value,
-      text: props.msg.text,
+      text: cleanText.value,
     });
   } catch (err: any) {
     await dialog.alert('操作失败', err.message || '截断后续记录失败');
@@ -274,11 +279,34 @@ const privateActionBadge = computed(() => {
   return null;
 });
 
+const batonBadge = computed(() => {
+  if (props.msg.batonToUser) {
+    return { type: 'to-user', label: '🤝 交还话题' };
+  }
+  if (props.msg.batonTarget) {
+    return { type: 'baton', label: `🎯 接棒 @${props.msg.batonTarget}` };
+  }
+  // 兜底历史消息兼容：从文本或 detail 中动态解析
+  const raw = props.msg.text || '';
+  const m = raw.match(/(?:<接棒>|【接棒】)\s*(.+)/);
+  if (m) {
+    const target = m[1]!.replace(/^@/, '').trim();
+    if (/结束|收敛|无需|到此/.test(target)) {
+      return { type: 'end', label: '🏁 讨论结束' };
+    }
+    if (['用户', 'user'].includes(target.toLowerCase())) {
+      return { type: 'to-user', label: '🤝 交还话题' };
+    }
+    return { type: 'baton', label: `🎯 接棒 @${target}` };
+  }
+  return null;
+});
+
 const clickable = computed(() => !isMe.value && !isSystem.value && !props.msg.streaming && !!props.msg.detail);
 
-/** Markdown 格式化 HTML */
+/** Markdown 格式化 HTML (隐藏结尾接棒控制行，保证正文纯粹) */
 const renderedHtml = computed(() => {
-  return renderMarkdown(props.msg.text);
+  return renderMarkdown(cleanText.value);
 });
 
 /** 气泡点击事件: 拦截代码块复制按钮与操作按钮，其余区域展开工作过程 */
@@ -323,6 +351,7 @@ function onBubbleClick(e: MouseEvent) {
         <span v-if="audienceNames" class="sender-audience">🔒 仅 {{ audienceNames }} 可见</span>
         <span v-if="audienceNames" class="private-round-pill">私聊{{ msg.privateRound || 1 }}</span>
         <span v-if="privateActionBadge" class="handshake-pill" :class="privateActionBadge.type">{{ privateActionBadge.label }}</span>
+        <span v-if="batonBadge" class="baton-pill" :class="batonBadge.type">{{ batonBadge.label }}</span>
         <span class="sender-time">· {{ timeLabel }}</span>
       </div>
       <div
@@ -567,6 +596,26 @@ function onBubbleClick(e: MouseEvent) {
   background: rgba(37, 99, 235, 0.1);
 }
 .handshake-pill.reply {
+  color: var(--muted);
+  background: rgba(107, 114, 128, 0.1);
+}
+
+.baton-pill {
+  font-size: 10.5px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  font-weight: 550;
+  line-height: normal;
+}
+.baton-pill.baton {
+  color: #2563eb;
+  background: rgba(37, 99, 235, 0.1);
+}
+.baton-pill.to-user {
+  color: #059669;
+  background: rgba(5, 150, 105, 0.1);
+}
+.baton-pill.end {
   color: var(--muted);
   background: rgba(107, 114, 128, 0.1);
 }

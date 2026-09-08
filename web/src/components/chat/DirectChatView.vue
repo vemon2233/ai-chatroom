@@ -20,13 +20,13 @@ const isGenerating = computed(() =>
 
 const renderList = computed<Array<ChatMessage | (ChatMessage & { streaming: true })>>(() => {
   const list: Array<ChatMessage | (ChatMessage & { streaming: true })> = [...store.directMessages];
-  if (store.directStream && char.value) {
+  if ((store.directStream || isGenerating.value) && char.value) {
     list.push({
       id: 'direct_streaming_placeholder',
       roomId: `direct_${char.value.id}`,
       from: char.value.id,
       fromName: char.value.name,
-      text: streamPlaceholder(store.directStream),
+      text: streamPlaceholder(store.directStream ?? { text: '', thinking: '回复中…' }),
       ts: Date.now(),
       streaming: true,
     });

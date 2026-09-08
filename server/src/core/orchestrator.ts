@@ -726,11 +726,19 @@ export class Orchestrator {
         }
       }
     } else {
-      // 接棒模式: 剥除私聊尾行(不允许私聊), 非链上发言剥除接棒行
+      const userNames = ['用户', 'user'];
+      if (this.deps.room.userPersona?.name) userNames.push(this.deps.room.userPersona.name);
+      const baton = (batonActive && genAtStart === this.generation)
+        ? parseBaton(outcome.result, this.deps.room.members, member.id, userNames)
+        : {};
+
+      // 接棒模式: 剥除私聊尾行与接棒尾行(参考私聊/握手做法，正文不残留控制指令)
       finalText = stripAudienceLine(finalText);
-      if (!batonActive) {
-        finalText = stripBatonLine(finalText);
-      }
+      finalText = stripBatonLine(finalText);
+
+      const nextMember = baton.nextMemberId
+        ? this.deps.room.members.find((m) => m.id === baton.nextMemberId)
+        : undefined;
 
       recordTraceOnce(outcome.result || finalText);
       const msgId = runOneTraceId ?? randomUUID();
@@ -744,6 +752,8 @@ export class Orchestrator {
         text: finalText,
         ts: Date.now(),
         audience: undefined,
+        batonTarget: nextMember?.name,
+        batonToUser: baton.toUser,
         detail: {
           trace,
           thinking: thinking || undefined,
@@ -756,57 +766,51 @@ export class Orchestrator {
       });
       await this.deps.persistRoom();
       this.maybeCompact(member);
+
+      // 接棒决策: 只在"非订阅模式 + 接棒条目 + 世代未变"时推进下步状态
+      if (batonActive && genAtStart === this.generation) {
+        if (baton.endDiscussion) {
+          await this.sysMessage(`🏁 ${member.name} 宣布讨论结束。`);
+          this.setState('idle');
+          return;
+        }
+        if (baton.toUser) {
+          await this.sysMessage(`🤝 ${member.name} 把话题交还给了你。`);
+          this.setState('idle');
+          return;
+        }
+        if (!nextMember) {
+          await this.sysMessage(`${member.name} 没有指定下一位,控制权回到你手中。发消息将从随机成员继续。`);
+          this.setState('idle');
+          return;
+        }
+        if (entry.batonMode === 'callout') {
+          this.pendingNextId = nextMember.id;
+          await this.sysMessage(`⏸ ${member.name} 指定 ${nextMember.name} 接棒。你发消息后 TA 开始发言。`);
+          this.setState('idle');
+          return;
+        }
+        if (this.budget <= 0) {
+          this.pendingNextId = nextMember.id;
+          await this.sysMessage('自由讨论已达接棒上限,发条新消息可继续。');
+          this.setState('idle');
+          return;
+        }
+        this.budget--;
+        await this.sysMessage(`🎯 ${member.name} 把接棒交给 ${nextMember.name}`);
+        this.enqueue({
+          memberId: nextMember.id,
+          trigger: `${member.name} 指定你接棒。请针对 TA 刚才的发言回应、反驳或补充。`,
+          batonMode: 'chain',
+        });
+        return;
+      }
     }
 
     // 轮次结束:轮流跑完回 idle
     if (entry.afterRounds === 'roundsEnd') {
       await this.sysMessage('轮流发言结束。可继续 @成员 追问或发消息自由讨论。');
       this.setState('idle');
-      return;
-    }
-
-    // 接棒决策: 只在"非订阅模式 + 接棒条目 + 世代未变"时发生
-    if (this.deps.room.mode !== 'subscribe' && batonActive && genAtStart === this.generation) {
-      const userNames = ['用户', 'user'];
-      if (this.deps.room.userPersona?.name) userNames.push(this.deps.room.userPersona.name);
-      const baton = parseBaton(outcome.result, this.deps.room.members, member.id, userNames);
-      if (baton.endDiscussion) {
-        await this.sysMessage(`🏁 ${member.name} 宣布讨论结束。`);
-        this.setState('idle');
-        return;
-      }
-      if (baton.toUser) {
-        await this.sysMessage(`🤝 ${member.name} 把话题交还给了你。`);
-        this.setState('idle');
-        return;
-      }
-      const next = baton.nextMemberId
-        ? this.deps.room.members.find((m) => m.id === baton.nextMemberId)
-        : undefined;
-      if (!next) {
-        await this.sysMessage(`${member.name} 没有指定下一位,控制权回到你手中。发消息将从随机成员继续。`);
-        this.setState('idle');
-        return;
-      }
-      if (entry.batonMode === 'callout') {
-        this.pendingNextId = next.id;
-        await this.sysMessage(`⏸ ${member.name} 指定 ${next.name} 接棒。你发消息后 TA 开始发言。`);
-        this.setState('idle');
-        return;
-      }
-      if (this.budget <= 0) {
-        this.pendingNextId = next.id;
-        await this.sysMessage('自由讨论已达接棒上限,发条新消息可继续。');
-        this.setState('idle');
-        return;
-      }
-      this.budget--;
-      await this.sysMessage(`🎯 ${member.name} 把接棒交给 ${next.name}`);
-      this.enqueue({
-        memberId: next.id,
-        trigger: `${member.name} 指定你接棒。请针对 TA 刚才的发言回应、反驳或补充。`,
-        batonMode: 'chain',
-      });
       return;
     }
   }

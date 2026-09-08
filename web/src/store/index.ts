@@ -38,6 +38,9 @@ export const store = reactive({
   currentRoom: null as RoomState | null,
   messages: [] as ChatMessage[],
   editingContext: null as EditingContext | null,
+  /** 多房间流式缓冲，按 roomId 隔离，切换房间绝不丢失后台推理进程 */
+  roomStreams: {} as Record<string, Record<string, StreamBuf>>,
+  /** 当前激活房间的流式缓冲映射 */
   memberStream: {} as Record<string, StreamBuf>,
 
   // 讨论摘要状态(群聊或私聊通用)
@@ -46,6 +49,9 @@ export const store = reactive({
   // 角色专属 1v1 私聊状态
   currentDirectChar: null as Character | null,
   directMessages: [] as ChatMessage[],
+  /** 1v1 私聊流式缓冲，按 characterId 隔离 */
+  directStreams: {} as Record<string, StreamBuf>,
+  directStatuses: {} as Record<string, 'idle' | 'thinking' | 'streaming' | 'error'>,
   directStream: null as StreamBuf | null,
   directStatus: 'idle' as 'idle' | 'thinking' | 'streaming' | 'error',
 
@@ -92,9 +98,22 @@ export async function enterRoom(roomId: string): Promise<void> {
   store.currentRoom = state;
   store.messages = msgs;
   store.editingContext = null;
-  store.memberStream = {};
   store.currentDirectChar = null;
   store.currentSummary = null;
+
+  // 恢复该房间的流式缓冲，切房绝不粗暴清空
+  store.roomStreams[roomId] ??= {};
+  const currentBufs = store.roomStreams[roomId]!;
+
+  // 权威状态核对与兜底：若成员处于 thinking 或 streaming，确保有缓冲，防止气泡不可见
+  for (const [mid, status] of Object.entries(state.statuses)) {
+    if (status === 'thinking' || status === 'streaming') {
+      currentBufs[mid] ??= { text: '', thinking: status === 'thinking' ? '推理中…' : '' };
+    } else {
+      delete currentBufs[mid];
+    }
+  }
+  store.memberStream = currentBufs;
 
   void api.roomSummary(roomId).then((s) => {
     if (store.activeSession?.type === 'room' && store.activeSession.id === roomId) {
@@ -121,9 +140,11 @@ export async function openDirectChat(c: Character): Promise<void> {
   store.activeSession = { type: 'direct', characterId: c.id };
   store.currentDirectChar = c;
   store.currentRoom = null;
-  store.directStream = null;
-  store.directStatus = 'idle';
   store.currentSummary = null;
+
+  // 恢复或保持该角色的私聊流式与生成状态
+  store.directStream = store.directStreams[c.id] ?? null;
+  store.directStatus = store.directStatuses[c.id] ?? 'idle';
   store.directMessages = await api.directMessages(c.id);
 
   void api.directSummary(c.id).then((s) => {
@@ -305,6 +326,10 @@ export async function refreshAdapters(): Promise<void> {
 function onWsEvent(ev: import('@server/core/bus').WsEvent): void {
   switch (ev.type) {
     case 'message': {
+      const roomBufs = store.roomStreams[ev.message.roomId];
+      if (roomBufs) {
+        delete roomBufs[ev.message.from];
+      }
       const rid = currentRoomId();
       if (rid != null && ev.message.roomId === rid) {
         store.messages.push(ev.message);
@@ -323,11 +348,36 @@ function onWsEvent(ev: import('@server/core/bus').WsEvent): void {
       return;
     }
     case 'agentEvent': {
+      // 核心：无条件写入该房间对应成员的流式缓冲，切去其他房间也绝不丢弃
+      store.roomStreams[ev.roomId] ??= {};
+      const roomBufs = store.roomStreams[ev.roomId]!;
+      const mid = ev.event.member;
+      if (mid) {
+        if (ev.event.phase === 'thinking') {
+          roomBufs[mid] ??= { text: '', thinking: '' };
+          if (ev.event.thinkingDelta) roomBufs[mid]!.thinking += ev.event.thinkingDelta;
+        } else if (ev.event.phase === 'streaming' && ev.event.textDelta) {
+          roomBufs[mid] ??= { text: '', thinking: '' };
+          roomBufs[mid]!.text += ev.event.textDelta;
+        }
+      }
+
       const rid = currentRoomId();
-      if (rid === ev.roomId) onAgentEvent(ev.event);
+      if (rid === ev.roomId) {
+        store.memberStream = roomBufs;
+        onAgentEvent(ev.event);
+      }
       return;
     }
     case 'roomState': {
+      const roomBufs = store.roomStreams[ev.roomId];
+      if (roomBufs) {
+        for (const [mid, status] of Object.entries(ev.state.statuses)) {
+          if (status === 'idle' || status === 'error') {
+            delete roomBufs[mid];
+          }
+        }
+      }
       const rid = currentRoomId();
       if (rid === ev.roomId) {
         store.currentRoom = ev.state; // 整快照替换,不 merge
@@ -360,6 +410,8 @@ function onWsEvent(ev: import('@server/core/bus').WsEvent): void {
       return;
     }
     case 'directMessage': {
+      delete store.directStreams[ev.characterId];
+      delete store.directStatuses[ev.characterId];
       if (store.currentDirectChar && store.currentDirectChar.id === ev.characterId) {
         store.directMessages.push(ev.message);
         store.directStream = null;
@@ -368,19 +420,23 @@ function onWsEvent(ev: import('@server/core/bus').WsEvent): void {
       return;
     }
     case 'directEvent': {
+      // 持续记入对应角色的私聊流式缓冲
+      store.directStreams[ev.characterId] ??= { text: '', thinking: '' };
+      const dBuf = store.directStreams[ev.characterId]!;
+      if (ev.event.phase === 'thinking') {
+        store.directStatuses[ev.characterId] = 'thinking';
+        if (ev.event.thinkingDelta) dBuf.thinking += ev.event.thinkingDelta;
+      } else if (ev.event.phase === 'streaming') {
+        store.directStatuses[ev.characterId] = 'streaming';
+        if (ev.event.textDelta) dBuf.text += ev.event.textDelta;
+      } else if (ev.event.phase === 'done' || ev.event.phase === 'error') {
+        store.directStatuses[ev.characterId] = 'idle';
+        if (ev.event.phase === 'error') delete store.directStreams[ev.characterId];
+      }
+
       if (store.currentDirectChar && store.currentDirectChar.id === ev.characterId) {
-        if (ev.event.phase === 'thinking') {
-          store.directStatus = 'thinking';
-          store.directStream ??= { text: '', thinking: '' };
-          if (ev.event.thinkingDelta) store.directStream.thinking += ev.event.thinkingDelta;
-        } else if (ev.event.phase === 'streaming') {
-          store.directStatus = 'streaming';
-          store.directStream ??= { text: '', thinking: '' };
-          if (ev.event.textDelta) store.directStream.text += ev.event.textDelta;
-        } else if (ev.event.phase === 'done' || ev.event.phase === 'error') {
-          store.directStatus = 'idle';
-          if (ev.event.phase === 'error') store.directStream = null;
-        }
+        store.directStatus = store.directStatuses[ev.characterId] ?? 'idle';
+        store.directStream = store.directStreams[ev.characterId] ?? null;
       }
       return;
     }

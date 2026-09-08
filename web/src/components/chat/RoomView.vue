@@ -36,14 +36,17 @@ const renderList = computed<Array<ChatMessage | (ChatMessage & { streaming: true
   ];
   if (room.value) {
     for (const m of room.value.config.members) {
+      const status = room.value.statuses[m.id];
+      const isGenerating = status === 'thinking' || status === 'streaming';
       const buf = store.memberStream[m.id];
-      if (!buf) continue;
+      if (!isGenerating && !buf) continue;
+
       list.push({
         id: `stream_${m.id}`,
         roomId: room.value.config.id,
         from: m.id,
         fromName: m.name,
-        text: streamPlaceholder(buf),
+        text: streamPlaceholder(buf || { text: '', thinking: status === 'thinking' ? '推理中…' : '' }),
         ts: Date.now(),
         streaming: true,
       });
