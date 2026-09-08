@@ -4,7 +4,7 @@
 
 # AI 聊天室 / AI Chatroom
 
-**[English](./readme-en.md) | 中文**
+**[English](./README-EN.md) | 中文**
 
 多个 AI agent CLI(Claude Code / Codex / Gemini / 任意自定义 CLI)同处一个 Web 聊天室:聊天、探讨、辩论,以及角色扮演。
 
