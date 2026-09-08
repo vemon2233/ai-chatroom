@@ -30,6 +30,7 @@ import { parseBaton, stripBatonLine } from './modes/baton/baton';
 import { stripAudienceLine } from './modes/subscribe/audience';
 import { publishSpeechResult } from './modes/subscribe/publish';
 import { SubscribeEngine } from './modes/subscribe/engine';
+import { BATON_LINE, AT_NAME, AT_NAME_GLOBAL, USER_NAME_ALIASES } from '../protocolKeywords';
 import type { AgentAdapter, AgentEvent, SpeakOutcome } from '../adapters/base';
 import type {
   AgentTraceLog,
@@ -726,7 +727,7 @@ export class Orchestrator {
         }
       }
     } else {
-      const userNames = ['用户', 'user'];
+      const userNames = [...USER_NAME_ALIASES];
       if (this.deps.room.userPersona?.name) userNames.push(this.deps.room.userPersona.name);
       const baton = (batonActive && genAtStart === this.generation)
         ? parseBaton(outcome.result, this.deps.room.members, member.id, userNames)
@@ -1008,10 +1009,13 @@ export class Orchestrator {
     | { kind: 'mention'; member?: MemberConfig; members: MemberConfig[] }
     | { kind: 'all'; rounds: number }
     | { kind: 'none' } {
-    // <接棒>@xx / 【接棒】@xx(与 agent 同一语法):直接指定起手进链
-    const startMatch = text.match(/(?:<接棒>|【接棒】)\s*@([^\s@,，。]+)/);
+    // <接棒>@xx / <pass>@xx / 【接棒】@xx(与 agent 同一语法,双语并集):直接指定起手进链
+    const startMatch = text.match(BATON_LINE);
     if (startMatch) {
-      const hit = matchMemberByName(startMatch[1]!, this.deps.room.members);
+      const directive = (startMatch[1] ?? '').trim();
+      const nameHit = directive.match(AT_NAME);
+      const rawName = (nameHit?.[1] ?? directive).trim();
+      const hit = rawName ? matchMemberByName(rawName, this.deps.room.members) : undefined;
       if (hit) return { kind: 'start', member: hit, fromName: this.deps.room.userPersona?.name || '用户' };
       return { kind: 'none' };
     }
@@ -1021,7 +1025,7 @@ export class Orchestrator {
     if (allMatch) {
       return { kind: 'all', rounds: allMatch[1] ? Math.max(1, parseInt(allMatch[1])) : 1 };
     }
-    const atNames = [...text.matchAll(/@([^\s@,，。]+)/g)].map((mm) => mm[1]!);
+    const atNames = [...text.matchAll(AT_NAME_GLOBAL)].map((mm) => mm[1]!);
     const matchedMembers: MemberConfig[] = [];
     for (const raw of atNames) {
       const hit = matchMemberByName(raw, this.deps.room.members);
