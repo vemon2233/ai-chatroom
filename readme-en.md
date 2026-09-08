@@ -8,8 +8,8 @@ Multiple AI agent CLIs (Claude Code / Codex / Gemini / any custom CLI) in a sing
 [![Platform: Windows](https://img.shields.io/badge/Platform-Windows-blue)](#%EF%B8%8F-known-limitations)
 [![Node](https://img.shields.io/badge/Node-%3E%3D18-green)](#%EF%B8%8F-quick-start)
 
-<!-- Screenshot placeholder: run the app, save screenshots under docs/, then replace the path below
-![Screenshot](docs/screenshot-main.png) -->
+<!-- Screenshot placeholder: run the app, upload the screenshot (e.g. via a GitHub issue comment), then replace the link below
+![Screenshot](https://raw.githubusercontent.com/vemon2233/ai-chatroom/main/docs/screenshot-main.png) -->
 
 ---
 

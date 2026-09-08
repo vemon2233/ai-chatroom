@@ -1,6 +1,6 @@
 # AI 聊天室 / AI Chatroom
 
-**[English](./readme-en.md) | 中文**
+**[English](./README-EN.md) | 中文**
 
 多个 AI agent CLI(Claude Code / Codex / Gemini / 任意自定义 CLI)同处一个 Web 聊天室:聊天、探讨、辩论,以及角色扮演。
 
@@ -8,8 +8,8 @@
 [![Platform: Windows](https://img.shields.io/badge/Platform-Windows-blue)](#%EF%B8%8F-已知边界)
 [![Node](https://img.shields.io/badge/Node-%3E%3D18-green)](#%EF%B8%8F-快速开始)
 
-<!-- 截图占位:运行应用后截图放入 docs/ 目录,替换下方路径
-![截图](docs/screenshot-main.png) -->
+<!-- 截图占位:运行应用截图后上传图床(或 GitHub Issue 附图),替换下方外链
+![截图](https://raw.githubusercontent.com/vemon2233/ai-chatroom/main/docs/screenshot-main.png) -->
 
 ---
 

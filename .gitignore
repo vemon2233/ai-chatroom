@@ -10,6 +10,9 @@ data/
 .env
 .env.*
 
+# 设计笔记与本地文档(不公开)
+docs/
+
 # 本地工具与编辑器
 .claude/
 .vscode/
