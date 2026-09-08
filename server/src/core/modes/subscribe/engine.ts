@@ -12,6 +12,8 @@ import { matchMemberByName } from '../../naming';
 import { PrivateChatProtocol } from './protocol';
 import { buildHeartbeatPrompt, isSilentDecision } from './prompt';
 import { publishSpeechResult } from './publish';
+import { t } from '../../i18n/messages';
+import { DEFAULT_LANG, type Lang, type LangGetter } from '../../i18n/lang';
 
 /** 心跳调用素材(供首气泡落一份完整 Trace;由 orchestrator.speak 回调返回) */
 export interface HeartbeatInvocation {
@@ -41,6 +43,8 @@ export interface SubscribeEngineDeps {
   publishMessage: (msg: ChatMessage) => Promise<void>;
   /** 系统通知 */
   sysMessage: (text: string) => Promise<void>;
+  /** 语言注入(未注入 → zh,与改造前逐字节一致) */
+  getLang?: LangGetter;
   /** 扣减轮次预算, 若已耗尽返回 false */
   consumeBudget: () => boolean;
   /** 当消息中包含 @点名 时, 立即唤醒被 @ 成员响应 */
@@ -57,6 +61,11 @@ export interface SubscribeEngineDeps {
 
 
 export class SubscribeEngine {
+
+  /** 当前语言(发射时刻取值;未注入恒 zh——现状不变量) */
+  private get lang(): Lang {
+    return this.deps.getLang?.() ?? DEFAULT_LANG;
+  }
   private timers: Map<string, NodeJS.Timeout> = new Map();
   private locks: Set<string> = new Set();
   private lastSeenIndices: Map<string, number> = new Map();
@@ -424,14 +433,14 @@ export class SubscribeEngine {
       //    通知与措辞由发布管线统一处理(mustRespond=false:心跳路径跳过合法)
       if (isSilentDecision(outcome.result)) {
         console.log(`[subscribe] 成员 ${member.name} 心跳后决定跳过 <跳过>`);
-        await this.deps.sysMessage(`${member.name} 评估暂无发言与私聊意向，选择跳过。`);
+        await this.deps.sysMessage(t(this.lang, 'sub.silentSkip', { name: member.name }));
         return;
       }
 
       // 5. 扣减发言预算 (心跳发言 + @唤醒发言 = 严格上限)
       const budgetOk = this.deps.consumeBudget();
       if (!budgetOk) {
-        await this.deps.sysMessage('讨论已达自动发言上限,发条新消息可继续。');
+        await this.deps.sysMessage(t(this.lang, 'orch.autoBudgetReached'));
         this.stop();
         this.deps.onIdle();
         return;
@@ -448,7 +457,7 @@ export class SubscribeEngine {
           usage: outcome.usage,
           durationMs: outcome.durationMs,
           adapter: member.adapter,
-          trigger: '心跳自主发言',
+          trigger: t(this.lang, 'trace.heartbeat'),
         },
         {
           roomId: room.id,
@@ -459,6 +468,8 @@ export class SubscribeEngine {
           resolvePrivateMeta: (senderId, targetId, handshake) =>
             this.resolvePrivateMeta(senderId, targetId, handshake),
           sysMessage: (text) => this.deps.sysMessage(text),
+          tSilent: (mustRespond, name) =>
+            t(this.lang, mustRespond ? 'sub.skipViolated' : 'sub.silentSkip', { name }),
           onPublished: async (text, audience, handshake) => {
             await this.checkAndTriggerMentions(
               member,
@@ -484,7 +495,7 @@ export class SubscribeEngine {
           durationMs: outcome.durationMs ?? 0,
           status: outcome.status === 'ok' ? 'ok' : outcome.status,
           error: outcome.error,
-          trigger: '心跳自主发言',
+          trigger: t(this.lang, 'trace.heartbeat'),
           input: {
             prompt: inv.prompt,
             command: inv.command,
@@ -525,7 +536,7 @@ export class SubscribeEngine {
     if (handshake?.type === 'idea' && handshake.targetMemberId) {
       const target = room.members.find((m) => m.id === handshake.targetMemberId);
       if (target) {
-        await this.deps.onMentioned(target, `同事 ${speaker.name} 在私聊中对你提出了新想法，请回应。`);
+        await this.deps.onMentioned(target, t(this.lang, 'sub.dmMention', { name: speaker.name }));
         this.resetMemberHeartbeat(target.id);
         return;
       }
@@ -538,7 +549,7 @@ export class SubscribeEngine {
       if (hit) {
         // 若当前为私聊且被 @ 者不在受众中，不唤醒
         if (audience && !audience.includes(hit.id)) continue;
-        await this.deps.onMentioned(hit, `同事 ${speaker.name} 在发言中点名提及了你。`);
+        await this.deps.onMentioned(hit, t(this.lang, 'sub.atMention', { name: speaker.name }));
         this.resetMemberHeartbeat(hit.id);
       }
     }

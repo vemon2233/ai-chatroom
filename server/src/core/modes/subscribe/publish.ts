@@ -43,6 +43,8 @@ export interface SpeechPublishDeps {
   ) => { threadId: string; privateRound: number; privateAction: 'start' | 'agree' | 'reject' | 'idea' | 'reply' };
   /** 系统消息通道(silent 通知用) */
   sysMessage: (text: string) => Promise<void>;
+  /** silent 通知渲染(双语);缺省回退原中文(测试直调兼容) */
+  tSilent?: (mustRespond: boolean, name: string) => string;
   /** trace 令牌:首气泡 messageId(与 trace 文件名一致);缺省首气泡用随机 id */
   traceMessageId?: string;
   /** 发布后钩子(心跳传 mentions 扫描;队列路径不传) */
@@ -82,11 +84,12 @@ export async function publishSpeechResult(
 ): Promise<PublishOutcome> {
   // 1. silent 判定:统一必发系统通知(消灭"点名后无声无息"的体验缺陷),零气泡零落库
   if (isSilentDecision(rawText)) {
-    await deps.sysMessage(
-      mustRespond
+    const text = deps.tSilent
+      ? deps.tSilent(mustRespond, speaker.name)
+      : mustRespond
         ? `${speaker.name} 尝试跳过发言(点名场景不允许跳过),本次发言已忽略。`
-        : `${speaker.name} 评估暂无发言与私聊意向,选择跳过。`,
-    );
+        : `${speaker.name} 评估暂无发言与私聊意向,选择跳过。`;
+    await deps.sysMessage(text);
     return { wasSilent: true, publishedIds: [], bubbles: [] };
   }
 

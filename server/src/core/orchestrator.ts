@@ -306,7 +306,7 @@ export class Orchestrator {
         this.setState('baton');
         this.enqueue({
           memberId: cmd.member.id,
-          trigger: `${cmd.fromName} 指定你起头,请就主题开个头或回应该消息。`,
+          trigger: t(this.lang, 'orch.trigger.designatedStart', { fromName: cmd.fromName }),
           batonMode: 'chain',
         });
         return;
@@ -324,33 +324,33 @@ export class Orchestrator {
           this.subscribeEngine.start(this.deps.room.members);
           if (cmd.members && cmd.members.length > 0) {
             const names = cmd.members.map((m) => `@${m.name}`).join(' ');
-            this.sysNotice(`已唤醒 ${names}，将依次排队回应`);
+            this.sysNotice(t(this.lang, 'orch.wokeQueued', { names }));
             for (const m of cmd.members) {
               // 延后被点名成员心跳，避免响应期间或紧随其后发生短延时重复心跳
               this.subscribeEngine.resetMemberHeartbeat(m.id);
               this.enqueue({
                 memberId: m.id,
-                trigger: `用户在聊天中 @了你,请针对用户的最新发言发表你的回应与看法。`,
+                trigger: t(this.lang, 'orch.trigger.atMentionedSubscribe'),
                 batonMode: undefined,
                 mustRespond: true, // 用户点名:强制回应,禁跳过
               });
             }
           } else {
-            this.sysNotice(`没有找到 @ 的成员,控制权回到你手里`);
+            this.sysNotice(t(this.lang, 'orch.mentionNotFound'));
           }
         } else {
           // 接棒模式: 保留原有点名接棒
           this.state = 'idle';
           this.onStatuses();
           if (cmd.member) {
-            this.sysNotice(`已取消之前的指令,@${cmd.member.name} 将回应你并指定下一位`);
+            this.sysNotice(t(this.lang, 'orch.mentionReplaced', { name: cmd.member.name }));
             this.enqueue({
               memberId: cmd.member.id,
-              trigger: `用户在聊天中 @了你,请回应用户。回应完在结尾用 <接棒>@名字 指定下一位(讨论将暂停等待用户)。`,
+              trigger: t(this.lang, 'orch.trigger.atMentionedBaton', { batonTag: batonTagFor(this.lang) }),
               batonMode: 'callout',
             });
           } else {
-            this.sysNotice(`没有找到 @ 的成员,控制权回到你手里`);
+            this.sysNotice(t(this.lang, 'orch.mentionNotFound'));
           }
         }
         return;
@@ -374,12 +374,12 @@ export class Orchestrator {
           // 用户未 @ 任何角色时，立即随机唤醒一名成员起头发言回应用户
           if (this.deps.room.members.length > 0) {
             const starter = this.pickStarter(this.deps.room.members);
-            this.sysNotice(`讨论继续, 随机唤醒 ${starter.name} 起头回应`);
+            this.sysNotice(t(this.lang, 'orch.continueRandom', { name: starter.name }));
             // 延后起头成员心跳，杜绝初始 1~4s 短延时定时器在发言期间重叠触发
             this.subscribeEngine.resetMemberHeartbeat(starter.id);
             this.enqueue({
               memberId: starter.id,
-              trigger: '用户刚发表了新观点，请针对用户的最新消息发表你的看法。',
+              trigger: t(this.lang, 'orch.trigger.userNewViewpoint'),
               batonMode: undefined,
               mustRespond: true, // 被唤醒回应用户:强制回应,禁跳过
             });
@@ -402,11 +402,11 @@ export class Orchestrator {
       this.subscribeEngine.start(this.deps.room.members);
       if (this.deps.room.members.length > 0 && this.queue.length === 0 && !this.currentSpeaker) {
         const starter = this.pickStarter(this.deps.room.members);
-        this.sysNotice(`讨论开始, 随机唤醒 ${starter.name} 起头发言`);
+        this.sysNotice(t(this.lang, 'orch.startRandom', { name: starter.name }));
         this.subscribeEngine.resetMemberHeartbeat(starter.id);
         this.enqueue({
           memberId: starter.id,
-          trigger: '讨论开始，请你先就房间讨论主题开个头。',
+          trigger: t(this.lang, 'orch.trigger.discussionOpen'),
           batonMode: undefined,
           mustRespond: true, // 讨论起头:强制开题,禁跳过
         });
@@ -426,13 +426,13 @@ export class Orchestrator {
       this.setState('baton');
       const starter = this.pickStarter(members);
       const origin = this.pendingNextId
-        ? `${starter.name} 是之前被指定的接棒对象`
-        : '冷启动随机选中';
+        ? t(this.lang, 'trace.pendingReason', { name: starter.name })
+        : t(this.lang, 'trace.coldStartPicked');
       this.pendingNextId = undefined;
-      this.sysNotice(`${origin},${starter.name} 起头`);
+      this.sysNotice(t(this.lang, 'orch.starterOrigin', { origin, name: starter.name }));
       this.enqueue({
         memberId: starter.id,
-        trigger: '讨论继续,请你先就主题开个头。',
+        trigger: t(this.lang, 'orch.trigger.discussionContinue'),
         batonMode: 'chain',
       });
     } else if (this.state === 'baton' && this.currentSpeaker == null && this.queue.length === 0) {
@@ -441,7 +441,7 @@ export class Orchestrator {
       this.pendingNextId = undefined;
       this.enqueue({
         memberId: starter.id,
-        trigger: '刚才有人发言了,轮到你接着说。可以回应、反驳或补充。',
+        trigger: t(this.lang, 'orch.trigger.deadAir'),
         batonMode: 'chain',
       });
     }
@@ -481,7 +481,7 @@ export class Orchestrator {
   rerollAgent(memberId: string): void {
     const member = this.deps.room.members.find((m) => m.id === memberId);
     if (!member) {
-      this.sysNotice(`找不到重roll成员: ${memberId}`);
+      this.sysNotice(t(this.lang, 'orch.rerollNotFound', { id: memberId }));
       this.setState('idle');
       return;
     }
@@ -493,7 +493,7 @@ export class Orchestrator {
     this.onStatuses();
     this.enqueue({
       memberId,
-      trigger: '请重新生成你的发言。针对上述讨论发表你的观点。',
+      trigger: t(this.lang, 'orch.trigger.reroll'),
       batonMode: undefined,
       mustRespond: this.deps.room.mode === 'subscribe' || undefined, // 订阅模式下重roll必须产出
     });
@@ -508,7 +508,7 @@ export class Orchestrator {
     this.onStatuses();
     this.enqueue({
       memberId,
-      trigger: `用户(房间主人)直接对你说:${userText}\n回应完在结尾用 <接棒>@名字 指定下一位(讨论将暂停等待用户)。`,
+      trigger: t(this.lang, 'orch.trigger.userDirect', { text: userText, batonTag: batonTagFor(this.lang) }),
       batonMode: 'callout',
       mustRespond: this.deps.room.mode === 'subscribe' || undefined, // 订阅模式下直接指令必须回应
     });
@@ -533,15 +533,20 @@ export class Orchestrator {
         });
       });
     }
-    void this.sysMessage(`开始轮流发言 ${rounds} 轮`);
+    void this.sysMessage(t(this.lang, 'orch.roundsStart', { rounds }));
+
+    // v2.1:轮次文案由词典组装(zh 逐字节现状)
   }
 
   private turnTrigger(roundNo: number, posInRound: number, total: number): string {
     const first = roundNo === 1 && posInRound === 0;
     if (posInRound === total - 1 && roundNo > 1) {
-      return `这是第 ${roundNo} 轮的收尾发言。针对前面发言者的观点进行回应、反驳或补充。`;
+      return t(this.lang, 'orch.trigger.roundsLast', { round: roundNo });
     }
-    return `这是第 ${roundNo} 轮发言。${first ? '请先亮明你的立场。' : '针对前面发言者的观点进行回应、反驳或补充。'}`;
+    return t(this.lang, 'orch.trigger.roundsMid', {
+      round: roundNo,
+      tail: first ? t(this.lang, 'orch.trigger.roundsFirst') : t(this.lang, 'orch.trigger.roundsRespond'),
+    });
   }
 
   // ---------- 单次发言执行(invoke)+ 尾部决策 ----------
@@ -639,7 +644,7 @@ export class Orchestrator {
           .filter((t) => t.kind === 'text')
           .map((t) => t.content)
           .join('');
-        const text = streamed.trim() || '(已停止思考)';
+        const text = streamed.trim() || t(this.lang, 'sys.stoppedThinking');
         const msgId = runOneTraceId!;
         recordTraceOnce(text);
         runOneTraceId = null;
@@ -664,7 +669,10 @@ export class Orchestrator {
       }
       case 'error': {
         this.statuses[member.id] = 'error';
-        await this.sysMessage(`${member.name} 发言失败: ${outcome.error ?? '未知错误'}`);
+        await this.sysMessage(t(this.lang, 'orch.speakFailed', {
+          name: member.name,
+          error: outcome.error ?? t(this.lang, 'sys.unknownError'),
+        }));
         this.bumpGeneration();
         for (const id of Object.keys(this.statuses)) {
           if (this.statuses[id] === 'error') this.statuses[id] = 'idle';
@@ -679,7 +687,7 @@ export class Orchestrator {
     this.statuses[member.id] = 'idle';
 
     // 格式清洗与私聊解析
-    let finalText = outcome.result || '(无输出)';
+    let finalText = outcome.result || t(this.lang, 'sys.noOutput');
 
     if (this.deps.room.mode === 'subscribe') {
       // 订阅模式: 发布管线唯一真源(silent 判定+通知/拆分/兜底/发布循环/traceId 令牌)
@@ -705,6 +713,8 @@ export class Orchestrator {
             this.subscribeEngine.resolvePrivateMeta(senderId, targetId, handshake),
           sysMessage: (text) => this.sysMessage(text),
           traceMessageId: runOneTraceId ?? undefined,
+          tSilent: (mustRespond, name) =>
+            t(this.lang, mustRespond ? 'sub.skipViolated' : 'sub.silentSkip', { name }),
         },
         entry.mustRespond === true,
       );
@@ -729,7 +739,7 @@ export class Orchestrator {
       if (this.state === 'subscribe') {
         this.budget--;
         if (this.budget <= 0) {
-          await this.sysMessage('讨论已达自动发言上限,发条新消息可继续。');
+          await this.sysMessage(t(this.lang, 'orch.autoBudgetReached'));
           this.subscribeEngine.stop();
           this.bumpGeneration();
           this.setState('idle');
@@ -781,37 +791,37 @@ export class Orchestrator {
       // 接棒决策: 只在"非订阅模式 + 接棒条目 + 世代未变"时推进下步状态
       if (batonActive && genAtStart === this.generation) {
         if (baton.endDiscussion) {
-          await this.sysMessage(`🏁 ${member.name} 宣布讨论结束。`);
+          await this.sysMessage(t(this.lang, 'orch.discussionEnd', { name: member.name }));
           this.setState('idle');
           return;
         }
         if (baton.toUser) {
-          await this.sysMessage(`🤝 ${member.name} 把话题交还给了你。`);
+          await this.sysMessage(t(this.lang, 'orch.handBack', { name: member.name }));
           this.setState('idle');
           return;
         }
         if (!nextMember) {
-          await this.sysMessage(`${member.name} 没有指定下一位,控制权回到你手中。发消息将从随机成员继续。`);
+          await this.sysMessage(t(this.lang, 'orch.noNext', { name: member.name }));
           this.setState('idle');
           return;
         }
         if (entry.batonMode === 'callout') {
           this.pendingNextId = nextMember.id;
-          await this.sysMessage(`⏸ ${member.name} 指定 ${nextMember.name} 接棒。你发消息后 TA 开始发言。`);
+          await this.sysMessage(t(this.lang, 'orch.pendingStandby', { name: member.name, next: nextMember.name }));
           this.setState('idle');
           return;
         }
         if (this.budget <= 0) {
           this.pendingNextId = nextMember.id;
-          await this.sysMessage('自由讨论已达接棒上限,发条新消息可继续。');
+          await this.sysMessage(t(this.lang, 'orch.batonBudgetReached'));
           this.setState('idle');
           return;
         }
         this.budget--;
-        await this.sysMessage(`🎯 ${member.name} 把接棒交给 ${nextMember.name}`);
+        await this.sysMessage(t(this.lang, 'orch.batonPass', { name: member.name, next: nextMember.name }));
         this.enqueue({
           memberId: nextMember.id,
-          trigger: `${member.name} 指定你接棒。请针对 TA 刚才的发言回应、反驳或补充。`,
+          trigger: t(this.lang, 'orch.trigger.batonToYou', { name: member.name }),
           batonMode: 'chain',
         });
         return;
@@ -820,7 +830,7 @@ export class Orchestrator {
 
     // 轮次结束:轮流跑完回 idle
     if (entry.afterRounds === 'roundsEnd') {
-      await this.sysMessage('轮流发言结束。可继续 @成员 追问或发消息自由讨论。');
+      await this.sysMessage(t(this.lang, 'orch.roundsEnd'));
       this.setState('idle');
       return;
     }
@@ -948,7 +958,7 @@ export class Orchestrator {
     const acfg = this.deps.adapterConfigs[member.adapter];
     if (!acfg) {
       return {
-        outcome: { status: 'error', result: '', durationMs: 0, error: `适配器未配置: ${member.adapter}` },
+        outcome: { status: 'error', result: '', durationMs: 0, error: t(this.lang, 'sys.adapterMissing', { key: member.adapter }) },
         trace: [], thinking: '', usage: undefined,
         req: { member: member.id, prompt, command: '', args: [] },
       };
@@ -1026,7 +1036,7 @@ export class Orchestrator {
       const nameHit = directive.match(AT_NAME);
       const rawName = (nameHit?.[1] ?? directive).trim();
       const hit = rawName ? matchMemberByName(rawName, this.deps.room.members) : undefined;
-      if (hit) return { kind: 'start', member: hit, fromName: this.deps.room.userPersona?.name || '用户' };
+      if (hit) return { kind: 'start', member: hit, fromName: this.deps.room.userPersona?.name || t(this.lang, 'sys.user') };
       return { kind: 'none' };
     }
     // @allN 轮流:负向前瞻防吞 "all" 开头的成员名(@allan 落入下方成员名匹配)。

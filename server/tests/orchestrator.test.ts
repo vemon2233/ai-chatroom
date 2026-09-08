@@ -622,3 +622,74 @@ describe('编排器状态机:杂项入口', () => {
     expect(h.messages.some((m) => m.from === 'm2' && m.text === '张飞回应用户')).toBe(true);
   });
 });
+
+// ---------- i18n:en 语言注入 ----------
+
+describe('i18n:en 语言注入', () => {
+  it('getLang=en → 系统消息与 trigger 英文;缺省 zh 逐字节不变', async () => {
+    const mem = makeMembers(3, ['甲', '乙', '丙']);
+    const room = makeRoomConfig(mem);
+    const fake = makeFakeAdapter([{ result: 'done\n<pass>end' }]);
+    const messages: ChatMessage[] = [];
+    const orch = new Orchestrator({
+      room,
+      adapterConfigs: { fake: { command: 'fake', args: [] } },
+      resolveAdapter: () => fake.impl,
+      pushMessage: async (m) => { messages.push(m); },
+      sysMessage: async (text) => {
+        messages.push({ id: `s${messages.length}`, roomId: room.id, from: 'system', fromName: 'System', text, ts: Date.now(), system: true });
+      },
+      onStatuses: () => {},
+      persistRoom: async () => {},
+      runScout: async () => null,
+      getHistory: () => messages,
+      pushAgentEvent: () => {},
+      getLang: () => 'en',
+    });
+    await orch.onUserMessage('start');
+    await settle(200);
+    const sys = messages.filter((m) => m.system).map((m) => m.text).join('|');
+    expect(sys).toContain('randomly picked at cold start'); // 起手来源(en)
+    expect(sys).toContain('declared the discussion closed'); // <pass>end → en 结束消息
+    expect(sys).not.toContain('宣布讨论结束');
+    expect(sys).not.toContain('随机选中');
+
+    // zh 路径回归:既有 harness 不注入 getLang,中文原样
+    const h2 = makeHarness([{ result: '总结\n<接棒>结束' }]);
+    await h2.orch.onUserMessage('开始');
+    await settle(150);
+    const sys2 = h2.messages.filter((m) => m.system).map((m) => m.text).join('|');
+    expect(sys2).toContain('宣布讨论结束');
+    expect(sys2).toContain('随机选中');
+  });
+
+  it('en 下 prompt trigger 英文(prompt 含 <pass> 教学)', async () => {
+    const mem = makeMembers(3, ['甲', '乙', '丙']);
+    const room = makeRoomConfig(mem);
+    const fake = makeFakeAdapter([
+      { result: 'first\n<pass>@乙' },
+      { result: 'second, no tag' },
+    ]);
+    const messages: ChatMessage[] = [];
+    const orch = new Orchestrator({
+      room,
+      adapterConfigs: { fake: { command: 'fake', args: [] } },
+      resolveAdapter: () => fake.impl,
+      pushMessage: async (m) => { messages.push(m); },
+      sysMessage: async (text) => {
+        messages.push({ id: `s${messages.length}`, roomId: room.id, from: 'system', fromName: 'System', text, ts: Date.now(), system: true });
+      },
+      onStatuses: () => {},
+      persistRoom: async () => {},
+      runScout: async () => null,
+      getHistory: () => messages,
+      pushAgentEvent: () => {},
+      getLang: () => 'en',
+    });
+    await orch.onUserMessage('start');
+    await settle(250);
+    // 第一条 prompt 的 trigger 是英文讨论开场(trigger 内容待 prompt 词典任务后随 buildPrompt 变化;此处断言消息链双语即可)
+    const sys = messages.filter((m) => m.system).map((m) => m.text).join('|');
+    expect(sys).toContain('passed the baton to'); // 🎯 传递消息英文
+  });
+});
