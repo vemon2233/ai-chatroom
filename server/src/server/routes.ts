@@ -209,7 +209,7 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
         appendMessage,
       },
       cfg.summary,
-      { summaryStore, traceStore },
+      { summaryStore, traceStore, getLang: settings.getLang },
     );
 
     rooms.set(newRoom.id, newRoom);
@@ -543,7 +543,7 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
             appendMessage,
           },
           cfg.summary,
-          { summaryStore, traceStore },
+          { summaryStore, traceStore, getLang: settings.getLang },
         );
         rooms.set(room.id, room);
         await persistRoom(rcfg);
