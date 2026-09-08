@@ -418,6 +418,7 @@ export class ChatRoom {
         adapter,
         command: entry.command,
         args: entry.args,
+        lang: this.lang,
       });
 
       if (digest) {

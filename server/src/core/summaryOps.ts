@@ -4,6 +4,7 @@ import type { ChatMessage, DiscussionSummary, MemberConfig, PrivateDigest } from
 import { filterHistoryForViewer } from './modes/subscribe/audience';
 import { oneShotSpeak } from './exec';
 import type { AgentAdapter, SpeakRequest } from '../adapters/base';
+import { pt } from './i18n/promptTexts';
 
 
 /**
@@ -205,32 +206,33 @@ export function buildPrivateDigestPrompt(
   member: MemberConfig,
   privateMessages: readonly ChatMessage[],
   prevDigest?: PrivateDigest | null,
+  lang: import('./i18n/lang').Lang = 'zh',
 ): string {
   const formatted = privateMessages
-    .map((m) => `[${m.fromName} -> ${(m.audience ?? []).join(',') || '密信'}]: ${m.text}`)
+    .map((m) => `[${m.fromName} -> ${(m.audience ?? []).join(',') || pt(lang, 'dp.whisper')}]: ${m.text}`)
     .join('\n\n');
 
   const parts: string[] = [
-    `你是 **【${member.name}】**。`,
-    `你的人设立场如下:\n${member.persona}`,
-    `【任务指引】\n请以第一人称视角，梳理并总结你在本房间中的所有私聊密信往来。`,
-    `重点包括：你与谁沟通过、核心谈了什么、达成了什么共识或密谋、有哪些未决事项或对他人隐瞒的策略信息。`,
+    pt(lang, 'dp.identity', { name: member.name }),
+    pt(lang, 'dp.personaIntro', { persona: member.persona }),
+    pt(lang, 'dp.task'),
+    pt(lang, 'dp.focus'),
   ];
 
   if (prevDigest?.text) {
     parts.push(
-      `【你此前记录的既有私聊纪要(请在此基础上滚动更新合并)】\n${prevDigest.text}`,
-      `【自上次记录以来的新增私聊记录(共 ${privateMessages.length} 条)】\n${formatted}`,
+      `${pt(lang, 'dp.prevLabel')}\n${prevDigest.text}`,
+      `${pt(lang, 'dp.newRecordsLabel', { n: privateMessages.length })}\n${formatted}`,
     );
   } else {
     parts.push(
-      `【你在本房间中的私聊往来记录(共 ${privateMessages.length} 条)】\n${formatted}`,
+      `${pt(lang, 'dp.recordsLabel', { n: privateMessages.length })}\n${formatted}`,
     );
   }
 
   parts.push(
-    `【输出要求】`,
-    `直接输出你的第一人称私密回忆纪要，内容精炼控制在 500 字以内，不要使用任何开场白或无意义套话。`,
+    pt(lang, 'dp.outputReq'),
+    pt(lang, 'dp.outputBody'),
   );
 
   return parts.join('\n\n');
@@ -247,11 +249,13 @@ export async function executePrivateDigest(input: {
   command: string;
   args: string[];
   timeoutMs?: number;
+  /** prompt 语言(缺省 zh) */
+  lang?: import('./i18n/lang').Lang;
 }): Promise<PrivateDigest | null> {
-  const { member, privateMessages, prevDigest, adapter, command, args, timeoutMs = 120000 } = input;
+  const { member, privateMessages, prevDigest, adapter, command, args, timeoutMs = 120000, lang = 'zh' } = input;
   if (privateMessages.length === 0) return null;
 
-  const prompt = buildPrivateDigestPrompt(member, privateMessages, prevDigest);
+  const prompt = buildPrivateDigestPrompt(member, privateMessages, prevDigest, lang);
   const req: SpeakRequest = {
     member: member.id,
     prompt,

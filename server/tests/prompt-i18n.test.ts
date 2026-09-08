@@ -63,3 +63,24 @@ describe('prompt 双语', () => {
     expect(buildScoutPrompt('/x', 'tree')).toContain('项目侦察员');
   });
 });
+
+// ---------- 纪要/摘要 prompt 双语 ----------
+
+import { buildPrivateDigestPrompt } from '../src/core/summaryOps';
+
+describe('私聊纪要/摘要 prompt 双语', () => {
+  const digestMsgs = [
+    { id: '1', roomId: 'r', from: 'm1', fromName: '甲', text: 'x', ts: 0, audience: ['m2'] },
+  ] as any[];
+  it('zh 逐字节现状', () => {
+    const p = buildPrivateDigestPrompt(member, digestMsgs, null, 'zh');
+    expect(p).toContain('私聊密信往来');
+    expect(p).toContain('【输出要求】');
+    expect(p).toContain('500 字以内');
+  });
+  it('en 翻译', () => {
+    const p = buildPrivateDigestPrompt(member, digestMsgs, null, 'en');
+    expect(p).toContain('private DM exchanges');
+    expect(p).toContain('500 words');
+  });
+});

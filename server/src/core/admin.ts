@@ -12,6 +12,7 @@ import { buildScoutPrompt } from './prompt';
 import { oneShotSpeak } from './exec';
 import { filterValidPublic, splitHistoryByAnchor } from './summaryOps';
 import { t } from './i18n/messages';
+import { pt } from './i18n/promptTexts';
 import type { Lang, LangGetter } from './i18n/lang';
 
 
@@ -174,34 +175,34 @@ export class Admin {
         .join('\n\n');
 
       const promptParts: string[] = [
-        '你是本次多角色讨论的【管理员】。请根据对话记录，生成一份结构清晰、观点明确的 Markdown 格式【讨论摘要】。',
+        pt(this.lang, 'a.sysrole'),
       ];
 
       if (topic) {
-        promptParts.push(`【讨论主题】\n${topic}`);
+        promptParts.push(`${pt(this.lang, 'a.topicLabel')}\n${topic}`);
       }
 
       if (effectivePrev?.text) {
         promptParts.push(
-          `【既有讨论摘要(在其基础上滚动合并更新，800字以内)】\n${effectivePrev.text}`,
-          `【自上次摘要以来的新增公聊发言(共 ${targetMessages.length} 条)】\n${historyFormatted}`,
+          `${pt(this.lang, 'a.prevLabel')}\n${effectivePrev.text}`,
+          `${pt(this.lang, 'a.newMsgsLabel', { n: targetMessages.length })}\n${historyFormatted}`,
         );
       } else {
         promptParts.push(
-          `【对话记录(共 ${targetMessages.length} 条)】\n${historyFormatted}`,
+          `${pt(this.lang, 'a.recordsLabel', { n: targetMessages.length })}\n${historyFormatted}`,
         );
       }
 
       promptParts.push(
-        '【输出要求】',
-        '必须使用以下 Markdown 三级标题结构：',
-        '### 1. 核心议题与讨论背景',
-        '简要概括当前讨论围绕的核心问题及背景。',
-        '### 2. 各方主要观点与分歧',
-        '梳理各发言角色的鲜明立场、主要论据以及彼此的争议点。',
-        '### 3. 已达成共识与下一步焦点',
-        '总结目前各方认可的共识，以及待继续推进的下一步探讨焦点。',
-        '直接输出上述 Markdown 正文，内容控制在 800 字以内，不要有任何多余的开场白或礼貌套话。',
+        pt(this.lang, 'a.outputReq'),
+        pt(this.lang, 'a.mdMust'),
+        pt(this.lang, 'a.h1'),
+        pt(this.lang, 'a.h1body'),
+        pt(this.lang, 'a.h2'),
+        pt(this.lang, 'a.h2body'),
+        pt(this.lang, 'a.h3'),
+        pt(this.lang, 'a.h3body'),
+        pt(this.lang, 'a.outputTail'),
       );
 
       const prompt = promptParts.filter(Boolean).join('\n\n');
