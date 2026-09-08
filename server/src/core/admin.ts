@@ -56,6 +56,11 @@ export class Admin {
     this.scoutDone = true;
   }
 
+  /** 查询侦察是否已完成 */
+  get isScoutDone(): boolean {
+    return this.scoutDone;
+  }
+
   /** 若绑定项目且未跑过侦察，则跑一次并返回侦察消息 */
   ensureScout(projectPath: string | undefined): Promise<ChatMessage | null> {
     if (!projectPath || this.scoutDone || this.scoutFailureCount >= this.cfg.maxRetries) {

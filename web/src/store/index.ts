@@ -467,7 +467,7 @@ function onAgentEvent(ev: AgentEvent): void {
   const room = store.currentRoom;
   if (!room) return;
   const member = room.config.members.find((m) => m.id === ev.member);
-  if (!member) return; // 侦察员等非成员事件不渲染流式
+  if (!member && ev.member !== 'scout') return; // 允许 scout 侦察员呈现流式/思考态
 
   if (ev.phase === 'thinking') {
     store.memberStream[ev.member] ??= { text: '', thinking: '' };

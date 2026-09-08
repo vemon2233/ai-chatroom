@@ -65,6 +65,23 @@ const renderList = computed<Array<ChatMessage | (ChatMessage & { streaming: true
         streaming: true,
       });
     }
+
+    // 侦察员流式/思考气泡：处于生成中且尚未推入正式报告时呈现
+    const scoutStatus = room.value.statuses['scout'];
+    const scoutBuf = store.memberStream['scout'];
+    const scoutGenerating = scoutStatus === 'thinking' || scoutStatus === 'streaming';
+    const hasScoutReport = list.some((m) => m.from === 'scout' && !('streaming' in m));
+    if ((scoutGenerating || scoutBuf) && !hasScoutReport) {
+      list.push({
+        id: 'stream_scout',
+        roomId: room.value.config.id,
+        from: 'scout',
+        fromName: t('chat.scoutName'),
+        text: streamPlaceholder(scoutBuf || { text: '', thinking: t('chat.thinkingText') }),
+        ts: Date.now(),
+        streaming: true,
+      });
+    }
   }
   return list;
 });

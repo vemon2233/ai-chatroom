@@ -153,31 +153,48 @@ export class ChatRoom {
       onStatuses: () => this.bus.emitRoomState(this.getState()),
       persistRoom: () => this.persistence.persistRoom(this.config),
       runScout: async () => {
-        const report = await this.admin.ensureScout(this.config.projectPath);
-        if (report) {
-          await this.pushMessage({ ...report, roomId: this.config.id });
-          const traceLog: AgentTraceLog = {
-            messageId: report.id,
-            roomId: this.config.id,
-            memberId: 'system',
-            memberName: t(this.lang, 'sys.speaker'),
-            adapter: report.detail?.adapter || this.adminCfg.adapter || 'admin',
-            ts: report.ts,
-            durationMs: report.detail?.durationMs ?? 0,
-            status: 'ok',
-            trigger: t(this.lang, 'trace.scoutExplore'),
-            input: {
-              prompt: report.detail?.trigger || t(this.lang, 'trace.scoutExplore'),
-              cwd: this.config.projectPath,
-            },
-            output: {
-              result: report.text,
-              usage: (report.detail as any)?.usage,
-            },
-          };
-          void this.traceStore.saveTrace('room', this.config.id, traceLog);
+        if (!this.config.projectPath || this.admin.isScoutDone) {
+          return null;
         }
-        return report;
+        if (this.orch) {
+          this.orch.statuses['scout'] = 'thinking';
+        }
+        this.bus.emitRoomState(this.getState());
+        this.bus.emitAgentEvent(this.config.id, { member: 'scout', phase: 'thinking' });
+
+        try {
+          const report = await this.admin.ensureScout(this.config.projectPath);
+          if (report) {
+            await this.pushMessage({ ...report, roomId: this.config.id });
+            const traceLog: AgentTraceLog = {
+              messageId: report.id,
+              roomId: this.config.id,
+              memberId: 'system',
+              memberName: t(this.lang, 'sys.speaker'),
+              adapter: report.detail?.adapter || this.adminCfg.adapter || 'admin',
+              ts: report.ts,
+              durationMs: report.detail?.durationMs ?? 0,
+              status: 'ok',
+              trigger: t(this.lang, 'trace.scoutExplore'),
+              input: {
+                prompt: report.detail?.trigger || t(this.lang, 'trace.scoutExplore'),
+                cwd: this.config.projectPath,
+              },
+              output: {
+                result: report.text,
+                usage: (report.detail as any)?.usage,
+              },
+            };
+            void this.traceStore.saveTrace('room', this.config.id, traceLog);
+          }
+          return report;
+        } finally {
+          if (this.orch) {
+            this.orch.statuses['scout'] = 'idle';
+          }
+          this.bus.emitRoomState(this.getState());
+          this.bus.emitAgentEvent(this.config.id, { member: 'scout', phase: 'done' });
+        }
       },
       getHistory: () => this.messages,
       pushAgentEvent: (ev) => this.bus.emitAgentEvent(this.config.id, ev),
