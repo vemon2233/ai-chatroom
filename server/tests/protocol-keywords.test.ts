@@ -4,6 +4,10 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { parseBaton, stripBatonLine } from '../src/core/modes/baton/baton';
 import {
+  splitPublicAndPrivateMessage, parseHandshake, parseAudience,
+  inferHandshakeFromText,
+} from '../src/core/modes/subscribe/audience';
+import {
   BATON_LINE, BATON_END_WORDS, batonTagFor, USER_NAME_ALIASES, isSilentText,
 } from '../src/protocolKeywords';
 
@@ -63,6 +67,54 @@ describe('沉默/跳过双语判定', () => {
   it('标签后跟说明的前缀容错', () => {
     expect(isSilentText('<skip> 本轮不发言')).toBe(true);
     expect(isSilentText('<跳过> 保持观望')).toBe(true);
+  });
+});
+
+describe('私聊/握手双语并集解析', () => {
+  const members = [
+    { id: 'm1', name: '甲' }, { id: 'm2', name: '乙' }, { id: 'm3', name: 'Bob' },
+  ];
+
+  it('<dm>@Bob 拆出私聊块(与 <私聊>@乙 等价)', () => {
+    const zh = splitPublicAndPrivateMessage('公开说一句\n<私聊>@乙 单独聊', members, 'm1');
+    const en = splitPublicAndPrivateMessage('public words\n<dm>@Bob just between us', members, 'm1');
+    expect(zh.privateBlocks[0]?.targetMemberIds).toEqual(['m2']);
+    expect(en.privateBlocks[0]?.targetMemberIds).toEqual(['m3']);
+    expect(en.publicText).toBe('public words');
+    expect(en.privateBlocks[0]?.privateText).toBe('just between us');
+  });
+  it('<agree>/<decline> 握手标签解析', () => {
+    expect(parseHandshake('成交\n<同意>', members)?.type).toBe('agree');
+    expect(parseHandshake('deal\n<agree>', members)?.type).toBe('agree');
+    expect(parseHandshake('no\n<decline>', members)?.type).toBe('reject');
+    expect(parseHandshake('but\n<idea> @甲', members)).toEqual({ type: 'idea', targetMemberId: 'm1' });
+  });
+  it('英文语义兜底推断', () => {
+    expect(inferHandshakeFromText('Deal.')).toBe('agree');
+    expect(inferHandshakeFromText('Sure, count me in.')).toBe('agree');
+    expect(inferHandshakeFromText('No way.')).toBe('reject');
+    expect(inferHandshakeFromText('Absolutely not.')).toBe('reject');
+    expect(inferHandshakeFromText('But my condition is…')).toBe('idea');
+    expect(inferHandshakeFromText('However, I propose…')).toBe('idea');
+  });
+  it('中文语义兜底推断现状回归', () => {
+    expect(inferHandshakeFromText('一言为定')).toBe('agree');
+    expect(inferHandshakeFromText('不行,这绝对没得谈')).toBe('reject');
+    expect(inferHandshakeFromText('不过我有不同想法')).toBe('idea');
+  });
+  it('英文清洗前缀(private:/public: 剥除)', () => {
+    const r = splitPublicAndPrivateMessage('public: hi all\n<dm>@Bob private: secret', members, 'm1');
+    expect(r.publicText).toBe('hi all');
+    expect(r.privateBlocks[0]?.privateText).toBe('secret');
+  });
+  it('中文清洗前缀现状回归', () => {
+    const r = splitPublicAndPrivateMessage('公开发言: 大家好\n<私聊>@乙 悄悄话: 别声张', members, 'm1');
+    expect(r.publicText).toBe('大家好');
+    expect(r.privateBlocks[0]?.privateText).toBe('别声张');
+  });
+  it('parseAudience <dm> 尾行解析', () => {
+    expect(parseAudience('话说完\n<dm>@Bob', members, 'm1')).toEqual(['m3']);
+    expect(parseAudience('话说完\n<私聊>@乙', members, 'm1')).toEqual(['m2']);
   });
 });
 

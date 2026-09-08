@@ -1,10 +1,18 @@
 // 订阅模式: 私聊受众解析与历史消息投影纯函数。
+// 协议正则/词表真源在 ../../../protocolKeywords(根级零依赖叶子)——双语并集匹配。
 
 import type { ChatMessage, MemberConfig } from '../../types';
 import { matchMemberByName } from '../../naming';
+import {
+  DM_LINE, DM_TAG_GLOBAL, DM_STRIP,
+  HANDSHAKE_LINE, HANDSHAKE_STRIP, handshakeKindOf,
+  PRIVATE_PREFIX_STRIP, PUBLIC_PREFIX_STRIP,
+  AT_TARGET, AT_NAME_LOOSE, AT_NAME_OPTIONAL,
+  AT_NAME_GLOBAL, INFER_AGREE, INFER_REJECT, INFER_IDEA,
+} from '../../../protocolKeywords';
 
-/** 私聊行正则: 匹配末尾 `<私聊>@A @B` 或 `【私聊】@A @B` */
-export const AUDIENCE_LINE = /(?:<私聊>|【私聊】)\s*(.+)/;
+/** 私聊行正则(真源 re-export,既有 import 不动) */
+export { DM_LINE as AUDIENCE_LINE };
 
 export interface PrivateBlock {
   /** 私聊目标成员 ID 列表 (单人为 [id]，多播为 [id1, id2]) */
@@ -33,7 +41,7 @@ export interface SplitMessageResult {
  * 严格杜绝自言自语私聊(自动排除 senderId)。
  * 支持同时私聊多人(例如 <私聊>@A @B 私信内容)。
  * 支持单次发言输出多段发给不同同事的独立私聊(<私聊>@A 内容A ... <私聊>@B 内容B)。
- * 彻底剥离正文末尾残留的握手标签(<同意>、<拒绝>、<想法>)，并在元数据中返回握手态度。
+ * 彻底剥离正文末尾残留的握手标签(<同意>、<拒绝>、<想法>),并在元数据中返回握手态度。
  */
 export function splitPublicAndPrivateMessage(
   rawText: string,
@@ -42,9 +50,8 @@ export function splitPublicAndPrivateMessage(
 ): SplitMessageResult {
   const otherMembers = senderId ? members.filter((m) => m.id !== senderId) : members;
 
-  // 1. 查找所有私聊引导符起始位置
-  const privateTagRegex = /(?:<私聊>|【私聊】)/g;
-  const matches = [...rawText.matchAll(privateTagRegex)];
+  // 1. 查找所有私聊引导符起始位置(双语并集)
+  const matches = [...rawText.matchAll(DM_TAG_GLOBAL)];
 
   if (matches.length === 0) {
     // 无任何私聊标签，纯公聊
@@ -86,7 +93,7 @@ export function splitPublicAndPrivateMessage(
     let remaining = trimmedChunk;
 
     for (;;) {
-      const m = remaining.match(/^\s*@([^\s@,，。:：\n]+)/);
+      const m = remaining.match(AT_TARGET);
       if (!m) break;
       const name = m[1]!;
       const hit = matchMemberByName(name, otherMembers);
@@ -98,12 +105,12 @@ export function splitPublicAndPrivateMessage(
 
     // 容错：如果开头没有带 @，但直接写了单个名字
     if (targetMembers.length === 0) {
-      const singleMatch = trimmedChunk.match(/^([^\s@,，。:：\n]+)([\s\S]*)$/);
+      const singleMatch = trimmedChunk.match(AT_NAME_LOOSE);
       if (singleMatch) {
         const hit = matchMemberByName(singleMatch[1]!, otherMembers);
         if (hit) {
           targetMembers.push(hit);
-          remaining = singleMatch[2] ?? '';
+          remaining = rawText.slice(rawText.indexOf(singleMatch[1]!) + singleMatch[1]!.length);
         }
       }
     }
@@ -116,22 +123,19 @@ export function splitPublicAndPrivateMessage(
     const targetIds = targetMembers.map((t) => t.id);
     let privateBody = remaining.trim();
 
-    // 提取该 chunk 中的握手标签
+    // 提取该 chunk 中的握手标签(双语并集)
     let handshake: 'agree' | 'reject' | 'idea' | undefined;
-    const handshakeMatch = chunk.match(/<(同意|拒绝|想法)>/);
+    const handshakeMatch = chunk.match(HANDSHAKE_LINE);
     if (handshakeMatch) {
-      const hs = handshakeMatch[1];
-      if (hs === '同意') handshake = 'agree';
-      else if (hs === '拒绝') handshake = 'reject';
-      else if (hs === '想法') handshake = 'idea';
+      handshake = handshakeKindOf(handshakeMatch[1]!) ?? undefined;
     } else {
       handshake = inferHandshakeFromText(privateBody);
     }
 
-    // 清洗私聊正文中的握手标签与前缀
+    // 清洗私聊正文中的握手标签与前缀(中英并集)
     const cleanPrivate = privateBody
-      .replace(/<(?:同意|拒绝|想法)>[^\n]*/g, '')
-      .replace(/^\s*(?:私聊(?:部分)?|悄悄话|密谋)[:：\s]*/g, '')
+      .replace(HANDSHAKE_STRIP, '')
+      .replace(PRIVATE_PREFIX_STRIP, '')
       .trim();
 
     if (cleanPrivate.length > 0) {
@@ -143,11 +147,11 @@ export function splitPublicAndPrivateMessage(
     }
   }
 
-  // 4. 清洗公开发言部分
+  // 4. 清洗公开发言部分(中英并集)
   let cleanPublic: string | undefined;
   if (beforeText.length > 0) {
     const cleaned = beforeText
-      .replace(/^\s*(?:公开发言(?:部分)?|公开回复|台前发言|公聊(?:部分)?)[:：\s]*/g, '')
+      .replace(PUBLIC_PREFIX_STRIP, '')
       .trim();
     if (cleaned.length > 0) {
       cleanPublic = cleaned;
@@ -162,18 +166,15 @@ export function splitPublicAndPrivateMessage(
   // 6. 容错：如果 chunk 正文为空，但 beforeText 不为空 (大模型把正文写在前面，私聊标签放最后)
   if (privateBlocks.length === 0 && matches.length > 0 && beforeText.length > 0) {
     const tailChunk = rawChunks[rawChunks.length - 1];
-    const targetMatch = tailChunk?.match(/@?([^\s@,，。:：\n]+)/);
+    const targetMatch = tailChunk?.match(AT_NAME_OPTIONAL);
     if (targetMatch) {
       const hit = matchMemberByName(targetMatch[1]!, otherMembers);
       if (hit) {
-        const hsMatch = rawText.match(/<(同意|拒绝|想法)>/);
-        let hs: 'agree' | 'reject' | 'idea' | undefined;
-        if (hsMatch) {
-          hs = hsMatch[1] === '同意' ? 'agree' : hsMatch[1] === '拒绝' ? 'reject' : 'idea';
-        }
+        const hsMatch = rawText.match(HANDSHAKE_LINE);
+        const hs = hsMatch ? handshakeKindOf(hsMatch[1]!) : undefined;
         privateBlocks.push({
           targetMemberIds: [hit.id],
-          privateText: beforeText.replace(/<(?:同意|拒绝|想法)>[^\n]*/g, '').trim(),
+          privateText: beforeText.replace(HANDSHAKE_STRIP, '').trim(),
           handshake: hs,
         });
         cleanPublic = undefined;
@@ -206,11 +207,11 @@ export function parseAudience(
   const otherMembers = senderId ? members.filter((m) => m.id !== senderId) : members;
   const tailLines = text.trim().split('\n').slice(-3);
   for (const line of tailLines.reverse()) {
-    const m = line.match(AUDIENCE_LINE);
+    const m = line.match(DM_LINE);
     if (!m) continue;
     const directive = (m[1] ?? '').trim();
     // 匹配所有 @ 的名字
-    const atNames = [...directive.matchAll(/@([^\s@,，。]+)/g)].map((mm) => mm[1]!);
+    const atNames = [...directive.matchAll(AT_NAME_GLOBAL)].map((mm) => mm[1]!);
     if (atNames.length === 0) {
       // 容错: 如果直接写了名字没带 @，也尝试整段匹配
       const hit = matchMemberByName(directive, otherMembers);
@@ -227,27 +228,21 @@ export function parseAudience(
 }
 
 /**
- * 智能语义兜底推断: 当大模型在私聊中未附带尖括号标签时，根据语气关键词推断意图
+ * 智能语义兜底推断: 当大模型在私聊中未附带尖括号标签时，根据语气关键词推断意图(中英语料并集)
  */
 export function inferHandshakeFromText(text: string): 'agree' | 'reject' | 'idea' | undefined {
   if (!text) return undefined;
   const trimmed = text.trim();
   // 1. 同意/达成结盟倾向
-  if (
-    /^(?:(?:好|可以|行|成|没问题|成交|一言为定|依你|就依你|听你的|赞同|认同|同意|接受|按你说的办|依你说的办)[\s，。！!：:]*|.*(?:一言为定|达成同盟|结盟已成|此约已定|此约便定))/i.test(trimmed)
-  ) {
+  if (INFER_AGREE.test(trimmed)) {
     return 'agree';
   }
   // 2. 拒绝倾向
-  if (
-    /^(?:(?:不行|拒绝|休想|不妥|免谈|绝不|恕难从命|我不同意|不答应)[\s，。！!：:]*|.*(?:绝无可能|绝不同意|绝不答应|断难从命))/i.test(trimmed)
-  ) {
+  if (INFER_REJECT.test(trimmed)) {
     return 'reject';
   }
   // 3. 提出想法/反议价/补充条件倾向
-  if (
-    /^(?:(?:不过|但|我有不同想法|我的条件是|不如这样|另有一言)[\s，。！!：:]*)/i.test(trimmed)
-  ) {
+  if (INFER_IDEA.test(trimmed)) {
     return 'idea';
   }
   return undefined;
@@ -261,14 +256,14 @@ export interface HandshakeDirective {
   targetMemberId?: string;
 }
 
-/** 匹配握手标签: <同意>、<拒绝>、<想法> @名字 */
-export const HANDSHAKE_LINE = /<(同意|拒绝|想法)>\s*(.*)/;
+/** 匹配握手标签真源 re-export(双语并集) */
+export { HANDSHAKE_LINE };
 
 /**
- * 解析发言末尾的私聊握手标签:
- * - <同意>: 终结私聊
- * - <拒绝>: 终结私聊
- * - <想法> @发起方: 推进私聊
+ * 解析发言末尾的私聊握手标签(双语并集):
+ * - <同意>/<agree>: 终结私聊
+ * - <拒绝>/<decline>: 终结私聊
+ * - <想法>/<idea> @发起方: 推进私聊
  */
 export function parseHandshake(
   text: string,
@@ -278,15 +273,12 @@ export function parseHandshake(
   for (const line of tailLines.reverse()) {
     const m = line.match(HANDSHAKE_LINE);
     if (!m) continue;
-    const rawType = m[1];
-    let type: HandshakeType = 'agree';
-    if (rawType === '拒绝') type = 'reject';
-    else if (rawType === '想法') type = 'idea';
+    const type = handshakeKindOf(m[1]!) ?? 'agree';
 
     let targetMemberId: string | undefined;
     if (type === 'idea') {
       const targetStr = (m[2] ?? '').trim();
-      const atMatch = targetStr.match(/@([^\s@,，。]+)/);
+      const atMatch = targetStr.match(AT_NAME);
       const name = atMatch ? atMatch[1] : targetStr;
       if (name) {
         const hit = matchMemberByName(name, members);
@@ -299,12 +291,12 @@ export function parseHandshake(
 }
 
 /**
- * 剥除发言文本中的私聊行与握手行
+ * 剥除发言文本中的私聊行与握手行(双语并集)
  */
 export function stripAudienceLine(text: string): string {
   return text
-    .replace(/(?:<私聊>|【私聊】)[^\n]*/g, '')
-    .replace(/<(?:同意|拒绝|想法)>[^\n]*/g, '')
+    .replace(DM_STRIP, '')
+    .replace(HANDSHAKE_STRIP, '')
     .trimEnd();
 }
 
@@ -333,3 +325,4 @@ export function filterHistoryForViewer(
     return m.audience.includes(viewerMemberId);
   });
 }
+import { AT_NAME } from '../../../protocolKeywords';
