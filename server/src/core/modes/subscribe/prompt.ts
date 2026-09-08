@@ -140,14 +140,28 @@ export function isSilentDecision(rawText: string | undefined): boolean {
 }
 
 /**
- * 组装订阅模式下的通用 Prompt 说明段落
+ * 组装订阅模式下的通用 Prompt 说明段落。
+ * @param opts.mustRespond 点名/起头等强制回应条目——禁跳过:两阶段自决段整体替换为
+ *        "被直接点名必须回应"(跳过出口只属于心跳自主决策路径)
  */
 export function buildSubscribePromptSection(
   member: MemberConfig,
   members: MemberConfig[],
+  opts: { mustRespond?: boolean } = {},
 ): string {
   const candidateNames = members.filter((m) => m.id !== member.id).map((m) => m.name);
   const whitelistJson = JSON.stringify({ 可互动同事白名单: candidateNames }, null, 2);
+
+  if (opts.mustRespond) {
+    return (
+      `# 讨论模式说明(订阅模式 · 你被直接点名)\n` +
+      `用户或同事直接点名要你回应——这是强制发言,你没有跳过权。\n` +
+      `**禁止输出 <跳过> 或 <沉默>**,必须就当前话题做出实质性回应(观点/反驳/补充均可)。\n` +
+      `若想私下沟通,可在发言中附带: <私聊>@名字 悄悄话内容 (系统会自动拆分为独立气泡发布)。\n` +
+      `不要在文末输出 <接棒> 标签。\n` +
+      `可互动同事白名单(严禁给自己发私聊,严禁脑补数字后缀):\n\`\`\`json\n${whitelistJson}\n\`\`\``
+    );
+  }
 
   return (
     `# 讨论模式说明(订阅模式 · 自主在线群聊)\n` +

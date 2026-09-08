@@ -7,16 +7,21 @@
 // 5. 同 Agent 严格并发互斥(绝不同时跑两个 CLI 进程);
 // 6. 全生命周期销毁(stop 时 100% 清理所有 Timer, 杜绝幽灵调用与内存泄漏)。
 
-import type { ChatMessage, MemberConfig, RoomConfig } from '../../types';
-import {
-  parseAudience,
-  parseHandshake,
-  splitPublicAndPrivateMessage,
-  stripAudienceLine,
-} from './audience';
+import type { AgentTraceLog, ChatMessage, MemberConfig, RoomConfig } from '../../types';
+import { matchMemberByName } from '../../naming';
 import { PrivateChatProtocol } from './protocol';
 import { buildHeartbeatPrompt, isSilentDecision } from './prompt';
-import { matchMemberByName } from '../../naming';
+import { publishSpeechResult } from './publish';
+import { saveTrace } from '../../../store/trace';
+
+/** 心跳调用素材(供首气泡落一份完整 Trace;由 orchestrator.speak 回调返回) */
+export interface HeartbeatInvocation {
+  prompt: string;
+  command: string;
+  args: string[];
+  cwd?: string;
+  resumeSessionId?: string;
+}
 
 export interface SubscribeEngineDeps {
   getRoom: () => RoomConfig;
@@ -30,24 +35,11 @@ export interface SubscribeEngineDeps {
     thinking?: string;
     usage?: { inputTokens?: number; outputTokens?: number; costUsd?: number };
     durationMs?: number;
+    /** 完整调用素材(trace 落库用) */
+    invocation?: HeartbeatInvocation;
   }>;
-  /** 发布消息到房间 (落库并推前端) */
-  publishMessage: (msg: {
-    from: string;
-    fromName: string;
-    text: string;
-    audience?: string[];
-    threadId?: string;
-    handshake?: 'agree' | 'reject' | 'idea';
-    privateRound?: number;
-    privateAction?: 'start' | 'agree' | 'reject' | 'idea' | 'reply';
-    detail?: {
-      trace?: any[];
-      thinking?: string;
-      usage?: { inputTokens?: number; outputTokens?: number; costUsd?: number };
-      durationMs?: number;
-    };
-  }) => Promise<void>;
+  /** 发布消息到房间 (落库并推前端;由管线组装完整 ChatMessage) */
+  publishMessage: (msg: ChatMessage) => Promise<void>;
   /** 系统通知 */
   sysMessage: (text: string) => Promise<void>;
   /** 扣减轮次预算, 若已耗尽返回 false */
@@ -335,15 +327,13 @@ export class SubscribeEngine {
       );
       const outcome = await this.deps.speak(member, prompt);
 
-
       if (outcome.status !== 'ok' || !outcome.result) {
         return;
       }
 
-      const rawText = outcome.result;
-
-      // 4. 自决判定: 若输出 <跳过> 或 <沉默>，发出系统通知，零落库零广播
-      if (isSilentDecision(rawText)) {
+      // 4. silent 判定先行(免预算:合法跳过不烧预算;时序由心跳侧控制,判定真源在 isSilentDecision)
+      //    通知与措辞由发布管线统一处理(mustRespond=false:心跳路径跳过合法)
+      if (isSilentDecision(outcome.result)) {
         console.log(`[subscribe] 成员 ${member.name} 心跳后决定跳过 <跳过>`);
         await this.deps.sysMessage(`${member.name} 评估暂无发言与私聊意向，选择跳过。`);
         return;
@@ -358,61 +348,69 @@ export class SubscribeEngine {
         return;
       }
 
-      // 6. 消息解析: 拆分公聊发言与私聊发言 (支持单公聊 + 多私聊独立气泡解构，严禁对自己发私信)
-      const split = splitPublicAndPrivateMessage(rawText, room.members, member.id);
+      // 6. 发布管线唯一真源: 拆分/兜底/发布循环/mentions 钩子收敛于 publishSpeechResult
+      //    (silent 已在上方判定并返回,这里恒为非 silent 输出)
+      const pubOutcome = await publishSpeechResult(
+        member,
+        outcome.result,
+        {
+          trace: outcome.trace || [],
+          thinking: outcome.thinking,
+          usage: outcome.usage,
+          durationMs: outcome.durationMs,
+          adapter: member.adapter,
+          trigger: '心跳自主发言',
+        },
+        {
+          roomId: room.id,
+          members: room.members,
+          publish: async (msg) => {
+            await this.deps.publishMessage(msg);
+          },
+          resolvePrivateMeta: (senderId, targetId, handshake) =>
+            this.resolvePrivateMeta(senderId, targetId, handshake),
+          sysMessage: (text) => this.deps.sysMessage(text),
+          onPublished: async (text, audience, handshake) => {
+            await this.checkAndTriggerMentions(
+              member,
+              text,
+              audience,
+              handshake ? { type: handshake } : undefined,
+            );
+          },
+        },
+      );
 
-      // 如果公聊和私聊都未解析出有效内容，以 stripAudienceLine 作为公聊兜底
-      if (!split.publicText && (!split.privateBlocks || split.privateBlocks.length === 0)) {
-        split.publicText = stripAudienceLine(rawText) || rawText;
-      }
-
-      // 组装思考过程与用量详情
-      const speechDetail = {
-        trace: outcome.trace || [],
-        thinking: outcome.thinking,
-        usage: outcome.usage,
-        durationMs: outcome.durationMs,
-      };
-
-      // 7. 发布消息 (气泡拆分: 若既有公聊又有私聊，依次发布独立消息)
-      // 7.1 发布公聊消息 (全员可见气泡)
-      if (split.publicText) {
-        await this.deps.publishMessage({
-          from: member.id,
-          fromName: member.name,
-          text: split.publicText,
-          audience: undefined,
-          threadId: undefined,
-          detail: speechDetail,
-        });
-        await this.checkAndTriggerMentions(member, split.publicText);
-      }
-
-      // 7.2 发布私聊消息 (支持针对不同/相同目标成员拆解出多个独立私聊气泡)
-      if (split.privateBlocks && split.privateBlocks.length > 0) {
-        for (const block of split.privateBlocks) {
-          const primaryTargetId = block.targetMemberIds[0];
-          if (!primaryTargetId || !block.privateText) continue;
-
-          const meta = this.resolvePrivateMeta(member.id, primaryTargetId, block.handshake);
-          await this.deps.publishMessage({
-            from: member.id,
-            fromName: member.name,
-            text: block.privateText,
-            audience: block.targetMemberIds,
-            threadId: meta.threadId,
-            handshake: block.handshake,
-            privateRound: meta.privateRound,
-            privateAction: meta.privateAction,
-            detail: speechDetail,
-          });
-          await this.checkAndTriggerMentions(
-            member,
-            block.privateText,
-            block.targetMemberIds,
-            block.handshake ? { type: block.handshake } : undefined,
-          );
-        }
+      // 7. 首气泡落 trace(一次物理调用一份完整 Trace;traceId = 首气泡 messageId)
+      const firstId = pubOutcome.publishedIds[0];
+      const inv = outcome.invocation;
+      if (firstId && inv) {
+        const traceLog: AgentTraceLog = {
+          messageId: firstId,
+          roomId: room.id,
+          memberId: member.id,
+          memberName: member.name,
+          adapter: member.adapter,
+          ts: Date.now(),
+          durationMs: outcome.durationMs ?? 0,
+          status: outcome.status === 'ok' ? 'ok' : outcome.status,
+          error: outcome.error,
+          trigger: '心跳自主发言',
+          input: {
+            prompt: inv.prompt,
+            command: inv.command,
+            args: inv.args,
+            cwd: inv.cwd,
+            resumeSessionId: inv.resumeSessionId,
+          },
+          output: {
+            result: outcome.result,
+            thinking: outcome.thinking,
+            trace: outcome.trace ?? [],
+            usage: outcome.usage,
+          },
+        };
+        void saveTrace('room', room.id, traceLog);
       }
     } finally {
       this.isSpeaking = false;

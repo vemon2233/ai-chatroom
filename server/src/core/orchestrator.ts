@@ -27,12 +27,8 @@ import { randomUUID } from 'node:crypto';
 import { buildPrompt, buildDeltaPrompt, extractDeltaMessages } from './prompt';
 import { matchMemberByName } from './naming';
 import { parseBaton, stripBatonLine } from './modes/baton/baton';
-import {
-  parseAudience,
-  splitPublicAndPrivateMessage,
-  stripAudienceLine,
-} from './modes/subscribe/audience';
-import { isSilentDecision } from './modes/subscribe/prompt';
+import { stripAudienceLine } from './modes/subscribe/audience';
+import { publishSpeechResult } from './modes/subscribe/publish';
 import { SubscribeEngine } from './modes/subscribe/engine';
 import { saveTrace } from '../store/trace';
 import type { AgentAdapter, AgentEvent, SpeakOutcome } from '../adapters/base';
@@ -87,6 +83,8 @@ interface SpeechEntry {
   batonMode?: 'chain' | 'callout';
   /** @allN 条目跑完后的终局动作 */
   afterRounds?: 'finalSummary';
+  /** 订阅模式:点名/起头/轮流等强制回应条目——prompt 禁跳过 + silent 兜底通知(仅订阅模式条目标记;跳过出口只属于心跳自主决策) */
+  mustRespond?: boolean;
 }
 
 export class Orchestrator {
@@ -118,16 +116,6 @@ export class Orchestrator {
     this.budget = deps.room.chainBudget;
     for (const m of deps.room.members) this.statuses[m.id] = 'idle';
 
-    let pendingHeartbeatInvocation: {
-      traceId: string;
-      prompt: string;
-      req: any;
-      outcome: any;
-      trace: any[];
-      thinking?: string;
-      usage?: any;
-    } | null = null;
-
     this.subscribeEngine = new SubscribeEngine({
       getRoom: () => this.deps.room,
       getHistory: () => this.historySnapshot(),
@@ -138,18 +126,10 @@ export class Orchestrator {
           const existingSessionId = member.sessionIds?.[member.adapter];
           const resumeSessionId = (contextMode === 'stateful' && existingSessionId) ? existingSessionId : undefined;
           const { outcome, trace, thinking, usage, req } = await this.invokeWithRetry(member, prompt, resumeSessionId);
-          pendingHeartbeatInvocation = {
-            traceId: randomUUID(),
-            prompt,
-            req,
-            outcome,
-            trace,
-            thinking,
-            usage,
-          };
           if (outcome.status === 'ok') {
             this.maybeCompact(member);
           }
+          // 心跳 trace 素材随结果返回(由 publishMessage 落首气泡 trace,不再经构造器闭包传递)
           return {
             result: outcome.result,
             status: outcome.status,
@@ -158,6 +138,13 @@ export class Orchestrator {
             thinking,
             usage,
             durationMs: outcome.durationMs,
+            invocation: {
+              prompt,
+              command: req.command,
+              args: req.args,
+              cwd: req.cwd,
+              resumeSessionId: req.resumeSessionId,
+            },
           };
         } finally {
           this.statuses[member.id] = 'idle';
@@ -169,72 +156,11 @@ export class Orchestrator {
       },
 
       publishMessage: async (msg) => {
-        let msgId: string;
         const member = this.deps.room.members.find((m) => m.id === msg.from);
-
-        // 仅在真实发布消息时，为本次物理调用生成并持久化一次唯一的完整 Trace
-        if (pendingHeartbeatInvocation) {
-          const inv = pendingHeartbeatInvocation;
-          msgId = inv.traceId;
-          pendingHeartbeatInvocation = null; // 消费掉，后续同次拆分出的私聊气泡不再重复记录
-
-          if (member) {
-            const traceLog: AgentTraceLog = {
-              messageId: inv.traceId,
-              roomId: this.deps.room.id,
-              memberId: member.id,
-              memberName: member.name,
-              adapter: member.adapter,
-              ts: Date.now(),
-              durationMs: inv.outcome.durationMs ?? 0,
-              status: inv.outcome.status,
-              error: inv.outcome.error,
-              trigger: '心跳自主发言',
-              input: {
-                prompt: inv.prompt, // 真实完整的输入 Prompt
-                command: inv.req?.command,
-                args: inv.req?.args,
-                cwd: inv.req?.cwd,
-                resumeSessionId: inv.req?.resumeSessionId,
-              },
-              output: {
-                result: inv.outcome.result || msg.text, // 真实完整的原始输出(公聊与私聊一体)
-                thinking: inv.thinking,
-                trace: inv.trace ?? [],
-                usage: inv.usage,
-              },
-            };
-            void saveTrace('room', this.deps.room.id, traceLog);
-          }
-        } else {
-          msgId = randomUUID();
-        }
+        await this.deps.pushMessage(msg);
         if (member) {
-          this.memberCursors.set(member.id, msgId);
+          this.memberCursors.set(member.id, msg.id);
         }
-
-        await this.deps.pushMessage({
-          id: msgId,
-          roomId: this.deps.room.id,
-          from: msg.from,
-          fromName: msg.fromName,
-          text: msg.text,
-          ts: Date.now(),
-          audience: msg.audience,
-          threadId: msg.threadId,
-          handshake: msg.handshake,
-          privateRound: msg.privateRound,
-          privateAction: msg.privateAction,
-          detail: {
-            trace: msg.detail?.trace ?? [],
-            thinking: msg.detail?.thinking,
-            usage: msg.detail?.usage,
-            durationMs: msg.detail?.durationMs,
-            adapter: member?.adapter ?? 'unknown',
-            trigger: '心跳自主发言',
-            hasTrace: true,
-          },
-        });
         await this.deps.persistRoom();
       },
       sysMessage: (text) => this.sysMessage(text),
@@ -253,6 +179,7 @@ export class Orchestrator {
         this.enqueue({
           memberId: target.id,
           trigger: triggerReason,
+          mustRespond: this.deps.room.mode === 'subscribe', // 同事点名:订阅模式下强制回应
         });
       },
       onIdle: () => {
@@ -387,6 +314,7 @@ export class Orchestrator {
                 memberId: m.id,
                 trigger: `用户在聊天中 @了你,请针对用户的最新发言发表你的回应与看法。`,
                 batonMode: undefined,
+                mustRespond: true, // 用户点名:强制回应,禁跳过
               });
             }
           } else {
@@ -435,6 +363,7 @@ export class Orchestrator {
               memberId: starter.id,
               trigger: '用户刚发表了新观点，请针对用户的最新消息发表你的看法。',
               batonMode: undefined,
+              mustRespond: true, // 被唤醒回应用户:强制回应,禁跳过
             });
           }
         } else {
@@ -461,6 +390,7 @@ export class Orchestrator {
           memberId: starter.id,
           trigger: '讨论开始，请你先就房间讨论主题开个头。',
           batonMode: undefined,
+          mustRespond: true, // 讨论起头:强制开题,禁跳过
         });
       }
     } else {
@@ -547,6 +477,7 @@ export class Orchestrator {
       memberId,
       trigger: '请重新生成你的发言。针对上述讨论发表你的观点。',
       batonMode: undefined,
+      mustRespond: this.deps.room.mode === 'subscribe' || undefined, // 订阅模式下重roll必须产出
     });
   }
 
@@ -561,6 +492,7 @@ export class Orchestrator {
       memberId,
       trigger: `用户(房间主人)直接对你说:${userText}\n回应完在结尾用 <接棒>@名字 指定下一位(讨论将暂停等待用户)。`,
       batonMode: 'callout',
+      mustRespond: this.deps.room.mode === 'subscribe' || undefined, // 订阅模式下直接指令必须回应
     });
   }
 
@@ -571,13 +503,14 @@ export class Orchestrator {
     if (members.length === 0) return;
 
     this.setState('roundrobin');
+    const mustRespond = this.deps.room.mode === 'subscribe'; // 订阅模式下轮流发言禁跳过
     for (let r = 1; r <= rounds; r++) {
       members.forEach((m, i) => {
-        this.enqueue({ memberId: m.id, trigger: this.turnTrigger(r, i, members.length) });
+        this.enqueue({ memberId: m.id, trigger: this.turnTrigger(r, i, members.length), mustRespond: mustRespond || undefined });
       });
     }
     const lastMember = members[members.length - 1]!;
-    this.enqueue({ memberId: lastMember.id, trigger: this.finalTrigger(), afterRounds: 'finalSummary' });
+    this.enqueue({ memberId: lastMember.id, trigger: this.finalTrigger(), afterRounds: 'finalSummary', mustRespond: mustRespond || undefined });
     void this.sysMessage(`开始轮流发言 ${rounds} 轮`);
   }
 
@@ -619,6 +552,7 @@ export class Orchestrator {
           instruction: entry.instruction,
           batonMode: entry.batonMode,
           summary: this.deps.getSummary?.(),
+          mustRespond: entry.mustRespond,
         });
       } else {
         // 正常增量调用：只注入自上次发言以来的新增对话与精简行动指引
@@ -626,6 +560,7 @@ export class Orchestrator {
           trigger: entry.trigger,
           instruction: entry.instruction,
           batonMode: entry.batonMode,
+          mustRespond: entry.mustRespond,
         });
       }
     } else {
@@ -635,6 +570,7 @@ export class Orchestrator {
         instruction: entry.instruction,
         batonMode: entry.batonMode,
         summary: this.deps.getSummary?.(),
+        mustRespond: entry.mustRespond,
       });
       resumeSessionId = undefined;
     }
@@ -728,78 +664,42 @@ export class Orchestrator {
     let finalText = outcome.result || '(无输出)';
 
     if (this.deps.room.mode === 'subscribe') {
-      // 订阅模式: 若自决为 <沉默> 则零落库零广播
-      if (isSilentDecision(finalText)) {
+      // 订阅模式: 发布管线唯一真源(silent 判定+通知/拆分/兜底/发布循环/traceId 令牌)
+      const pubOutcome = await publishSpeechResult(
+        member,
+        outcome.result,
+        {
+          trace,
+          thinking: thinking || undefined,
+          usage,
+          durationMs: outcome.durationMs,
+          adapter: member.adapter,
+          trigger: entry.trigger,
+        },
+        {
+          roomId: this.deps.room.id,
+          members: this.deps.room.members,
+          publish: async (msg) => {
+            await this.deps.pushMessage(msg);
+            this.memberCursors.set(member.id, msg.id);
+          },
+          resolvePrivateMeta: (senderId, targetId, handshake) =>
+            this.subscribeEngine.resolvePrivateMeta(senderId, targetId, handshake),
+          sysMessage: (text) => this.sysMessage(text),
+          traceMessageId: runOneTraceId ?? undefined,
+        },
+        entry.mustRespond === true,
+      );
+
+      if (pubOutcome.wasSilent) {
+        // silent: 管线已发通知;零气泡零 trace(点名违规跳过同样不落 trace——无有效产出)
+        runOneTraceId = null;
         return;
       }
-      // 剥除接棒尾行, 并做公私混杂双气泡智能拆分
-      finalText = stripBatonLine(finalText);
-      const split = splitPublicAndPrivateMessage(finalText, this.deps.room.members, member.id);
 
-      // 如果公聊和私聊都未解析出有效内容，以 stripAudienceLine 作为公聊兜底
-      if (!split.publicText && (!split.privateBlocks || split.privateBlocks.length === 0)) {
-        split.publicText = stripAudienceLine(finalText) || finalText;
-      }
-
-      // 无论后续拆分为多少个受众独立气泡，均只为本次模型调用生成一份唯一且包含完整输出的 Trace
-      recordTraceOnce(outcome.result || finalText);
-
-      // 6.1 发布公聊消息 (全员可见气泡)
-      if (split.publicText) {
-        const msgId = runOneTraceId ?? randomUUID();
-        runOneTraceId = null;
-        await this.deps.pushMessage({
-          id: msgId,
-          roomId: this.deps.room.id,
-          from: member.id,
-          fromName: member.name,
-          text: split.publicText,
-          ts: Date.now(),
-          audience: undefined,
-          detail: {
-            trace,
-            thinking: thinking || undefined,
-            usage,
-            durationMs: outcome.durationMs,
-            adapter: member.adapter,
-            trigger: entry.trigger,
-            hasTrace: true,
-          },
-        });
-      }
-
-      // 6.2 发布私聊消息 (支持多个独立私聊气泡解构，受众隔离气泡，支持多播)
-      if (split.privateBlocks && split.privateBlocks.length > 0) {
-        for (const block of split.privateBlocks) {
-          const primaryTarget = block.targetMemberIds[0];
-          if (!primaryTarget || !block.privateText) continue;
-
-          const meta = this.subscribeEngine.resolvePrivateMeta(member.id, primaryTarget, block.handshake);
-          const msgId = runOneTraceId ?? randomUUID();
-          runOneTraceId = null;
-          await this.deps.pushMessage({
-            id: msgId,
-            roomId: this.deps.room.id,
-            from: member.id,
-            fromName: member.name,
-            text: block.privateText,
-            ts: Date.now(),
-            audience: block.targetMemberIds,
-            handshake: block.handshake,
-            privateRound: meta.privateRound,
-            privateAction: meta.privateAction,
-            detail: {
-              trace,
-              thinking: thinking || undefined,
-              usage,
-              durationMs: outcome.durationMs,
-              adapter: member.adapter,
-              trigger: entry.trigger,
-              hasTrace: true,
-            },
-          });
-        }
-      }
+      // 一次物理调用一份完整 Trace(traceId = 首气泡 messageId,与管线令牌一致;先落 trace 再作废令牌)
+      recordTraceOnce(outcome.result);
+      runOneTraceId = null;
 
       await this.deps.persistRoom();
       this.maybeCompact(member);

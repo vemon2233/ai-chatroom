@@ -28,6 +28,8 @@ export async function buildPrompt(
     instruction?: string;
     batonMode?: 'chain' | 'callout';
     summary?: DiscussionSummary | string | null;
+    /** 订阅模式:点名/起头等强制回应条目——禁跳过(两阶段自决段替换为点名必答) */
+    mustRespond?: boolean;
   } = {},
 ): Promise<string> {
   const others = room.members
@@ -110,7 +112,7 @@ export async function buildPrompt(
 
   // 模式规则段落: 订阅模式 vs 接棒模式
   if (room.mode === 'subscribe') {
-    parts.push(buildSubscribePromptSection(member, room.members));
+    parts.push(buildSubscribePromptSection(member, room.members, { mustRespond: opts.mustRespond }));
   } else if (opts.batonMode === 'chain' || opts.batonMode === 'callout') {
     parts.push(buildBatonPromptSection(member, room.members, opts.batonMode));
   }
@@ -151,6 +153,8 @@ export function buildDeltaPrompt(
     trigger?: string;
     instruction?: string;
     batonMode?: 'chain' | 'callout';
+    /** 订阅模式:强制回应条目——禁跳过 */
+    mustRespond?: boolean;
   } = {},
 ): string {
   const parts: string[] = [];
@@ -171,7 +175,7 @@ export function buildDeltaPrompt(
 
   // 3. 极简行动指引 (按模式适配)
   if (room.mode === 'subscribe') {
-    parts.push(buildSubscribePromptSection(member, room.members));
+    parts.push(buildSubscribePromptSection(member, room.members, { mustRespond: opts.mustRespond }));
   } else {
     const brief = lengthBrief(room.speechLength);
     const batonSec =

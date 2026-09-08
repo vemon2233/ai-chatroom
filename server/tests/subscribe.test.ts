@@ -247,6 +247,69 @@ describe('订阅模式: 去中心心跳引擎与编排器集成 (SubscribeEngine
     await orch.stop();
   });
 
+  it('mustRespond 点名场景:prompt 禁跳过 + 模型仍输出跳过时发违规通知且零气泡(D8-②)', async () => {
+    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0); // 随机起手恒选 m1
+    try {
+      let capturedPrompt = '';
+      const adapter: AgentAdapter = {
+        speak: (req) => {
+          capturedPrompt = req.prompt;
+          return {
+            done: Promise.resolve({ status: 'ok', result: '<跳过>', durationMs: 10 }),
+            cancel: vi.fn(),
+          };
+        },
+      };
+      const room = {
+        id: 'r_must',
+        name: '禁跳过测试',
+        topic: 't',
+        chainBudget: 6,
+        speechLength: 'short' as const,
+        toolPermission: 'readonly' as const,
+        mode: 'subscribe' as const,
+        members: [
+          { id: 'm1', name: '架构师', adapter: 'mock', persona: 'p', color: '#111' },
+          { id: 'm2', name: '工程师', adapter: 'mock', persona: 'p', color: '#222' },
+        ],
+        createdAt: 1,
+        subscribeConfig: { heartbeatIntervalMs: 20 },
+      };
+      const messages: ChatMessage[] = [];
+      const sysMessages: string[] = [];
+      const orch = new Orchestrator({
+        room: room as any,
+        adapterConfigs: { mock: { command: 'mock', args: [] } },
+        resolveAdapter: () => adapter,
+        pushMessage: (m) => { messages.push(m); return Promise.resolve(); },
+        sysMessage: (t) => { sysMessages.push(t); return Promise.resolve(); },
+        onStatuses: () => {},
+        persistRoom: () => Promise.resolve(),
+        runScout: () => Promise.resolve(null),
+        getHistory: () => messages,
+        pushAgentEvent: () => {},
+      });
+
+      // 用户 @点名(mention 路径 → mustRespond 条目)
+      await orch.onUserMessage('@架构师 请回应');
+      await new Promise((r) => setTimeout(r, 100));
+
+      // 1. prompt 层:禁跳过指令已注入,两阶段自决段被替换
+      expect(capturedPrompt).toContain('你被直接点名');
+      expect(capturedPrompt).toContain('禁止输出 <跳过>');
+      expect(capturedPrompt).not.toContain('两阶段自决');
+
+      // 2. 兜底层:模型违规输出 <跳过> → 系统通知(不再静默),零气泡
+      expect(sysMessages.some((t) => t.includes('不允许跳过'))).toBe(true);
+      const agentMsgs = messages.filter((m) => m.from === 'm1');
+      expect(agentMsgs.length).toBe(0);
+
+      await orch.stop();
+    } finally {
+      randomSpy.mockRestore();
+    }
+  });
+
   it('Agent 积极发言并支持私聊尾行解析与受众隔离', async () => {
     const { orch, messages } = makeTestSetup({
       replies: {
