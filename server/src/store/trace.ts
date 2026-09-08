@@ -6,6 +6,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import type { AgentTraceLog } from '../core/types';
 import { REPO_ROOT } from '../paths';
+import { SKIP_TAG_IN_RESULT } from '../protocolKeywords';
 
 export type TraceScope = 'room' | 'direct';
 
@@ -263,7 +264,7 @@ export async function computeSessionStats(
           if (trace.status === 'error') {
             target.errors += 1;
           }
-          if (trace.status === 'cancelled' || trace.output?.result?.includes('<跳过>')) {
+          if (trace.status === 'cancelled' || SKIP_TAG_IN_RESULT.test(trace.output?.result ?? '')) {
             target.skips += 1;
           }
 

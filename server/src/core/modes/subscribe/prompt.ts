@@ -5,6 +5,7 @@ import { historyText } from '../../render';
 import { filterHistoryForViewer } from './audience';
 import { isPublicSummaryUsable, isDigestUsable } from '../../summaryOps';
 import type { PrivateThread } from './protocol';
+import { isSilentText } from '../../../protocolKeywords';
 
 /**
  * 组装心跳唤醒时的一步全价自决 Prompt。
@@ -116,27 +117,10 @@ export function buildHeartbeatPrompt(
 }
 
 /**
- * 检查输出是否为跳过或沉默指令
+ * 检查输出是否为跳过或沉默指令(真源:protocolKeywords.isSilentText,中英并集)
  */
 export function isSilentDecision(rawText: string | undefined): boolean {
-  if (!rawText) return true;
-  const trimmed = rawText.trim();
-  if (
-    trimmed === '<跳过>' ||
-    trimmed === '【跳过】' ||
-    trimmed === '跳过' ||
-    trimmed === '<沉默>' ||
-    trimmed === '【沉默】' ||
-    trimmed === '沉默' ||
-    trimmed.startsWith('<跳过>') ||
-    trimmed.startsWith('【跳过】') ||
-    trimmed.startsWith('<沉默>') ||
-    trimmed.startsWith('【沉默】')
-  ) {
-    return true;
-  }
-  if (trimmed.length === 0) return true;
-  return false;
+  return isSilentText(rawText);
 }
 
 /**
