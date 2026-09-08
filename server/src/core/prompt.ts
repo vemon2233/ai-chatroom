@@ -47,6 +47,10 @@ export async function buildPrompt(
     parts.push(`# 其他参与者\n${others}`);
   }
 
+  if (room.userPersona && room.userPersona.persona?.trim()) {
+    parts.push(`# 对话者/房主设定\n当前在房间中与你们交流探讨的用户身份为 **【${room.userPersona.name}】**。\n其背景设定与立场如下:\n${room.userPersona.persona.trim()}`);
+  }
+
   // 项目上下文:目录树 + 工具探索引导;若已有侦察报告则注入报告并阻止重复探索
   if (room.projectPath) {
     const scoutReport = history.find(

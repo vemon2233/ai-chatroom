@@ -8,6 +8,7 @@ export const BATON_LINE = /(?:<接棒>|【接棒】)\s*(.+)/;
 export interface BatonOutcome {
   nextMemberId?: string;
   endDiscussion?: boolean;
+  toUser?: boolean;
 }
 
 /**
@@ -15,11 +16,13 @@ export interface BatonOutcome {
  * @param text 完整发言文本
  * @param members 房间成员候选列表
  * @param selfId 当前发言者 ID (防传给自己)
+ * @param userNames 用户或用户人设名称集合 (默认 ['用户', 'user'])
  */
 export function parseBaton(
   text: string,
   members: Array<{ id: string; name: string }>,
   selfId: string,
+  userNames: string[] = ['用户', 'user'],
 ): BatonOutcome {
   // 取最后 3 行内找接棒标记(容错: agent 可能在正文里换行后又补写)
   const tailLines = text.trim().split('\n').slice(-3);
@@ -31,6 +34,12 @@ export function parseBaton(
     // @名字 或 直接名字
     const nameMatch = directive.match(/@([^\s@,，。]+)/);
     const rawName = ((nameMatch?.[1]) ?? directive).trim();
+
+    // 检查是否明确接棒给用户/房主
+    if (userNames.some((u) => u && rawName.toLowerCase() === u.toLowerCase())) {
+      return { toUser: true };
+    }
+
     const hit = matchMemberByName(rawName, members);
     if (hit && hit.id !== selfId) return { nextMemberId: hit.id };
     if (hit && hit.id === selfId) return {}; // 传给自己: 无效 -> 无指令

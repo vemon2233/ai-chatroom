@@ -10,7 +10,7 @@ async function req<T>(url: string, init?: RequestInit): Promise<T> {
   return j as T;
 }
 
-import type { Character, RoomSettings, RoomState, DiscussionMode, SubscribeConfig, ContextMode } from '@server/core/types';
+import type { Character, RoomSettings, RoomState, DiscussionMode, SubscribeConfig, ContextMode, UserPersonaSnapshot, DirectChatMeta } from '@server/core/types';
 import type { ChatMessage } from '@server/core/types';
 
 export interface AdapterInfo { key: string; displayName: string; kind: string }
@@ -33,6 +33,7 @@ export interface CreateRoomBody {
   mode?: DiscussionMode;
   subscribeConfig?: SubscribeConfig;
   contextMode?: ContextMode;
+  userPersona?: UserPersonaSnapshot;
   members: Array<{
     name: string;
     adapter: string;
@@ -169,4 +170,12 @@ export const api = {
     if (!res.ok) throw new Error((j as any).error ?? `导入失败(${res.status})`);
     return j;
   },
+
+  getDirectMeta: (characterId: string) =>
+    req<import('@server/core/types').DirectChatMeta>(`/api/characters/${encodeURIComponent(characterId)}/direct-meta`),
+  updateDirectMeta: (characterId: string, meta: import('@server/core/types').DirectChatMeta) =>
+    req<{ ok: true; meta: import('@server/core/types').DirectChatMeta }>(
+      `/api/characters/${encodeURIComponent(characterId)}/direct-meta`,
+      { method: 'PUT', body: JSON.stringify(meta) },
+    ),
 };

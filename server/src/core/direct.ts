@@ -1,11 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import type { AgentAdapter, AgentEvent } from '../adapters/base';
-import type { AgentTraceLog, Character, ChatMessage, DiscussionSummary, ContextMode } from './types';
+import type { AgentTraceLog, Character, ChatMessage, DiscussionSummary, ContextMode, DirectChatMeta, UserPersonaSnapshot } from './types';
 import type { MessageBus } from './bus';
 import { extractDeltaMessages } from './prompt';
 import { historyText } from './render';
 import { isPublicSummaryUsable, splitHistoryByAnchor } from './summaryOps';
 import { truncateMessages, prepareReroll, prepareEdit } from './historyOps';
+import { assertSessionConfigMutable } from './sessionGuard';
 import type { Admin } from './admin';
 import type { SummaryStorePort, TraceStorePort } from './room';
 
@@ -16,6 +17,8 @@ export interface DirectChatStore {
   rewriteDirectMessages(characterId: string, messages: ChatMessage[]): Promise<void>;
   resetDirectChat(characterId: string): Promise<void>;
   deleteDirectChat(characterId: string): Promise<void>;
+  loadDirectMeta?(characterId: string): Promise<DirectChatMeta>;
+  saveDirectMeta?(characterId: string, meta: DirectChatMeta): Promise<void>;
 }
 
 export interface DirectChatServiceDeps {
@@ -41,6 +44,8 @@ const noopStore: DirectChatStore = {
   rewriteDirectMessages: async () => {},
   resetDirectChat: async () => {},
   deleteDirectChat: async () => {},
+  loadDirectMeta: async () => ({}),
+  saveDirectMeta: async () => {},
 };
 
 export class DirectChatService {
@@ -54,8 +59,28 @@ export class DirectChatService {
   private contextModes = new Map<string, ContextMode>(); // characterId -> ContextMode
   private lastSeenMessageIds = new Map<string, string>(); // characterId -> lastSeenMessageId
   private summaries = new Map<string, DiscussionSummary>();
+  private metas = new Map<string, DirectChatMeta>();
 
   constructor(private deps: DirectChatServiceDeps) {}
+
+  async getMeta(characterId: string): Promise<DirectChatMeta> {
+    if (this.metas.has(characterId)) {
+      return this.metas.get(characterId)!;
+    }
+    const loaded = this.store.loadDirectMeta ? await this.store.loadDirectMeta(characterId) : {};
+    this.metas.set(characterId, loaded);
+    return loaded;
+  }
+
+  async setMeta(characterId: string, meta: DirectChatMeta): Promise<void> {
+    const msgs = await this.getMessages(characterId);
+    const current = await this.getMeta(characterId);
+    assertSessionConfigMutable(msgs.length, current.userPersona, meta.userPersona);
+    this.metas.set(characterId, meta);
+    if (this.store.saveDirectMeta) {
+      await this.store.saveDirectMeta(characterId, meta);
+    }
+  }
 
   async getMessages(characterId: string): Promise<ChatMessage[]> {
     return await this.store.loadDirectMessages(characterId);
@@ -73,6 +98,7 @@ export class DirectChatService {
     this.stop(characterId);
     this.sessionIds.delete(characterId);
     this.lastSeenMessageIds.delete(characterId);
+    this.metas.delete(characterId);
     await this.store.deleteDirectChat(characterId);
   }
 
@@ -152,11 +178,14 @@ export class DirectChatService {
   async userSpeak(character: Character, userText: string): Promise<void> {
     this.stop(character.id);
 
+    const meta = await this.getMeta(character.id);
+    const fromName = meta.userPersona?.name || '用户';
+
     const userMsg: ChatMessage = {
       id: randomUUID(),
       roomId: `direct_${character.id}`,
       from: 'user',
-      fromName: '用户',
+      fromName,
       text: userText,
       ts: Date.now(),
     };
@@ -192,6 +221,7 @@ export class DirectChatService {
       const existingSessionId = this.sessionIds.get(character.id);
 
       const summary = await this.getSummary(character.id);
+      const meta = await this.getMeta(character.id);
       let prompt: string;
       let effectiveResumeSessionId: string | undefined = undefined;
 
@@ -200,7 +230,7 @@ export class DirectChatService {
         const { delta, isReanchored } = extractDeltaMessages(history, lastSeenId);
         effectiveResumeSessionId = existingSessionId;
         if (isReanchored) {
-          prompt = this.buildDirectFullPrompt(character, history, summary);
+          prompt = this.buildDirectFullPrompt(character, history, summary, meta.userPersona);
         } else {
           prompt = [
             `你是 **【${character.name}】**。请保持你的 **既有人设与核心立场**。`,
@@ -209,7 +239,7 @@ export class DirectChatService {
           ].join('\n\n');
         }
       } else {
-        prompt = this.buildDirectFullPrompt(character, history, summary);
+        prompt = this.buildDirectFullPrompt(character, history, summary, meta.userPersona);
         effectiveResumeSessionId = undefined;
       }
 
@@ -376,12 +406,23 @@ export class DirectChatService {
     character: Character,
     history: readonly ChatMessage[],
     summary?: DiscussionSummary | null,
+    userPersona?: UserPersonaSnapshot | null,
   ): string {
+    const userGreeting = userPersona?.name
+      ? `现在你正在与 **【${userPersona.name}】** 进行一对一的专属私聊。`
+      : `现在你正在与用户进行一对一的专属私聊。`;
+
     const parts: string[] = [
       `你是 **【${character.name}】**。`,
       `你的人设与立场如下:\n${character.persona}`,
-      `现在你正在与用户进行一对一的专属私聊。请完全符合你的人设特点，自然、真诚地回复用户的提问或探讨。`,
+      userGreeting,
     ];
+
+    if (userPersona?.persona?.trim()) {
+      parts.push(`对方（用户）的身份设定与背景如下:\n${userPersona.persona.trim()}`);
+    }
+
+    parts.push(`请完全符合你的人设特点，自然、真诚地回复对方的提问或探讨。`);
 
     if (isPublicSummaryUsable(summary, history) && summary?.text?.trim()) {
       parts.push(`【前期对话摘要】\n${summary.text.trim()}`);
@@ -389,7 +430,7 @@ export class DirectChatService {
 
     const visibleHistory = splitHistoryByAnchor(history, summary?.coveredMessageId).after;
     parts.push(`\n以下是你们此前的对话记录:\n${historyText(visibleHistory, 30, character.id, character.name)}`);
-    parts.push(`\n请回复用户:`);
+    parts.push(`\n请回复对方:`);
 
     return parts.join('\n\n');
   }

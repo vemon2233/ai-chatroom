@@ -43,6 +43,7 @@ async function handleSubmit(body: RoomFormBody) {
       topic: body.topic,
       speechLength: body.speechLength,
       chainBudget: body.chainBudget,
+      userPersona: body.userPersona ?? undefined,
     });
     if (store.currentRoom && store.currentRoom.config.id === room.value.id) {
       store.currentRoom = updated;
@@ -104,7 +105,13 @@ async function handleDeleteRoom() {
 
     <!-- 房间表单主体 -->
     <div class="manage-body">
-      <RoomForm ref="formRef" mode="settings" :room="room" @submit="handleSubmit" />
+      <RoomForm
+        ref="formRef"
+        mode="settings"
+        :room="room"
+        :is-locked="store.messages.length > 0"
+        @submit="handleSubmit"
+      />
 
       <!-- 底部危险区 -->
       <div class="danger-zone">

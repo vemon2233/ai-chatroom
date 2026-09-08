@@ -18,6 +18,8 @@ import {
   rewriteDirectMessages,
   resetDirectChat,
   deleteDirectChat,
+  loadDirectMeta,
+  saveDirectMeta,
 } from '../store/directChats';
 import type { Character, RoomSettings } from '../core/types';
 import type { AdapterConfig, AppConfig } from './config';
@@ -31,6 +33,8 @@ const directChatStore = {
   rewriteDirectMessages,
   resetDirectChat,
   deleteDirectChat,
+  loadDirectMeta,
+  saveDirectMeta,
 };
 
 function readBody(req: IncomingMessage): Promise<any> {
@@ -167,6 +171,16 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
       projectPath = rawData.projectPath;
     }
 
+    const userPersona = rawData.userPersona && typeof rawData.userPersona === 'object'
+      ? {
+          characterId: typeof rawData.userPersona.characterId === 'string' ? rawData.userPersona.characterId : undefined,
+          name: typeof rawData.userPersona.name === 'string' ? rawData.userPersona.name : '用户',
+          avatar: typeof rawData.userPersona.avatar === 'string' ? rawData.userPersona.avatar : undefined,
+          color: typeof rawData.userPersona.color === 'string' ? rawData.userPersona.color : undefined,
+          persona: typeof rawData.userPersona.persona === 'string' ? rawData.userPersona.persona : undefined,
+        }
+      : undefined;
+
     const rcfg = makeRoomConfig({
       name: dedupedName,
       topic: typeof rawData.topic === 'string' ? rawData.topic : undefined,
@@ -177,6 +191,7 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
       toolPermission: rawData.toolPermission,
       contextMode: rawData.contextMode === 'stateful' ? 'stateful' : 'stateless',
       projectPath,
+      userPersona,
       members: cleanedMembers,
     });
 
@@ -309,6 +324,23 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
         if (sub === 'messages' && method === 'GET') {
           const msgs = await directChat.getMessages(id);
           return json(res, 200, msgs);
+        }
+
+        // 1v1 私聊配置与身份获取
+        if (sub === 'direct-meta' && method === 'GET') {
+          const meta = await directChat.getMeta(id);
+          return json(res, 200, meta);
+        }
+
+        // 1v1 私聊配置与身份设置 (方案 A 守卫)
+        if (sub === 'direct-meta' && (method === 'PUT' || method === 'POST')) {
+          try {
+            const body = await readBody(req);
+            await directChat.setMeta(id, body);
+            return json(res, 200, { ok: true, meta: await directChat.getMeta(id) });
+          } catch (err: any) {
+            return json(res, 400, { error: err.message || '设置私聊身份失败' });
+          }
         }
 
         // 1v1 私聊用户发言
@@ -541,6 +573,7 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
             toolPermission: r.toolPermission,
             contextMode: r.contextMode,
             projectPath: r.projectPath,
+            userPersona: r.userPersona,
             members: cleanMembers,
           };
           const filename = `${encodeURIComponent(r.name)}.json`;
@@ -700,9 +733,13 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
 
         // 运行期设置面板(即时生效)
         if (sub === 'settings' && (method === 'PATCH' || method === 'PUT')) {
-          const body = await readBody(req) as Partial<RoomSettings>;
-          await room!.updateSettings(body);
-          return json(res, 200, room!.getState());
+          try {
+            const body = await readBody(req) as Partial<RoomSettings>;
+            await room!.updateSettings(body);
+            return json(res, 200, room!.getState());
+          } catch (err: any) {
+            return json(res, 400, { error: err.message || '更新房间设置失败' });
+          }
         }
 
         // 删除房间(config 移除,历史 JSONL 保留)

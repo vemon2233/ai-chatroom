@@ -3,7 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { setEditingMessage, sessionActions, store } from '@/store';
 import { dialog } from '@/composables/useDialog';
 import { renderMarkdown } from '@/utils/markdown';
-import { initialsFor } from '@/utils/avatar';
+import { initialsFor, colorForName } from '@/utils/avatar';
 import type { ChatMessage } from '@server/core/types';
 import TraceDetail from './TraceDetail.vue';
 
@@ -182,23 +182,48 @@ async function onEdit() {
   }
 }
 
+const hasCustomUserPersona = computed(() =>
+  isMe.value && !!props.msg.fromName && props.msg.fromName !== '用户'
+);
+
 const avatarBg = computed(() => {
-  if (isMe.value) return '#6B7280';
+  if (isMe.value) {
+    if (hasCustomUserPersona.value) {
+      return colorForName(props.msg.fromName!);
+    }
+    return '#6B7280';
+  }
   if (isScout.value) return '#0EA5E9';
   return member.value?.color ?? directChar.value?.color ?? '#9CA3AF';
 });
 const avatarText = computed(() => {
-  if (isMe.value) return '我';
+  if (isMe.value) {
+    if (hasCustomUserPersona.value) {
+      return initialsFor(props.msg.fromName!);
+    }
+    return '我';
+  }
   if (isScout.value) return '侦';
   return initialsFor(member.value?.name ?? directChar.value?.name ?? props.msg.fromName ?? '?');
 });
 
 /** 名字行「名字 · adapter · HH:MM」(截图样式;时间超淡) */
-const senderName = computed(() =>
-  isMe.value ? '我' : member.value?.name ?? directChar.value?.name ?? props.msg.fromName ?? props.msg.from,
-);
+const senderName = computed(() => {
+  if (isMe.value) {
+    if (hasCustomUserPersona.value) {
+      return `${props.msg.fromName} (我)`;
+    }
+    return '我';
+  }
+  return member.value?.name ?? directChar.value?.name ?? props.msg.fromName ?? props.msg.from;
+});
 const senderRole = computed(() => {
-  if (isMe.value) return '用户';
+  if (isMe.value) {
+    if (hasCustomUserPersona.value) {
+      return '化身';
+    }
+    return '用户';
+  }
   if (isScout.value) return '侦察';
   return member.value?.adapter ?? directChar.value?.adapter ?? '';
 });

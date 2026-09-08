@@ -7,13 +7,16 @@
 import { ref, watch } from 'vue';
 import { store } from '@/store';
 import { COLOR_OPTIONS, colorForName } from '@/utils/avatar';
-import type { RoomConfig } from '@server/core/types';
+import type { RoomConfig, UserPersonaSnapshot } from '@server/core/types';
+import UserPersonaSelector from '@/components/chat/inspector/UserPersonaSelector.vue';
 
 const props = withDefaults(defineProps<{
   mode: 'create' | 'settings';
   /** settings 模式的预填 */
   room?: RoomConfig | null;
-}>(), { room: null });
+  /** 方案 A 锁定：当已有历史消息时锁定身份变更 */
+  isLocked?: boolean;
+}>(), { room: null, isLocked: false });
 
 const emit = defineEmits<{ (e: 'submit', body: RoomFormBody): void }>();
 
@@ -27,6 +30,7 @@ export interface RoomFormBody {
   chainBudget: number;
   mode: 'baton' | 'subscribe';
   contextMode: 'stateless' | 'stateful';
+  userPersona?: UserPersonaSnapshot | null;
 }
 
 const name = ref('');
@@ -38,6 +42,7 @@ const toolPermission = ref<'readonly' | 'readwrite' | 'full'>('readonly');
 const chainBudget = ref(6);
 const mode = ref<'baton' | 'subscribe'>('baton');
 const contextMode = ref<'stateless' | 'stateful'>('stateless');
+const userPersona = ref<UserPersonaSnapshot | null>(null);
 
 const isCreate = () => props.mode === 'create';
 
@@ -54,6 +59,7 @@ watch(
       chainBudget.value = r.chainBudget;
       mode.value = r.mode ?? 'baton';
       contextMode.value = r.contextMode ?? 'stateless';
+      userPersona.value = r.userPersona ?? null;
     } else {
       name.value = '';
       color.value = COLOR_OPTIONS[0]!.value;
@@ -64,6 +70,7 @@ watch(
       chainBudget.value = 6;
       mode.value = 'baton';
       contextMode.value = 'stateless';
+      userPersona.value = null;
     }
   },
   { immediate: true },
@@ -80,6 +87,7 @@ function submit() {
     chainBudget: Math.max(1, Math.min(50, chainBudget.value || 6)),
     mode: mode.value,
     contextMode: contextMode.value,
+    userPersona: userPersona.value,
   });
 }
 
@@ -94,6 +102,7 @@ function reset() {
     chainBudget.value = props.room.chainBudget;
     mode.value = props.room.mode ?? 'baton';
     contextMode.value = props.room.contextMode ?? 'stateless';
+    userPersona.value = props.room.userPersona ?? null;
   } else {
     name.value = '';
     color.value = COLOR_OPTIONS[0]!.value;
@@ -104,6 +113,7 @@ function reset() {
     chainBudget.value = 6;
     mode.value = 'baton';
     contextMode.value = 'stateless';
+    userPersona.value = null;
   }
 }
 
@@ -131,6 +141,14 @@ defineExpose({ submit, reset });
     <div class="form-row">
       <label>主题 / 讨论题目</label>
       <textarea v-model="topic" placeholder="例如:React 和 Vue 该选哪个?考虑团队规模和学习成本"></textarea>
+    </div>
+
+    <div class="form-row">
+      <label>
+        我的发言身份
+        <span v-if="isLocked" class="lock-pill">已有消息锁定</span>
+      </label>
+      <UserPersonaSelector v-model="userPersona" :is-locked="isLocked" />
     </div>
 
     <div class="grid2-eq">

@@ -4,10 +4,13 @@
 import { appendFile, mkdir, readFile, writeFile, unlink } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
-import type { ChatMessage } from '../core/types';
+import type { ChatMessage, DirectChatMeta } from '../core/types';
 import { REPO_ROOT } from '../paths';
 
 const DATA_DIR = path.join(REPO_ROOT, 'data', 'direct_chats');
+const META_FILE = path.join(REPO_ROOT, 'data', 'direct_chats.json');
+
+let writeMetaChain: Promise<unknown> = Promise.resolve();
 
 async function ensureDir() {
   if (!existsSync(DATA_DIR)) await mkdir(DATA_DIR, { recursive: true });
@@ -16,6 +19,35 @@ async function ensureDir() {
 function fileFor(characterId: string) {
   const safe = characterId.replace(/[^a-zA-Z0-9_-]/g, '');
   return path.join(DATA_DIR, `${safe}.jsonl`);
+}
+
+async function readAllMetas(): Promise<Record<string, DirectChatMeta>> {
+  if (!existsSync(META_FILE)) return {};
+  try {
+    const raw = await readFile(META_FILE, 'utf8');
+    return JSON.parse(raw) || {};
+  } catch {
+    return {};
+  }
+}
+
+export async function loadDirectMeta(characterId: string): Promise<DirectChatMeta> {
+  const all = await readAllMetas();
+  return all[characterId] || {};
+}
+
+export async function saveDirectMeta(characterId: string, meta: DirectChatMeta): Promise<void> {
+  const task = writeMetaChain.then(async () => {
+    const all = await readAllMetas();
+    if (!meta || !meta.userPersona) {
+      delete all[characterId];
+    } else {
+      all[characterId] = meta;
+    }
+    await writeFile(META_FILE, JSON.stringify(all, null, 2), 'utf8');
+  });
+  writeMetaChain = task.then(() => {}, () => {});
+  return task;
 }
 
 export async function appendDirectMessage(characterId: string, msg: ChatMessage): Promise<void> {
@@ -56,4 +88,6 @@ export async function deleteDirectChat(characterId: string): Promise<void> {
   if (existsSync(f)) {
     await unlink(f).catch(() => { });
   }
+  await saveDirectMeta(characterId, {});
 }
+

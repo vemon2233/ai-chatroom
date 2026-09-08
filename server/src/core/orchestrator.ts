@@ -767,9 +767,16 @@ export class Orchestrator {
 
     // 接棒决策: 只在"非订阅模式 + 接棒条目 + 世代未变"时发生
     if (this.deps.room.mode !== 'subscribe' && batonActive && genAtStart === this.generation) {
-      const baton = parseBaton(outcome.result, this.deps.room.members, member.id);
+      const userNames = ['用户', 'user'];
+      if (this.deps.room.userPersona?.name) userNames.push(this.deps.room.userPersona.name);
+      const baton = parseBaton(outcome.result, this.deps.room.members, member.id, userNames);
       if (baton.endDiscussion) {
         await this.sysMessage(`🏁 ${member.name} 宣布讨论结束。`);
+        this.setState('idle');
+        return;
+      }
+      if (baton.toUser) {
+        await this.sysMessage(`🤝 ${member.name} 把话题交还给了你。`);
         this.setState('idle');
         return;
       }
@@ -1001,7 +1008,7 @@ export class Orchestrator {
     const startMatch = text.match(/(?:<接棒>|【接棒】)\s*@([^\s@,，。]+)/);
     if (startMatch) {
       const hit = matchMemberByName(startMatch[1]!, this.deps.room.members);
-      if (hit) return { kind: 'start', member: hit, fromName: '用户' };
+      if (hit) return { kind: 'start', member: hit, fromName: this.deps.room.userPersona?.name || '用户' };
       return { kind: 'none' };
     }
     // @allN 轮流:负向前瞻防吞 "all" 开头的成员名(@allan 落入下方成员名匹配)。

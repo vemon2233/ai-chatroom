@@ -8,6 +8,7 @@ import { Orchestrator } from './orchestrator';
 import { Admin, type AdminConfig } from './admin';
 import { MEMBER_PALETTE } from './palette';
 import type { ChatMessage, DiscussionSummary, MemberConfig, RoomConfig, RoomSettings, RoomState, SummaryConfig } from './types';
+import { assertSessionConfigMutable } from './sessionGuard';
 import { getAdapter as getAdapterByKind } from '../adapters/index';
 import { truncateMessages, prepareReroll, prepareEdit, backfillHandshake } from './historyOps';
 import type { AgentTraceLog } from './types';
@@ -60,6 +61,7 @@ export interface CreateRoomInput {
   mode?: RoomConfig['mode'];
   subscribeConfig?: RoomConfig['subscribeConfig'];
   contextMode?: RoomConfig['contextMode'];
+  userPersona?: RoomConfig['userPersona'];
   members: Array<Omit<MemberConfig, 'id' | 'color'> & { color?: string }>;
 }
 
@@ -476,7 +478,7 @@ export class ChatRoom {
       id: randomUUID(),
       roomId: this.config.id,
       from: 'user',
-      fromName: '用户',
+      fromName: this.config.userPersona?.name || '用户',
       text,
       ts: Date.now(),
     });
@@ -579,6 +581,10 @@ export class ChatRoom {
         ...patch.subscribeConfig,
       };
     }
+    if (patch.userPersona !== undefined) {
+      assertSessionConfigMutable(this.messages.length, this.config.userPersona, patch.userPersona);
+      this.config.userPersona = patch.userPersona || undefined;
+    }
     await this.persistence.persistRoom(this.config);
     this.bus.emitRoomState(this.getState());
   }
@@ -611,6 +617,7 @@ export function makeRoomConfig(input: CreateRoomInput): RoomConfig {
     mode: input.mode ?? 'baton',
     subscribeConfig: input.subscribeConfig,
     contextMode: input.contextMode ?? 'stateless',
+    userPersona: input.userPersona,
     members,
     createdAt: Date.now(),
   };

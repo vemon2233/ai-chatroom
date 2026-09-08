@@ -7,25 +7,66 @@ import { store, refreshCharacters, closeSession, closeInspector } from '@/store'
 import { api } from '@/services/api';
 import { dialog } from '@/composables/useDialog';
 import { downloadFile } from '@/utils/download';
-import type { Character } from '@server/core/types';
+import type { Character, UserPersonaSnapshot } from '@server/core/types';
 import CharacterForm from '@/components/modals/CharacterForm.vue';
+import UserPersonaSelector from '@/components/chat/inspector/UserPersonaSelector.vue';
 
 const formRef = ref<InstanceType<typeof CharacterForm> | null>(null);
 const isSaving = ref(false);
 const saveSuccess = ref(false);
 const errorMessage = ref('');
 
+const userPersona = ref<UserPersonaSnapshot | null>(null);
+const isMetaSaving = ref(false);
+const metaSaveSuccess = ref(false);
+const metaError = ref('');
+
 const character = computed<Character | null>(() => store.currentDirectChar);
+const isDirectLocked = computed(() => store.directMessages.length > 0);
 
 watch(
   () => character.value?.id,
-  () => {
+  async (cid) => {
     formRef.value?.reset?.();
     saveSuccess.value = false;
     errorMessage.value = '';
+    metaSaveSuccess.value = false;
+    metaError.value = '';
+    if (cid) {
+      try {
+        const meta = await api.getDirectMeta(cid);
+        userPersona.value = meta?.userPersona ?? null;
+      } catch (e: any) {
+        userPersona.value = null;
+      }
+    } else {
+      userPersona.value = null;
+    }
   },
   { immediate: true },
 );
+
+async function handleSavePersona(persona?: UserPersonaSnapshot | null) {
+  if (!character.value) return;
+  const targetPersona = persona !== undefined ? persona : userPersona.value;
+  isMetaSaving.value = true;
+  metaSaveSuccess.value = false;
+  metaError.value = '';
+  try {
+    const updated = await api.updateDirectMeta(character.value.id, {
+      userPersona: targetPersona,
+    });
+    userPersona.value = updated.meta?.userPersona ?? null;
+    metaSaveSuccess.value = true;
+    setTimeout(() => {
+      metaSaveSuccess.value = false;
+    }, 1500);
+  } catch (err: any) {
+    metaError.value = err?.message || '保存身份失败';
+  } finally {
+    isMetaSaving.value = false;
+  }
+}
 
 function handleExportCharacter() {
   if (!character.value) return;
@@ -75,7 +116,7 @@ async function handleDeleteCharacter() {
   <div class="inspector-direct-manage">
     <div class="manage-subbar">
       <div class="subbar-meta">
-        <span class="meta-title">角色管理</span>
+        <span class="meta-title">角色与私聊设置</span>
       </div>
       <div class="subbar-actions">
         <button
@@ -97,15 +138,27 @@ async function handleDeleteCharacter() {
     </div>
 
     <!-- 成功或错误通知提示条 -->
-    <div v-if="saveSuccess" class="alert-bar success">
-      ✓ 角色人设与参数已更新
+    <div v-if="saveSuccess || metaSaveSuccess" class="alert-bar success">
+      ✓ {{ saveSuccess ? '角色人设与参数已更新' : '私聊身份已生效' }}
     </div>
-    <div v-if="errorMessage" class="alert-bar error">
-      {{ errorMessage }}
+    <div v-if="errorMessage || metaError" class="alert-bar error">
+      {{ errorMessage || metaError }}
     </div>
 
-    <!-- 角色表单主体 -->
+    <!-- 角色表单主体: 单层平级，零嵌套套娃 -->
     <div class="manage-body">
+      <div class="form-row">
+        <label>
+          我的私聊身份
+          <span v-if="isDirectLocked" class="lock-pill">已有消息锁定</span>
+        </label>
+        <UserPersonaSelector
+          v-model="userPersona"
+          :is-locked="isDirectLocked"
+          @change="handleSavePersona"
+        />
+      </div>
+
       <CharacterForm
         ref="formRef"
         :character="character"
@@ -248,7 +301,17 @@ async function handleDeleteCharacter() {
   gap: 18px;
 }
 
-/* 适配内嵌 CharacterForm 样式 */
+.lock-pill {
+  font-size: 10.5px;
+  font-weight: 500;
+  color: var(--muted);
+  background: var(--border-soft);
+  border-radius: 10px;
+  padding: 1px 8px;
+  margin-left: 6px;
+}
+
+/* 适配内嵌表单样式 */
 .manage-body :deep(.char-form) {
   display: flex;
   flex-direction: column;

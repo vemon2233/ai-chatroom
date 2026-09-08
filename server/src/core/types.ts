@@ -192,6 +192,20 @@ export interface SubscribeConfig {
   heartbeatIntervalMs?: number;
 }
 
+/** 会话级用户人设快照契约(群聊与私聊统一) */
+export interface UserPersonaSnapshot {
+  characterId?: string;
+  name: string;
+  avatar?: string;
+  color?: string;
+  persona?: string;
+}
+
+/** 1v1 私聊会话元数据契约 */
+export interface DirectChatMeta {
+  userPersona?: UserPersonaSnapshot | null;
+}
+
 export interface RoomConfig {
   id: string;
   name: string;
@@ -215,6 +229,8 @@ export interface RoomConfig {
   subscribeConfig?: SubscribeConfig;
   /** 上下文模式(默认 'stateless') */
   contextMode?: ContextMode;
+  /** 当前房间绑定的用户人设(方案 A: 会话有历史则锁定只读) */
+  userPersona?: UserPersonaSnapshot;
 }
 
 /** 成员运行时状态 */
@@ -242,7 +258,7 @@ export interface RoomState {
 /** 运行期设置面板可改的字段(其余 RoomConfig 字段不可变) */
 export type RoomSettings = Pick<
   RoomConfig,
-  'speechLength' | 'chainBudget' | 'name' | 'color' | 'topic' | 'subscribeConfig'
+  'speechLength' | 'chainBudget' | 'name' | 'color' | 'topic' | 'subscribeConfig' | 'userPersona'
 >;
 
 /** 单个角色/用户的度量统计项 */
