@@ -17,6 +17,7 @@ import { getSummary, saveSummarySnapshot } from '../store/summary';
 import { saveTrace } from '../store/trace';
 import { createRoutes } from './routes';
 import { setupWs } from './ws';
+import { settings } from '../store/settings';
 
 /** 持久化接缝(server 注入 store 实现给 core 的 ChatRoom——依赖单向:server→core,core 不知 store)。 */
 const roomPersistence = {
@@ -43,13 +44,14 @@ const MIME: Record<string, string> = {
 async function main() {
   const cfg = await loadConfig();
   const bus = new MessageBus();
+  await settings.load(); // 语言设置(settings.json 缺省 zh——现状行为)
 
   // ---- 房间复活(v2 新增):配置/历史/sessionIds 恢复;编排运行态归零(idle) ----
   const rooms = new Map<string, ChatRoom>();
   const persisted = await loadAllRooms();
   for (const rcfg of persisted) {
     // 适配器被删的角色:成员保留,首次发言时报错并提示(不阻塞复活)
-    const room = new ChatRoom(rcfg, bus, cfg.adapters, cfg.admin, roomPersistence, cfg.summary, ports);
+    const room = new ChatRoom(rcfg, bus, cfg.adapters, cfg.admin, roomPersistence, cfg.summary, { ...ports, getLang: settings.getLang });
     await room.restore(); // JSONL 历史进内存(listen 前完成)
     rooms.set(room.id, room);
   }

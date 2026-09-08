@@ -43,6 +43,9 @@ import type {
   SummaryConfig,
 } from './types';
 import { executeCompactSession } from './summaryOps';
+import { t } from './i18n/messages';
+import { DEFAULT_LANG, type Lang, type LangGetter } from './i18n/lang';
+import { batonTagFor } from '../protocolKeywords';
 
 /** 适配器注册表抽象(测试注入 fake 的接缝) */
 export type AdapterResolver = (adapterKey: string) => AgentAdapter;
@@ -71,6 +74,8 @@ export interface OrchestratorDeps {
   summaryCfg?: SummaryConfig;
   /** Trace 落库接缝(未注入时跳过——测试场景) */
   saveTrace?: (scope: 'room' | 'direct', id: string, trace: AgentTraceLog) => Promise<void>;
+  /** 语言注入(未注入 → zh,与改造前逐字节一致) */
+  getLang?: LangGetter;
 }
 
 
@@ -113,6 +118,11 @@ export class Orchestrator {
   private compactingPromises = new Map<string, Promise<boolean>>();
   /** compact 失败次数，连续失败熔断 */
   private compactFailures = new Map<string, number>();
+
+  /** 当前语言(发射时刻取值;未注入恒 zh——现状不变量) */
+  private get lang(): Lang {
+    return this.deps.getLang?.() ?? DEFAULT_LANG;
+  }
 
   constructor(private deps: OrchestratorDeps) {
     this.budget = deps.room.chainBudget;

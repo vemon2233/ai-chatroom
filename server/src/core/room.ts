@@ -9,6 +9,7 @@ import { Admin, type AdminConfig } from './admin';
 import { MEMBER_PALETTE } from './palette';
 import type { ChatMessage, DiscussionSummary, MemberConfig, RoomConfig, RoomSettings, RoomState, SummaryConfig } from './types';
 import { assertSessionConfigMutable } from './sessionGuard';
+import type { LangGetter } from './i18n/lang';
 import { getAdapter as getAdapterByKind } from '../adapters/index';
 import { truncateMessages, prepareReroll, prepareEdit, backfillHandshake } from './historyOps';
 import type { AgentTraceLog } from './types';
@@ -76,7 +77,13 @@ export class ChatRoom {
   private adapterConfigs: Record<string, { kind: string; command: string; args: string[] }>;
   private privateDigestRunning = new Set<string>();
   /** store 窄接口(摘要快照/trace;server 装配注入) */
-  private ports: { summaryStore?: SummaryStorePort; traceStore?: TraceStorePort };
+  private ports: { summaryStore?: SummaryStorePort; traceStore?: TraceStorePort; getLang?: LangGetter };
+  /** 语言注入(未注入 → zh) */
+  private getLangFn?: LangGetter;
+  /** 当前语言(发射时刻取值;未注入恒 zh——现状不变量) */
+  protected get lang(): import('./i18n/lang').Lang {
+    return this.getLangFn?.() ?? 'zh';
+  }
 
   private get summaryStore(): SummaryStorePort {
     // 未注入时降级为空实现(trace/快照落盘跳过,消息链路不受影响——纯内存运行/测试场景)
@@ -102,12 +109,15 @@ export class ChatRoom {
     ports?: {
       summaryStore?: SummaryStorePort;
       traceStore?: TraceStorePort;
+      /** 语言注入(未注入 → zh,与改造前逐字节一致) */
+      getLang?: LangGetter;
     },
   ) {
     this.config = cfg;
     this.adapterConfigs = adapterConfigs;
     this.adminCfg = adminCfg;
     this.ports = ports ?? {};
+    this.getLangFn = ports?.getLang;
     this.summaryCfg = summaryCfg ?? {
       model: 'haiku',
       autoThreshold: 30,
@@ -171,6 +181,7 @@ export class ChatRoom {
       getSummary: () => this.currentSummary,
       saveTrace: (scope, id, traceLog) => this.traceStore.saveTrace(scope, id, traceLog),
       summaryCfg: this.summaryCfg,
+      getLang: () => this.lang,
     });
   }
 

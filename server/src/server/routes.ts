@@ -23,6 +23,8 @@ import {
 } from '../store/directChats';
 import type { Character, RoomSettings } from '../core/types';
 import type { AdapterConfig, AppConfig } from './config';
+import { settings } from '../store/settings';
+import { t } from '../core/i18n/messages';
 
 /** core 窄接口的 store 实现(server 层装配——core 不 import store,依赖单向) */
 const summaryStore = { getSummary, saveSummarySnapshot };
@@ -106,6 +108,7 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
     store: directChatStore,
     summaryStore,
     traceStore,
+    getLang: settings.getLang,
   });
 
   async function doImportCharacter(buf: Buffer): Promise<Character> {
@@ -221,6 +224,19 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
       const url = new URL(req.url ?? '/', 'http://localhost');
       const p = url.pathname;
       const method = req.method ?? 'GET';
+
+      // ---- 全局设置(语言) ----
+      if (p === '/api/settings' && method === 'GET') {
+        return json(res, 200, { lang: settings.getLang() });
+      }
+      if (p === '/api/settings/language' && method === 'PUT') {
+        const body = await readBody(req);
+        if (body.lang !== 'zh' && body.lang !== 'en') {
+          return json(res, 400, { error: t(settings.getLang(), 'api.badLang') });
+        }
+        await settings.setLang(body.lang);
+        return json(res, 200, { lang: body.lang });
+      }
 
       // ---- 适配器列表(前端建房间下拉用)----
       if (p === '/api/adapters' && method === 'GET') {

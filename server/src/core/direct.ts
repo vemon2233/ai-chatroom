@@ -30,6 +30,8 @@ export interface DirectChatServiceDeps {
   store?: DirectChatStore;
   summaryStore?: SummaryStorePort;
   traceStore?: TraceStorePort;
+  /** 语言注入(未注入 → zh,与改造前逐字节一致) */
+  getLang?: import('./i18n/lang').LangGetter;
 }
 
 interface ActiveDirectRun {
@@ -50,6 +52,10 @@ const noopStore: DirectChatStore = {
 
 export class DirectChatService {
   private activeRuns = new Map<string, ActiveDirectRun>();
+  /** 当前语言(发射时刻取值;未注入恒 zh——现状不变量) */
+  private get lang(): import('./i18n/lang').Lang {
+    return this.deps.getLang?.() ?? 'zh';
+  }
   private get store(): DirectChatStore { return this.deps.store ?? noopStore; }
   private get summaryStore(): SummaryStorePort {
     return this.deps.summaryStore ?? { getSummary: async () => null, saveSummarySnapshot: async () => ({ id: `noop_${Date.now()}` }) };
