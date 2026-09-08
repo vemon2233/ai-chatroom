@@ -672,6 +672,10 @@ export class Orchestrator {
       }
       case 'error': {
         this.statuses[member.id] = 'error';
+        // 失败也落 trace:error/duration/命令快照是排查命脉
+        // (真实案例:命令不在 PATH,code=1 秒退,曾因不落 trace 而无从查证)
+        recordTraceOnce('');
+        runOneTraceId = null;
         await this.sysMessage(t(this.lang, 'orch.speakFailed', {
           name: member.name,
           error: outcome.error ?? t(this.lang, 'sys.unknownError'),

@@ -1,38 +1,77 @@
-// ⚠️ experimental:本机未安装 gemini CLI,此适配器零实测;无 trace/session 上报。
-// Gemini CLI 适配器:gemini --output-format json(prompt 走 stdin)
-// 输出为单个 JSON(无流式事件),进程结束时一次性解析。
+// Gemini CLI 适配器(gemini -o stream-json,prompt 走 stdin)。
+// 实测事件流(v0.58.0):
+//   {"type":"init","session_id":"...","model":"auto"}                          — 会话元数据
+//   {"type":"message","role":"user","content":"..."}                            — 输入回显(忽略)
+//   {"type":"message","role":"assistant","content":"增量","delta":true}          — 流式正文增量
+//   {"type":"tool_use","name":..,"args":..} / {"type":"tool_result",..}          — 工具事件
+//   {"type":"result","status":"success","stats":{"input_tokens",..}}            — 终局
+//   {"type":"result","status":"error","error":{"message":..}}                    — 失败
+// 注意:result.success 不带 response 字段,最终全文 = assistant message 增量累积。
 
 import type { AgentAdapter, AgentEvent, SpeakRequest } from './base';
 import { runCliHarness, tryParseJson } from './proc';
 
 export const geminiAdapter: AgentAdapter = {
   speak(req: SpeakRequest, onEvent: (ev: AgentEvent) => void) {
+    // resume:gemini 用 --resume <id|latest>(见 agents.yaml 的 args 不含 resume;由本层拼接)
+    const resumeArgs = req.resumeSessionId ? ['--resume', req.resumeSessionId] : [];
+    // headless 必须显式信任工作目录(隔离 cwd 天然不在用户信任列表;实测不加则 code=55 秒退)
+    const trustedReq = { ...req, env: { GEMINI_CLI_TRUST_WORKSPACE: 'true', ...req.env } };
     onEvent({ member: req.member, phase: 'thinking' });
-    let stdoutAll = '';
+    let result = '';
 
-    const h = runCliHarness(req, [], {
-      // gemini 整段输出一个 JSON:行级不做流式,stdout 收完后统一解析
-      onLine: (line) => { stdoutAll += line + '\n'; },
-      onStdoutEnd: () => {
-        const obj = tryParseJson(stdoutAll.trim());
-        if (obj && typeof obj.response === 'string') {
-          const usage = obj.usage_metadata
-            ? { inputTokens: obj.usage_metadata.prompt_token_count, outputTokens: obj.usage_metadata.candidates_token_count }
-            : undefined;
+    const h = runCliHarness(trustedReq, resumeArgs, {
+      onLine: (line) => {
+        const obj = tryParseJson(line);
+        if (!obj) return; // 纯文本行(warning 等)不进正文
+
+        const type: string = obj.type ?? '';
+
+        if (type === 'init' && typeof obj.session_id === 'string' && obj.session_id) {
+          onEvent({ member: req.member, phase: 'thinking', sessionId: obj.session_id });
+          return;
+        }
+
+        if (type === 'message' && obj.role === 'assistant' && typeof obj.content === 'string') {
+          result += obj.content;
+          onEvent({ member: req.member, phase: 'streaming', textDelta: obj.content });
+          return;
+        }
+
+        if (type === 'tool_use') {
           onEvent({
             member: req.member,
-            phase: 'done',
-            result: obj.response,
-            usage,
+            phase: 'thinking',
+            toolUse: { name: String(obj.name ?? 'gemini-tool'), input: JSON.stringify(obj.args ?? obj).slice(0, 2000) },
           });
-          h.settle(); // 已发 done,阻止 close 兜底再发
+          return;
         }
-        // 非结构化:留给 close 兜底(code===0 且有输出 → ok)
+        if (type === 'tool_result') {
+          onEvent({
+            member: req.member,
+            phase: 'thinking',
+            toolResult: { name: String(obj.name ?? 'gemini-tool'), output: String(obj.output ?? obj.result ?? '').slice(0, 2000) },
+          });
+          return;
+        }
+
+        if (type === 'result') {
+          if (obj.status === 'error') {
+            h.finish(false, String(obj.error?.message ?? obj.error ?? 'Gemini 错误'));
+            return;
+          }
+          // success:终局事件,带聚合用量
+          const usage = obj.stats && (obj.stats.input_tokens != null || obj.stats.output_tokens != null)
+            ? { inputTokens: obj.stats.input_tokens, outputTokens: obj.stats.output_tokens }
+            : undefined;
+          onEvent({ member: req.member, phase: 'done', result, usage });
+          h.settle(); // 已发 done,阻止 close 兜底重发
+        }
       },
     }, onEvent);
 
     return {
-      done: h.done.then((outcome) => ({ ...outcome, result: outcome.result || stdoutAll.trim() })),
+      done: h.done.then((outcome) => ({ ...outcome, result: result || outcome.result })),
       cancel: h.cancel,
     };
   },

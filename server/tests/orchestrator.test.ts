@@ -105,6 +105,7 @@ interface Harness {
   messages: ChatMessage[];
   fake: ReturnType<typeof makeFakeAdapter>;
   room: RoomConfig;
+  savedTraces: any[];
 }
 
 function makeHarness(
@@ -117,6 +118,7 @@ function makeHarness(
   const room = makeRoomConfig(mem, over);
   const fake = makeFakeAdapter(script, byMember);
   const messages: ChatMessage[] = [];
+  const savedTraces: any[] = [];
   const persistRoom = vi.fn(async () => {});
   const deps: OrchestratorDeps = {
     room,
@@ -131,8 +133,9 @@ function makeHarness(
     runScout: async () => null, // 测试默认不跑侦察
     getHistory: () => messages,
     pushAgentEvent: () => {},
+    saveTrace: async (_scope, _id, trace) => { savedTraces.push(trace); },
   };
-  return { orch: new Orchestrator(deps), messages, fake, room };
+  return { orch: new Orchestrator(deps), messages, fake, room, savedTraces };
 }
 
 async function settle(ms = 60): Promise<void> {
@@ -407,6 +410,11 @@ describe('编排器状态机:错误与取消', () => {
     expect(sys).toContain('发言失败');
     // 无成员消息落库
     expect(h.messages.filter((m) => m.from.startsWith('m')).length).toBe(0);
+    // 失败调用也落 trace:错误原文与命令快照是排查命脉(修 bug:此前 error 路径不落 trace)
+    expect(h.savedTraces.length).toBe(1);
+    expect(h.savedTraces[0].status).toBe('error');
+    expect(h.savedTraces[0].error).toBe('CLI 崩了');
+    expect(h.savedTraces[0].input.command).toBe('fake');
   });
 
   it('resume 失败自愈:清 sessionId 无 resume 重试一次', async () => {

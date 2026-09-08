@@ -55,10 +55,14 @@ server/src/
 │                        /protocol.ts(私聊握手协议+3条硬闸)/prompt.ts(心跳自决 prompt)
 ├── adapters/
 │   ├── base.ts           AgentAdapter 契约 + SpeakOutcome{ok|error|cancelled}
-│   ├── proc.ts           spawn harness(stdin 纪律/killTree/cwd 隔离/统一计时/cancel 兜底/stdin EPIPE 吞)
+│   ├── proc.ts           spawn harness(stdin 纪律/killTree/cwd 隔离/统一计时/cancel 兜底/stdin EPIPE 吞
+│   │                     /stderr 尾部环形缓冲——失败时拼进错误消息)
 │   ├── claude.ts         权限参数映射 + session resume(实测过)
-│   ├── generic.ts        通用模板适配器(kind: generic 即接入任意 CLI)
-│   └── codex/gemini.ts   ⚠️ experimental,零实测
+│   ├── codex.ts          codex exec --json 事件流 + thread_id resume(v0.153.4 实测)
+│   ├── gemini.ts         gemini -o stream-json 事件流 + --resume;headless 需注入
+│   │                     GEMINI_CLI_TRUST_WORKSPACE(v0.58.0 实测)
+│   └── qwen.ts           qwen -o stream-json(自有 schema:system/assistant/result)+ --resume
+│                         (v0.15.10 实测,gemini auth 模式需显式 --model)
 ├── server/               HTTP+WS:index(启动含房间复活)、routes(REST)、config(agents.yaml)、ws
 └── store/                持久化(rooms.json 原子写+串行互斥、rooms/*.jsonl、characters.json、
                          direct_chats/*.jsonl、summaries/(快照)、traces/(完整调用日志)、
@@ -138,6 +142,6 @@ web/src/
 
 ## 已知边界(v2 接受)
 
-- codex/gemini 适配器零实测(标 experimental);gemini 无 trace/session 上报
+- gemini 适配器的群聊实测受免费配额限制(e2e 验证到 sessionId 捕获与 API 错误解析,qwen 复用同 auth 已全通)
 - 房间删除后 JSONL 历史文件保留(不 GC)
 - 编排运行态不持久化(重启后接棒链/轮次/待命接棒者不自动恢复,发消息重新驱动)

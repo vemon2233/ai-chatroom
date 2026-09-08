@@ -25,3 +25,38 @@ describe('proc harness:EPIPE 生存性', () => {
     expect(outcome.durationMs).toBeGreaterThanOrEqual(0); // 到这里 = 进程没崩
   }, 15000);
 });
+
+describe('proc harness:stderr 诊断透传', () => {
+  it('命令不存在时,stderr 尾部拼进 error 消息(可直接读出失败原因)', async () => {
+    // Windows 中文 cmd:'xxx' 不是内部或外部命令 → 修复前只报"进程退出(code=1)",
+    // 定位全靠猜;修复后 stderr 尾行直接可见
+    const req: SpeakRequest = {
+      member: 'm1',
+      prompt: 'hi',
+      command: 'definitely-not-a-real-command-xyz',
+      args: [],
+    };
+    const harness = runCliHarness(req, [], { onLine: () => {} }, () => {});
+    const outcome = await harness.done;
+
+    expect(outcome.status).toBe('error');
+    expect(outcome.error).toMatch(/进程退出\(code=\d+\)/);
+    // 命令名必须出现在 error 里(cmd 报错回显了它;兼容中英文 cmd 文案)
+    expect(outcome.error).toContain('definitely-not-a-real-command-xyz');
+  }, 15000);
+
+  it('正常成功进程:stderr 无内容,error 不拼接', async () => {
+    // echo 经 cmd shell 成功退出 code=0,stderr 空 → ok,无 error 字段
+    const req: SpeakRequest = {
+      member: 'm1',
+      prompt: '',
+      command: 'echo',
+      args: ['hello-proc-test'],
+    };
+    const harness = runCliHarness(req, [], { onLine: () => {} }, () => {});
+    const outcome = await harness.done;
+
+    expect(outcome.status).toBe('ok');
+    expect(outcome.error).toBeUndefined();
+  }, 15000);
+});

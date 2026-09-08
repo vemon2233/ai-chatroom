@@ -354,6 +354,9 @@ export class DirectChatService {
           this.sessionIds.delete(character.id);
           this.lastSeenMessageIds.delete(character.id);
         }
+        // 失败也落 trace:错误时 stdout 无结果,但 error/duration/命令快照是排查命脉
+        // (真实案例:命令不在 PATH,code=1 秒退,曾因不落 trace 而无从查证)
+        recordTrace(randomUUID(), '');
         const errMsg: ChatMessage = {
           id: randomUUID(),
           roomId: `direct_${character.id}`,

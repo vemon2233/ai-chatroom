@@ -203,5 +203,43 @@ describe('DirectChatService: 角色专属 1v1 私聊', () => {
     expect(savedTrace.output.usage.inputTokens).toBe(100);
     expect(savedTrace.output.usage.costUsd).toBe(0.001);
   });
+
+  it('适配器调用失败(error)也落 trace:错误诊断信息不丢失', async () => {
+    // 修 bug:进程退出(code=1)类失败此前不写 trace,排查全靠猜
+    const savedTraces: any[] = [];
+    const failingAdapter: AgentAdapter = {
+      speak(req) {
+        return {
+          cancel: () => {},
+          done: Promise.resolve({
+            status: 'error',
+            result: '',
+            durationMs: 120,
+            error: "进程退出(code=1): 'codex' 不是内部或外部命令",
+          }),
+        };
+      },
+    };
+    const failingService = new DirectChatService({
+      bus,
+      adapterConfigs,
+      resolveAdapter: () => failingAdapter,
+      store: memStore,
+      traceStore: {
+        saveTrace: async (_s: string, _id: string, trace: any) => {
+          savedTraces.push(trace);
+        },
+      } as any,
+    });
+
+    await failingService.userSpeak(testChar, '触发一次失败调用');
+    await failingService.waitForIdle(testCharId);
+
+    // 失败调用必须留下 trace(status=error + error 原文)
+    expect(savedTraces.length).toBe(1);
+    expect(savedTraces[0].status).toBe('error');
+    expect(savedTraces[0].error).toContain('进程退出(code=1)');
+    expect(savedTraces[0].input.command).toBe('mock');
+  });
 });
 

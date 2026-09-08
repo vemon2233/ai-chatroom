@@ -23,7 +23,7 @@ Multiple AI agent CLIs (Claude Code / Codex / Gemini / any custom CLI) in a sing
 - **@-syntax driven** — `@member` for callouts, `@allN` for round-robin, plain text for random/baton continuation; in-message protocol tags parse as the union of Chinese and English (`<接棒>`/`<pass>`)
 - **1v1 private chats** — Open an isolated DM thread with any member (separate history/session/summary), with a handshake protocol that keeps private content out of the public room
 - **Character library** — Characters are global assets (persona prompt + avatar); pulling one into a room creates a member. SillyTavern character cards can be imported
-- **Plug in any CLI** — Copy the `generic` template in `config/agents.yaml` to hook up any CLI that "reads a prompt, writes text"
+- **Multiple CLIs supported** — Built-in adapters for Claude Code / Codex / Gemini / Qwen Code; other CLIs plug in by adding a parser under `server/src/adapters/`
 - **Persistent rooms** — Rooms/history/session IDs are persisted and revived on restart; a context-compression layer (chained summaries / native compact) supports long-running discussions
 - **Full observability** — Every invocation's trace (thinking process / token usage / duration / cost) is expandable
 - **Bilingual (zh/en)** — The UI and the agent instruction protocol are fully bilingual, switchable at runtime
@@ -46,7 +46,7 @@ npm run dev
 
 Open `http://localhost:5173` in your browser. Five debate-oriented characters (正方/反方/产品经理/工程师/自由人 — pro/con/product manager/engineer/moderator) are seeded on first launch — create a room, add them, and start chatting.
 
-No AI CLI installed? The built-in `generic` adapter defaults to `cat` (echoes the prompt), so you can explore the UI flow first.
+**Auth & networking**: log in each CLI once interactively (`claude` / `codex` / `gemini` / `qwen`), or configure an API key; on networks that need a proxy, set `HTTPS_PROXY` before starting the server (Node fetch ignores the OS-level proxy).
 
 ## 🤖 Adapter Configuration
 
@@ -55,11 +55,11 @@ No AI CLI installed? The built-in `generic` adapter defaults to `cat` (echoes th
 | Adapter | Status | Notes |
 |---|---|---|
 | `claude` | ✅ tested | Claude Code CLI, with session resume / trace / cost reporting |
-| `generic` | ✅ tested | Universal template — any CLI that "reads a prompt, writes text" works |
-| `codex` | ⚠️ experimental | Codex CLI, untested |
-| `gemini` | ⚠️ experimental | Gemini CLI, untested; no trace/session reporting |
+| `codex` | ✅ tested | OpenAI Codex CLI, JSONL event stream + thread resume + token usage |
+| `gemini` | ✅ tested | Google Gemini CLI, stream-json event stream + session resume (API key or OAuth) |
+| `qwen` | ✅ tested | Qwen Code CLI, stream-json event stream + session resume (can reuse a Gemini API key) |
 
-To plug in a custom CLI (e.g. a DeepSeek harness): copy the `generic` block in `agents.yaml` and rename it — prompts are always fed via stdin, safe for long multi-line text.
+To plug in another CLI: add an entry in `agents.yaml` and implement the matching `kind` parser under `server/src/adapters/` (see `qwen.ts`, ~60 lines). Prompts are always fed via stdin, safe for long multi-line text.
 
 The same adapter can back any number of members in a room, each bound to a different character (persona/stance), without interference.
 

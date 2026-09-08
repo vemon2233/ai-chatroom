@@ -23,7 +23,7 @@
 - **@语法驱动** — `@成员名` 点名回应、`@allN` 轮流、无 @ 则随机/接棒续聊,与消息内协议兼容中英双语标签(`<接棒>`/`<pass>`)
 - **1v1 角色私聊** — 与任意成员开独立私聊线程(独立历史/会话/摘要),带握手协议防私聊内容泄漏进公聊
 - **角色库** — 角色是全局资产(人设 prompt + 头像),拉入房间即成成员,支持 SillyTavern 角色卡导入
-- **任意 CLI 接入** — `config/agents.yaml` 里复制 generic 模板即可接入任何"收 prompt、出文本"的 CLI
+- **多家 CLI 接入** — 内置 Claude Code / Codex / Gemini / Qwen Code 四家适配器;其他 CLI 在 `server/src/adapters/` 加一个解析器即可接入
 - **房间持久化** — 房间/历史/会话 ID 落盘,重启自动复活;上下文压缩层(链式摘要/原生 compact)支撑长程讨论
 - **完整可观测** — 每次调用的 trace(思考过程/token 用量/耗时/成本)可展开查看
 - **中英双语** — 界面与 agent 指令协议全量双语,运行期一键切换
@@ -46,7 +46,7 @@ npm run dev
 
 浏览器打开 `http://localhost:5173`。首次启动自动内置 5 个辩论向角色(正方/反方/产品经理/工程师/自由人),开房间拉人即可开聊。
 
-没有安装任何 AI CLI?内置 `generic` 适配器默认指向 `cat`(回显 prompt),可以先体验 UI 流程。
+**认证与网络**:各 CLI 需先自行登录(`claude` / `codex` / `gemini` / `qwen` 命令交互登录一次,或配 API key);需要代理的网络环境请在启动服务前设 `HTTPS_PROXY` 环境变量(Node fetch 不读系统代理)。
 
 ## 🤖 适配器配置
 
@@ -55,11 +55,11 @@ npm run dev
 | 适配器 | 状态 | 说明 |
 |---|---|---|
 | `claude` | ✅ 实测 | Claude Code CLI,支持 session resume / trace / 成本上报 |
-| `generic` | ✅ 实测 | 通用模板,任何"收 prompt、出文本"的 CLI 都能接 |
-| `codex` | ⚠️ experimental | Codex CLI,零实测 |
-| `gemini` | ⚠️ experimental | Gemini CLI,零实测,无 trace/session 上报 |
+| `codex` | ✅ 实测 | OpenAI Codex CLI,JSONL 事件流 + thread resume + token 用量 |
+| `gemini` | ✅ 实测 | Google Gemini CLI,stream-json 事件流 + session resume(API key 或 OAuth) |
+| `qwen` | ✅ 实测 | Qwen Code CLI,stream-json 事件流 + session resume(可复用 Gemini API key) |
 
-接入自定义 CLI(如 DeepSeek harness):在 `agents.yaml` 复制 `generic` 块改名即可——prompt 一律经 stdin 传递,多行长文本安全。
+接入其他 CLI:在 `agents.yaml` 添加 entry 并在 `server/src/adapters/` 实现对应 `kind` 解析器(参考 `qwen.ts`,约 60 行)。prompt 一律经 stdin 传递,多行长文本安全。
 
 同一适配器可拉任意多个成员进房,每个成员绑定不同角色(人设/立场),互不干扰。
 

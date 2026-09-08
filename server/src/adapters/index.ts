@@ -5,13 +5,13 @@ import type { AgentAdapter } from './base';
 import { claudeAdapter } from './claude';
 import { codexAdapter } from './codex';
 import { geminiAdapter } from './gemini';
-import { genericAdapter } from './generic';
+import { qwenAdapter } from './qwen';
 
 export const adapters: Record<string, AgentAdapter> = {
   claude: claudeAdapter,
   codex: codexAdapter,
   gemini: geminiAdapter,
-  generic: genericAdapter,
+  qwen: qwenAdapter,
 };
 
 export function getAdapter(kind: string): AgentAdapter {

@@ -131,6 +131,10 @@ export function runCliHarness(
   const started = Date.now();
   let settled = false;
   let errorText: string | undefined;
+  // stderr 尾部环形缓冲:失败时拼进错误消息(如 cmd 的"'xxx' 不是内部或外部命令"),
+  // 成功时丢弃——把"进程退出(code=1)"变成可直接读出原因的诊断信息
+  const stderrTail: string[] = [];
+  const STDERR_TAIL_MAX = 5;
   // 外部主动终止(编排器 stop/点名打断):此时尚未 settled → cancelled;
   // 适配器拿到 result 后自行杀进程(settle 已置位)属正常完成,不算 cancelled。
   let externallyCancelled = false;
@@ -152,12 +156,23 @@ export function runCliHarness(
   child.stdout?.on('data', createLineSplitter((line) => {
     hooks.onLine(line);
   }));
-  child.stderr?.on('data', createLineSplitter(() => { /* stderr 仅诊断用 */ }));
+  child.stderr?.on('data', createLineSplitter((line) => {
+    // stderr 仅诊断用:留尾部几行,失败时随错误消息透出
+    stderrTail.push(line);
+    if (stderrTail.length > STDERR_TAIL_MAX) stderrTail.shift();
+  }));
   child.on('error', (err) => finish(false, `进程启动失败: ${err.message}`));
   child.on('close', (code) => {
     hooks.onStdoutEnd?.();
     if (!settled) {
-      finish(code === 0, code === 0 ? undefined : `进程退出(code=${code})`);
+      const base = code === 0 ? undefined : `进程退出(code=${code})`;
+      // code≠0 且 stderr 有内容 → 拼尾部(截断防超长错误消息)
+      if (base && stderrTail.length > 0) {
+        const tail = stderrTail.join(' | ').slice(0, 500);
+        finish(false, `${base}: ${tail}`);
+      } else {
+        finish(code === 0, base);
+      }
     }
   });
 
