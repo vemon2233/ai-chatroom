@@ -5,7 +5,9 @@
     "noEmit": true,
     "baseUrl": ".",
     "paths": {
-      "@server/*": ["./src/*"]
+      "@server/*": ["./src/*"],
+      "@/*": ["../web/src/*"],
+      "@server": ["./src/protocolKeywords.ts"]
     }
   },
   "include": ["src/**/*.ts", "tests/**/*.ts"]

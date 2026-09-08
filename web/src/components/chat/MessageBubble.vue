@@ -6,6 +6,7 @@ import { dialog } from '@/composables/useDialog';
 import { renderMarkdown } from '@/utils/markdown';
 import { initialsFor, colorForName } from '@/utils/avatar';
 import type { ChatMessage } from '@server/core/types';
+import { BATON_STRIP, BATON_LINE, BATON_END_WORDS, USER_NAME_ALIASES } from '@server/protocolKeywords';
 import TraceDetail from './TraceDetail.vue';
 
 const { t } = useI18n();
@@ -17,7 +18,7 @@ const isMultiLine = ref(false);
 
 const cleanText = computed(() => {
   const raw = props.msg.text || '';
-  return raw.replace(/(?:<接棒>|【接棒】)[^\n]*/g, '').trimEnd();
+  return raw.replace(BATON_STRIP, '').trimEnd();
 });
 
 function checkMultiLine() {
@@ -289,15 +290,15 @@ const batonBadge = computed(() => {
   if (props.msg.batonTarget) {
     return { type: 'baton', label: t('chat.batonPass', { name: props.msg.batonTarget }) };
   }
-  // 兜底历史消息兼容：从文本或 detail 中动态解析
+  // 兜底历史消息兼容：从文本或 detail 中动态解析(中英标签并集真源)
   const raw = props.msg.text || '';
-  const m = raw.match(/(?:<接棒>|【接棒】)\s*(.+)/);
+  const m = raw.match(BATON_LINE);
   if (m) {
     const target = m[1]!.replace(/^@/, '').trim();
-    if (/结束|收敛|无需|到此/.test(target)) {
+    if (BATON_END_WORDS.test(target)) {
       return { type: 'end', label: t('chat.batonEnd') };
     }
-    if (['用户', 'user'].includes(target.toLowerCase())) {
+    if (USER_NAME_ALIASES.includes(target.toLowerCase())) {
       return { type: 'to-user', label: t('chat.batonToUser') };
     }
     return { type: 'baton', label: t('chat.batonPass', { name: target }) };

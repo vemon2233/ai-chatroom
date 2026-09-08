@@ -1,10 +1,18 @@
 // Markdown 导出工具层 (纯前端零侵入，支持聊天记录与讨论摘要的结构化导出)
+// i18n:文档标题/字段名随 UI 语言(t());协议剥除/意图解析正则引 @server/protocolKeywords 真源。
 
 import type { ChatMessage, DiscussionSummary, DiscussionSummarySnapshot } from '@server/core/types';
+import {
+  BATON_LINE, BATON_END_WORDS, BATON_STRIP, DM_STRIP, HANDSHAKE_STRIP, USER_NAME_ALIASES,
+} from '@server/protocolKeywords';
 import { downloadFile } from './download';
+import { t } from '@/i18n';
+
+/** 调度流水消息识别(历史系统消息文本,中英并集——落库已是烘焙后文本) */
+const SCHEDULER_MSG_RE = /把接棒交给|指定.*接棒|宣布讨论结束|把话题交还给了你|passed the baton|declared the discussion closed|handed the topic back|designated .*接棒/i;
 
 /** 清洗跨平台非法文件名字符 (Windows/macOS/Linux: \\ / : * ? " < > |) */
-export function sanitizeFileName(name: string, fallback = '导出文档'): string {
+export function sanitizeFileName(name: string, fallback = ''): string {
   const cleaned = (name || '')
     .replace(/[\\/:*?"<>|]+/g, '_')
     .replace(/\s+/g, ' ')
@@ -38,37 +46,35 @@ export function formatFileTimestamp(ts = Date.now()): string {
   return `${year}${month}${day}_${hour}${minute}${second}`;
 }
 
-/** 彻底剥除所有的控制指令标签 (保证 Markdown 阅读排版的纯粹自然) */
+/** 彻底剥除所有的控制指令标签 (保证 Markdown 阅读排版的纯粹自然;中英并集真源) */
 export function stripControlTags(text: string): string {
   if (!text) return '';
   return text
-    .replace(/(?:<接棒>|【接棒】)[^\n]*/g, '')
-    .replace(/<私聊>[^\n]*/g, '')
-    .replace(/<同意>[^\n]*/g, '')
-    .replace(/<拒绝>[^\n]*/g, '')
-    .replace(/<想法>[^\n]*/g, '')
+    .replace(BATON_STRIP, '')
+    .replace(DM_STRIP, '')
+    .replace(HANDSHAKE_STRIP, '')
     .trimEnd();
 }
 
-/** 提取文本中的接棒意图 (用于在导出的消息头下展示引用徽章) */
+/** 提取文本中的接棒意图 (用于在导出的消息头下展示引用徽章;中英并集真源) */
 function resolveBatonBadge(msg: ChatMessage): { type: string; label: string } | null {
   if (msg.batonToUser) {
-    return { type: 'to-user', label: '🤝 话题交还给用户' };
+    return { type: 'to-user', label: t('export.batonToUser') };
   }
   if (msg.batonTarget) {
-    return { type: 'baton', label: `🎯 接棒给 @${msg.batonTarget}` };
+    return { type: 'baton', label: t('export.batonGive', { name: msg.batonTarget }) };
   }
   const raw = msg.text || '';
-  const m = raw.match(/(?:<接棒>|【接棒】)\s*(.+)/);
+  const m = raw.match(BATON_LINE);
   if (m) {
     const target = m[1]!.replace(/^@/, '').trim();
-    if (/结束|收敛|无需|到此/.test(target)) {
-      return { type: 'end', label: '🏁 宣布讨论结束' };
+    if (BATON_END_WORDS.test(target)) {
+      return { type: 'end', label: t('export.batonEnd') };
     }
-    if (['用户', 'user'].includes(target.toLowerCase())) {
-      return { type: 'to-user', label: '🤝 话题交还给用户' };
+    if (USER_NAME_ALIASES.includes(target.toLowerCase())) {
+      return { type: 'to-user', label: t('export.batonToUser') };
     }
-    return { type: 'baton', label: `🎯 接棒给 @${target}` };
+    return { type: 'baton', label: t('export.batonGive', { name: target }) };
   }
   return null;
 }
@@ -86,12 +92,11 @@ export interface ExportChatHistoryOptions {
  */
 export function buildChatHistoryMarkdown(options: ExportChatHistoryOptions): { markdown: string; filename: string } {
   const { title, sessionType, members = [], messages, now = Date.now() } = options;
-  const safeTitle = sanitizeFileName(title, sessionType === 'room' ? '房间聊天记录' : '专属私聊记录');
-  const sessionLabel = sessionType === 'room' ? '群聊房间' : '1v1 专属私聊';
+  const safeTitle = sanitizeFileName(title, t(sessionType === 'room' ? 'export.roomFallbackTitle' : 'export.directFallbackTitle'));
+  const sessionLabel = t(sessionType === 'room' ? 'export.sessionRoom' : 'export.sessionDirect');
 
   // 1. 过滤流式临时消息、空消息以及高频接棒调度流水 (保持有效条数统计与正文渲染绝对一致)
-  const isSchedulerMessage = (m: any) =>
-    m.system && /把接棒交给|指定.*接棒|宣布讨论结束|把话题交还给了你/.test(m.text || '');
+  const isSchedulerMessage = (m: any) => m.system && SCHEDULER_MSG_RE.test(m.text || '');
 
   const validMessages = messages.filter(
     (m: any) => !m.streaming && !!m.text?.trim() && !isSchedulerMessage(m),
@@ -99,14 +104,14 @@ export function buildChatHistoryMarkdown(options: ExportChatHistoryOptions): { m
 
   // 2. 构造 Markdown 文档头部信息
   const lines: string[] = [];
-  lines.push(`# 💬 对话纪要：${safeTitle}`);
+  lines.push(t('export.docTitle', { title: safeTitle }));
   lines.push('');
-  lines.push(`- **会话类型**：${sessionLabel}`);
+  lines.push(`- **${t('export.sessionType')}**：${sessionLabel}`);
   if (members.length > 0) {
-    lines.push(`- **参与成员**：${members.join('、')}`);
+    lines.push(`- **${t('export.members')}**：${members.join('、')}`);
   }
-  lines.push(`- **导出时间**：${formatFullTime(now)}`);
-  lines.push(`- **记录总数**：${validMessages.length} 条`);
+  lines.push(`- **${t('export.exportTime')}**：${formatFullTime(now)}`);
+  lines.push(`- **${t('export.recordCountLabel')}**：${t('export.recordCountValue', { n: validMessages.length })}`);
   lines.push('');
   lines.push('---');
   lines.push('');
@@ -117,7 +122,7 @@ export function buildChatHistoryMarkdown(options: ExportChatHistoryOptions): { m
     const cleanBody = stripControlTags(msg.text);
 
     if (msg.system) {
-      lines.push(`> 📢 **系统通知** · ${timeStr}`);
+      lines.push(`> 📢 **${t('export.sysNotice')}** · ${timeStr}`);
       lines.push(`> ${msg.text.trim()}`);
       lines.push('');
       continue;
@@ -125,7 +130,7 @@ export function buildChatHistoryMarkdown(options: ExportChatHistoryOptions): { m
 
     const isMe = msg.from === 'user';
     const isScout = msg.from === 'scout';
-    const sender = msg.fromName || (isMe ? '用户' : '未知成员');
+    const sender = msg.fromName || (isMe ? t('export.userFallback') : t('export.unknownMember'));
     const prefix = isMe ? '👤' : isScout ? '🔍' : '🤖';
 
     lines.push(`### ${prefix} ${sender} · ${timeStr}`);
@@ -134,8 +139,8 @@ export function buildChatHistoryMarkdown(options: ExportChatHistoryOptions): { m
     // 私聊受众标注
     if (Array.isArray(msg.audience) && msg.audience.length > 0) {
       const audienceList = msg.audience.map((a) => `@${a}`).join(' ');
-      const roundInfo = msg.privateRound ? ` (第 ${msg.privateRound} 轮)` : '';
-      lines.push(`> 🔒 *仅 ${audienceList} 可见${roundInfo}*`);
+      const roundInfo = msg.privateRound ? t('export.roundInfo', { n: msg.privateRound }) : '';
+      lines.push(`> 🔒 *${t('export.privateVisible', { list: audienceList })}${roundInfo}*`);
     }
 
     // 接棒走向标注
@@ -156,7 +161,7 @@ export function buildChatHistoryMarkdown(options: ExportChatHistoryOptions): { m
   }
 
   const markdown = lines.join('\n');
-  const filename = `[聊天记录] ${safeTitle}_${formatFileTimestamp(now)}.md`;
+  const filename = `${t('export.fileChatPrefix')} ${safeTitle}_${formatFileTimestamp(now)}.md`;
   return { markdown, filename };
 }
 
@@ -181,35 +186,35 @@ export interface ExportSummaryOptions {
  */
 export function buildSummaryMarkdown(options: ExportSummaryOptions): { markdown: string; filename: string } {
   const { title, sessionType, summary, memberNames, now = Date.now() } = options;
-  const safeTitle = sanitizeFileName(title, sessionType === 'room' ? '房间讨论摘要' : '私聊讨论摘要');
+  const safeTitle = sanitizeFileName(title, t(sessionType === 'room' ? 'export.roomSummaryFallback' : 'export.directSummaryFallback'));
   const snapshot = summary as Partial<DiscussionSummarySnapshot>;
 
   const lines: string[] = [];
-  lines.push(`# 📋 讨论摘要：${safeTitle}`);
+  lines.push(t('export.summaryTitle', { title: safeTitle }));
   lines.push('');
   if (snapshot.id) {
-    lines.push(`- **快照标识**：\`${snapshot.id}\``);
+    lines.push(`- **${t('export.snapshotId')}**：\`${snapshot.id}\``);
   }
   const summaryTime = snapshot.createdAt || summary.updatedAt || now;
-  lines.push(`- **生成时间**：${formatFullTime(summaryTime)}`);
+  lines.push(`- **${t('export.genTime')}**：${formatFullTime(summaryTime)}`);
   if (snapshot.trigger) {
-    lines.push(`- **触发方式**：${snapshot.trigger === 'auto' ? '自动滚动提炼' : '手动即时生成'}`);
+    lines.push(`- **${t('export.triggerLabel')}**：${t(snapshot.trigger === 'auto' ? 'export.triggerAuto' : 'export.triggerManual')}`);
   }
   if (typeof summary.messageCount === 'number') {
-    lines.push(`- **覆盖对话量**：约 ${summary.messageCount} 条`);
+    lines.push(`- **${t('export.coverCountLabel')}**：${t('export.coverCountValue', { n: summary.messageCount })}`);
   }
-  lines.push(`- **导出时间**：${formatFullTime(now)}`);
+  lines.push(`- **${t('export.exportTime')}**：${formatFullTime(now)}`);
   lines.push('');
   lines.push('---');
   lines.push('');
 
   // 一、公聊讨论大纲
-  lines.push('## 一、公聊讨论大纲');
+  lines.push(t('export.outlineSection'));
   lines.push('');
   if (summary.text && summary.text.trim()) {
     lines.push(summary.text.trim());
   } else {
-    lines.push('*（暂无公聊讨论大纲文本）*');
+    lines.push(`*${t('export.noOutlineText')}*`);
   }
   lines.push('');
 
@@ -219,19 +224,19 @@ export function buildSummaryMarkdown(options: ExportSummaryOptions): { markdown:
   if (memberIds.length > 0) {
     lines.push('---');
     lines.push('');
-    lines.push(`## 二、成员专属私聊纪要 (${memberIds.length} 位成员)`);
+    lines.push(t('export.digestSection', { n: memberIds.length }));
     lines.push('');
     for (const mId of memberIds) {
       const digestItem = digests[mId];
       if (!digestItem) continue;
       const mName = (memberNames && memberNames[mId]) || mId;
       const updateTime = digestItem.updatedAt ? ` · ${formatFullTime(digestItem.updatedAt)}` : '';
-      lines.push(`### 📌 ${mName} 的私聊备忘${updateTime}`);
+      lines.push(t('export.digestItem', { name: mName, time: updateTime }));
       lines.push('');
       if (digestItem.text && digestItem.text.trim()) {
         lines.push(digestItem.text.trim());
       } else {
-        lines.push('*（暂无纪要条目）*');
+        lines.push(`*${t('export.noDigestText')}*`);
       }
       lines.push('');
     }
@@ -239,7 +244,7 @@ export function buildSummaryMarkdown(options: ExportSummaryOptions): { markdown:
 
   const markdown = lines.join('\n');
   const snapIdPart = snapshot.id ? `_${snapshot.id}` : '';
-  const filename = `[讨论摘要] ${safeTitle}_${formatFileTimestamp(summaryTime)}${snapIdPart}.md`;
+  const filename = `${t('export.fileSummaryPrefix')} ${safeTitle}_${formatFileTimestamp(summaryTime)}${snapIdPart}.md`;
   return { markdown, filename };
 }
 
@@ -250,4 +255,3 @@ export function exportSummaryMarkdown(options: ExportSummaryOptions): void {
   const { markdown, filename } = buildSummaryMarkdown(options);
   downloadFile(markdown, filename, 'text/markdown;charset=utf-8');
 }
-

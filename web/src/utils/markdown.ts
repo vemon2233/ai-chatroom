@@ -1,6 +1,8 @@
 // Markdown 渲染工具: 基于 markdown-it，配置 XSS 安全转义与代码块复制交互。
+// i18n:复制按钮文案在渲染时取 t()(已渲染 HTML 有缓存——切语言后旧缓存不重译,新渲染为新语言)。
 
 import MarkdownIt from 'markdown-it';
+import { t } from '@/i18n';
 
 const md = new MarkdownIt({
   html: false,        // 禁用直接 HTML 输入，严格防 XSS
@@ -21,7 +23,7 @@ md.renderer.rules.fence = function (tokens, idx) {
 <div class="code-block-wrap">
   <div class="code-block-header">
     <span class="code-lang">${lang}</span>
-    <button class="copy-code-btn" type="button" data-copied="已复制">复制</button>
+    <button class="copy-code-btn" type="button" data-copied="${t('common.copied')}">${t('common.copy')}</button>
   </div>
   <pre class="code-pre"><code class="language-${lang}">${escapedCode}</code></pre>
 </div>`.trim();
