@@ -118,6 +118,7 @@ function onCloseClick(e: MouseEvent, s: Session) {
   overflow-x: auto;
   overflow-y: hidden;
   max-width: calc(100% - 36px);
+  /* 全局滚动条体系(style.css)的豁免项:tab 条横滚有意整条隐藏 */
   scrollbar-width: none; /* Firefox */
 }
 .tabs-scroll::-webkit-scrollbar {

@@ -32,6 +32,11 @@
   --overlay-dim: rgba(17, 19, 24, 0.4);
   --z-modal: 60;
   --z-dialog: 90;
+
+  /* ---- 滚动条体系 token(全工程唯一滚动条真源,见下方全局规则段)---- */
+  --scrollbar-thumb: #D6D9E0;         /* 默认 thumb:低对比,比 --border 深一档 */
+  --scrollbar-thumb-hover: #A8AEB8;   /* hover 加深 */
+  --scrollbar-size: 8px;              /* 统一细条(替代系统默认 17px) */
 }
 
 html, body, #app { height: 100%; }
@@ -188,6 +193,27 @@ input:focus, textarea:focus, select:focus {
 
 .hidden { display: none !important; }
 
+/* ---- 滚动条体系(全工程唯一滚动条真源)----
+ * 细胶囊条 + 透明轨道:默认低对比安静,hover 加深提示可滚。
+ * Chrome/Edge/Safari 走 ::-webkit-scrollbar;Firefox 走标准 scrollbar-width/color。
+ * 特例豁免:RoomTabBar 横滚有意整条隐藏(组件内自覆盖);
+ * 代码块暗底亮条特例见 .code-pre。全部 13 处滚动容器经全局继承生效,组件零散写。 */
+* {
+  scrollbar-width: thin;                                          /* Firefox */
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
+::-webkit-scrollbar { width: var(--scrollbar-size); height: var(--scrollbar-size); }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 8px;
+  background-clip: padding-box;
+  border: 2px solid transparent;  /* 透明描边:视觉再瘦一圈成胶囊 */
+}
+::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-thumb-hover); }
+::-webkit-scrollbar-corner { background: transparent; }
+
 /* ---- Markdown 渲染与代码块排版 ---- */
 .markdown-body {
   word-break: break-word;
@@ -289,5 +315,13 @@ input:focus, textarea:focus, select:focus {
   overflow-x: auto;
   line-height: 1.5;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  scrollbar-color: rgba(255, 255, 255, 0.18) transparent; /* 暗底亮条(Firefox) */
 }
+/* 暗底特例:#181A20 上默认灰条不可见,改半透明白 */
+.code-pre::-webkit-scrollbar { height: 6px; }
+.code-pre::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18);
+  border: none;
+}
+.code-pre::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.32); }
 
