@@ -145,33 +145,59 @@ export class ChatRoom {
     return this.currentSummary;
   }
 
-  /** 应用并持久化广播最新摘要 */
-  private async applySummary(sum: DiscussionSummary, trigger: 'auto' | 'manual' = 'auto'): Promise<void> {
-    const snap = await saveSummarySnapshot('room', this.config.id, sum, trigger);
-    this.currentSummary = sum;
-    this.bus.emitRoomSummary(this.config.id, sum);
+  /**
+   * 摘要串行链(与 store/rooms 的 writeChain 同构纪律):
+   * 生成(30~120s 大模型调用)照常并发,但"合并+落盘+广播"必须经此链排队,
+   * 链内基于最新 currentSummary 做槽位化合并——物理上消灭多写者整体覆盖互吞
+   * (旧缺陷:双成员纪要并发 / 摘要生成窗口内新写入的纪要被旧快照覆盖)。
+   */
+  private summaryChain: Promise<unknown> = Promise.resolve();
 
-    if (sum.usage) {
-      const traceLog: AgentTraceLog = {
-        messageId: snap.id,
-        roomId: this.config.id,
-        memberId: 'system',
-        memberName: '系统',
-        adapter: this.adminCfg.adapter || 'admin',
-        ts: sum.updatedAt || Date.now(),
-        durationMs: sum.durationMs ?? 0,
-        status: sum.status === 'error' ? 'error' : 'ok',
-        trigger: '讨论大纲提炼',
-        input: {
-          prompt: '讨论大纲提炼',
-        },
-        output: {
-          result: sum.text,
-          usage: sum.usage,
-        },
-      };
-      void saveTrace('room', this.config.id, traceLog);
-    }
+  /** 进链排队执行(泛型保留 job 返回值;失败不断链) */
+  private enqueueSummaryWrite<T>(job: () => Promise<T>): Promise<T> {
+    const run = this.summaryChain.then(job);
+    this.summaryChain = run.then(
+      () => {},
+      () => {},
+    );
+    return run;
+  }
+
+  /** 应用并持久化广播最新摘要(槽位化合并:只覆写 sum 自身产出的槽位,纪要槽位不动);返回链内合并后的完整对象 */
+  private applySummary(sum: DiscussionSummary, trigger: 'auto' | 'manual' = 'auto'): Promise<DiscussionSummary> {
+    return this.enqueueSummaryWrite(async () => {
+      // 链内读最新:纪要槽位保留此刻已有的全部成员纪要
+      const base = this.currentSummary;
+      const merged: DiscussionSummary = base
+        ? { ...base, ...sum, privateDigests: base.privateDigests }
+        : sum;
+      this.currentSummary = merged;
+      const snap = await saveSummarySnapshot('room', this.config.id, merged, trigger);
+      this.bus.emitRoomSummary(this.config.id, merged);
+
+      if (sum.usage) {
+        const traceLog: AgentTraceLog = {
+          messageId: snap.id,
+          roomId: this.config.id,
+          memberId: 'system',
+          memberName: '系统',
+          adapter: this.adminCfg.adapter || 'admin',
+          ts: sum.updatedAt || Date.now(),
+          durationMs: sum.durationMs ?? 0,
+          status: sum.status === 'error' ? 'error' : 'ok',
+          trigger: '讨论大纲提炼',
+          input: {
+            prompt: '讨论大纲提炼',
+          },
+          output: {
+            result: sum.text,
+            usage: sum.usage,
+          },
+        };
+        void saveTrace('room', this.config.id, traceLog);
+      }
+      return merged;
+    });
   }
 
   /** 手动触发管理员刷新生成讨论摘要 */
@@ -186,7 +212,7 @@ export class ChatRoom {
       prevSummary: this.currentSummary,
     });
     if (res && res.text) {
-      await this.applySummary(res, 'manual');
+      return await this.applySummary(res, 'manual'); // 返回链内合并后的完整对象(含纪要)
     }
     return res;
   }
@@ -350,19 +376,24 @@ export class ChatRoom {
           void saveTrace('room', this.config.id, traceLog);
         }
 
-        const base = this.currentSummary ?? {
-          text: '',
-          updatedAt: Date.now(),
-          messageCount: 0,
-        };
-        const updatedSummary: DiscussionSummary = {
-          ...base,
-          privateDigests: {
-            ...base.privateDigests,
-            [member.id]: digest,
-          },
-        };
-        await this.applySummary(updatedSummary);
+        // 合并进链:只覆写该成员的纪要槽位,其余槽位(公聊摘要 text/他人纪要)保留最新
+        await this.enqueueSummaryWrite(async () => {
+          const base = this.currentSummary ?? {
+            text: '',
+            updatedAt: Date.now(),
+            messageCount: 0,
+          };
+          const merged: DiscussionSummary = {
+            ...base,
+            privateDigests: {
+              ...base.privateDigests,
+              [member.id]: digest,
+            },
+          };
+          this.currentSummary = merged;
+          await saveSummarySnapshot('room', this.config.id, merged, 'auto');
+          this.bus.emitRoomSummary(this.config.id, merged);
+        });
       }
     } catch (err) {
       console.error(`[room] 成员 ${member.name} 生成私聊纪要失败:`, err);
@@ -469,6 +500,7 @@ export class ChatRoom {
     this.messages = [];
     await this.persistence.rewriteMessages(this.config.id, []);
     this.bus.emitRoomMessages(this.config.id, []);
+    this.orch.clearPrivateProtocol(); // 历史都没了,私聊线程自然作废(硬闸计数一并归零)
 
     // 彻底清除所有成员绑定的底层 CLI 会话记忆 (sessionIds) 并写穿持久化
     for (const m of this.config.members) {

@@ -136,6 +136,24 @@ export class PrivateChatProtocol {
     return this.threads.get(threadId);
   }
 
+  /**
+   * 关闭指定成员参与的全部私聊线程(成员被移除时调用)。
+   * 硬边界:成员 id 已不在房间,线程里的对端永远无法回应,全部关闭语义自洽;
+   * 防止 getActiveThread 继续返回"对端不存在"的幽灵通道。
+   */
+  closeThreadsForMember(memberId: string): void {
+    for (const thread of this.threads.values()) {
+      if (
+        thread.status === 'active' &&
+        (thread.initiatorId === memberId || thread.targetId === memberId)
+      ) {
+        thread.status = 'closed';
+        this.activeThreadByMember.delete(thread.initiatorId);
+        this.activeThreadByMember.delete(thread.targetId);
+      }
+    }
+  }
+
   clear(): void {
     this.threads.clear();
     this.activeThreadByMember.clear();

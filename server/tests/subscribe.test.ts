@@ -6,7 +6,7 @@ import {
   parseHandshake,
   splitPublicAndPrivateMessage,
 } from '../src/core/modes/subscribe/audience';
-import { matchMemberByName } from '../src/core/prompt';
+import { matchMemberByName } from '../src/core/naming';
 import { PrivateChatProtocol } from '../src/core/modes/subscribe/protocol';
 import { isSilentDecision, buildHeartbeatPrompt } from '../src/core/modes/subscribe/prompt';
 import { SubscribeEngine } from '../src/core/modes/subscribe/engine';
@@ -144,6 +144,20 @@ describe('订阅模式: 私聊握手协议与 3 条硬闸熔断 (protocol)', () 
     const reply2 = protocol.handleResponse(t2.threadId, 'lvbu3', { type: 'agree' });
     expect(reply2.thread.index).toBe(2);
   });
+
+  it('closeThreadsForMember: 成员移除关闭其参与的活跃线程,他人线程不受影响', () => {
+    const protocol = new PrivateChatProtocol();
+    const t1 = protocol.startThread('m1', 'm2'); // 甲↔乙
+    protocol.handleResponse(t1.threadId, 'm2', { type: 'idea' }); // count=2 活跃中
+    const t2 = protocol.startThread('m3', 'm4'); // 丙↔丁(与移除者无关)
+
+    protocol.closeThreadsForMember('m2'); // 乙被移除
+
+    expect(protocol.getActiveThread('m1')).toBeUndefined(); // 甲↔乙 已关
+    expect(protocol.getActiveThread('m2')).toBeUndefined();
+    expect(protocol.getActiveThread('m3')).toBeDefined(); // 丙↔丁 不受影响
+    expect(protocol.getActiveThread('m4')).toBeDefined();
+  });
 });
 
 describe('订阅模式: 增量视窗与自决判断 (prompt)', () => {
@@ -262,19 +276,58 @@ describe('订阅模式: 去中心心跳引擎与编排器集成 (SubscribeEngine
     expect(orch.state).toBe('idle');
   });
 
-  it('/mode 命令平滑切换讨论模式', async () => {
-    const { orch, room, sysMessages } = makeTestSetup();
-    expect(room.mode).toBe('subscribe');
+  it('用户消息与 stop 不清空私聊协议:线程与 3 条硬闸计数跨用户消息存活(D4)', async () => {
+    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0); // 随机起手恒选 m1
+    try {
+      const { orch } = makeTestSetup({
+        replies: {
+          m1: '<私聊>@工程师 咱们密谋一下',
+          m2: '<私聊>@架构师 好,听你的',
+        },
+      });
+      await orch.onUserMessage('开始讨论');
+      await new Promise((r) => setTimeout(r, 80));
 
-    await orch.onUserMessage('/mode baton');
-    expect(room.mode).toBe('baton');
-    expect(sysMessages.some((s) => s.includes('已切换为【接棒模式】'))).toBe(true);
+      // 用户插话(旧行为:start()→stop()→protocol.clear() 把线程全清,硬闸被重置)
+      await orch.onUserMessage('我插一句,你们继续');
+      await new Promise((r) => setTimeout(r, 60));
 
-    await orch.onUserMessage('/mode subscribe');
-    expect(room.mode).toBe('subscribe');
-    expect(sysMessages.some((s) => s.includes('已切换为【订阅模式'))).toBe(true);
+      // 协议应仍持有 m1↔m2 的活跃线程且计数延续(≥1,未被清零)
+      const protocol = orch['subscribeEngine']['protocol'];
+      const thread = protocol.getActiveThread('m1');
+      expect(thread).toBeDefined();
+      expect(thread!.initiatorId === 'm1' || thread!.targetId === 'm1').toBe(true);
+      expect(thread!.count).toBeGreaterThanOrEqual(1);
 
-    await orch.stop();
+      // stop 也不清协议
+      await orch.stop();
+      expect(protocol.getActiveThread('m1')).toBeDefined();
+
+      // 显式清空(clearMessages 语义)才全清
+      orch.clearPrivateProtocol();
+      expect(protocol.getActiveThread('m1')).toBeUndefined();
+    } finally {
+      randomSpy.mockRestore();
+    }
+  });
+
+  it('成员移除关闭其参与的私聊线程(编排器集成)', async () => {
+    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0); // 随机起手恒选 m1
+    try {
+      const { orch } = makeTestSetup({
+        replies: { m1: '<私聊>@工程师 密谋开始' },
+      });
+      await orch.onUserMessage('开始');
+      await new Promise((r) => setTimeout(r, 80));
+
+      const protocol = orch['subscribeEngine']['protocol'];
+      expect(protocol.getActiveThread('m1')).toBeDefined();
+
+      orch.memberRemoved('m2'); // 工程师退场
+      expect(protocol.getActiveThread('m1')).toBeUndefined(); // 线程随对端关闭
+    } finally {
+      randomSpy.mockRestore();
+    }
   });
 
   describe('公聊/私聊双气泡拆解与自私聊杜绝', () => {

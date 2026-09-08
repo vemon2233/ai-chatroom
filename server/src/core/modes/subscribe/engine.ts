@@ -16,7 +16,7 @@ import {
 } from './audience';
 import { PrivateChatProtocol } from './protocol';
 import { buildHeartbeatPrompt, isSilentDecision } from './prompt';
-import { matchMemberByName } from '../../prompt';
+import { matchMemberByName } from '../../naming';
 
 export interface SubscribeEngineDeps {
   getRoom: () => RoomConfig;
@@ -137,7 +137,11 @@ export class SubscribeEngine {
   }
 
   /**
-   * 停止全员心跳，销毁全部定时器与互斥状态
+   * 停止全员心跳，销毁全部定时器与互斥状态。
+   * 注意:不清理私聊协议(protocol)——用户插话/点停止都不该击穿私聊线程的
+   * 3 条硬闸与通道上下文(旧行为:任何用户消息都 start()→stop()→clear(),
+   * 导致硬闸被无限重置)。协议全清只挂在真正的历史重置(clearMessages)上,
+   * 经 clearProtocol() 显式调用。
    */
   stop(): void {
     this.isRunning = false;
@@ -149,7 +153,16 @@ export class SubscribeEngine {
     }
     this.timers.clear();
     this.locks.clear();
+  }
+
+  /** 彻底清空私聊协议(仅历史重置场景:clearMessages;成员移除走 closeThreadsForMember) */
+  clearProtocol(): void {
     this.protocol.clear();
+  }
+
+  /** 成员被移除:关闭 TA 参与的全部私聊线程(对端永远无法回应) */
+  closeThreadsForMember(memberId: string): void {
+    this.protocol.closeThreadsForMember(memberId);
   }
 
   /**

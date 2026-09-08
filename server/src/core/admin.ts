@@ -6,15 +6,11 @@
 
 import { randomUUID } from 'node:crypto';
 import type { AgentAdapter, SpeakRequest } from '../adapters/base';
-import type { ChatMessage, DiscussionSummary, PrivateDigest } from './types';
+import type { ChatMessage, DiscussionSummary } from './types';
 import { collectProjectContext } from './projectContext';
 import { buildScoutPrompt } from './prompt';
 import { oneShotSpeak } from './exec';
-import {
-  filterValidPublic,
-  splitHistoryByAnchor,
-  isDigestUsable,
-} from './summaryOps';
+import { filterValidPublic, splitHistoryByAnchor } from './summaryOps';
 
 
 export interface AdminConfig {
@@ -101,28 +97,13 @@ export class Admin {
 
   /**
    * 生成讨论摘要: 并发调用共享同一次执行，支持熔断与链式滚动合并。
-   * 支持对象传参或历史位置重载参数。
    */
-  async generateSummary(
-    inputOrMessages:
-      | { messages: readonly ChatMessage[]; topic?: string; prevSummary?: DiscussionSummary | null }
-      | readonly ChatMessage[],
-    topicArg?: string,
-    prevSummaryArg?: DiscussionSummary | null,
-  ): Promise<DiscussionSummary | null> {
-    let messages: readonly ChatMessage[];
-    let topic: string | undefined;
-    let prevSummary: DiscussionSummary | null | undefined;
-
-    if ('messages' in inputOrMessages) {
-      messages = inputOrMessages.messages;
-      topic = inputOrMessages.topic;
-      prevSummary = inputOrMessages.prevSummary;
-    } else {
-      messages = inputOrMessages;
-      topic = topicArg;
-      prevSummary = prevSummaryArg;
-    }
+  async generateSummary(input: {
+    messages: readonly ChatMessage[];
+    topic?: string;
+    prevSummary?: DiscussionSummary | null;
+  }): Promise<DiscussionSummary | null> {
+    const { messages, topic, prevSummary } = input;
 
     // 过滤纯公聊消息(严格剔除私聊与系统消息)
     const validPublic = filterValidPublic(messages);
@@ -237,16 +218,8 @@ export class Admin {
       // 重置连续失败计数
       this.summaryFailureCount = 0;
 
-      // 继承 prevSummary 中仍然有效的 privateDigests
-      const preservedDigests: Record<string, PrivateDigest> = {};
-      if (prevSummary?.privateDigests) {
-        for (const [mid, dig] of Object.entries(prevSummary.privateDigests)) {
-          if (isDigestUsable(dig, rawMessages)) {
-            preservedDigests[mid] = dig;
-          }
-        }
-      }
-
+      // 纪要槽位(privateDigests)由纪要生成器各自负责(ChatRoom 串行链内槽位化合并),
+      // 摘要只产出自己的槽位——绝不跨界捎带/清扫别人的纪要(旧行为:快照过期导致互吞)
       const lastPublic = validPublic[validPublic.length - 1];
 
       return {
@@ -254,8 +227,6 @@ export class Admin {
         updatedAt: Date.now(),
         messageCount: validPublic.length,
         coveredMessageId: lastPublic?.id,
-        privateDigests:
-          Object.keys(preservedDigests).length > 0 ? preservedDigests : undefined,
         status: 'idle',
         durationMs: outcome.durationMs,
         usage: outcome.usage,
