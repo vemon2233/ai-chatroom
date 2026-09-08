@@ -2,7 +2,12 @@
   "name": "ai-chatroom",
   "version": "2.0.0",
   "description": "AI 聊天室 — 多 Agent CLI(Claude Code / Codex / Gemini / 自定义)群聊、探讨、辩论系统(v2 架构重写)",
+  "license": "MIT",
   "private": true,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vemon2233/ai-chatroom.git"
+  },
   "type": "module",
   "workspaces": [
     "server",

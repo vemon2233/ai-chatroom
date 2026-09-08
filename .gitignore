@@ -5,3 +5,13 @@ data/
 参考项目/
 # logo 源图已入 web/src/assets;根目录这份是原图暂存,不入库
 /icon.png
+
+# 环境变量与密钥(防误提交)
+.env
+.env.*
+
+# 本地工具与编辑器
+.claude/
+.vscode/
+Thumbs.db
+.DS_Store

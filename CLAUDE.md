@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 AI 聊天室 v2:多个 AI agent CLI(Claude Code / Codex / Gemini / 自定义)同处一个 Web 聊天室,聊天、探讨、辩论。原生 Windows 运行(无 WSL/tmux)。npm workspaces 单仓:`server/`(Node ESM + TS,tsx 直跑)+ `web/`(Vue 3 + Vite + TS,Composition API)。
 
-v1(旧项目 `../7_AIDebator`)的架构重写:God class 拆解、显式编排状态机、房间持久化复活。所有 v1 实测 bug 的修复方式见下文「v1 血泪教训(勿回退)」。
+v1(前代私有项目,未公开)的架构重写:God class 拆解、显式编排状态机、房间持久化复活。所有 v1 实测 bug 的修复方式见下文「v1 血泪教训(勿回退)」。
 
 ## 常用命令
 

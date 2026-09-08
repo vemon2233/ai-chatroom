@@ -2,6 +2,8 @@
   "name": "@ai-chatroom/web",
   "version": "2.0.0",
   "description": "AI 聊天室前端 — Vue 3 + Vite + TypeScript",
+  "license": "MIT",
+  "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite",
