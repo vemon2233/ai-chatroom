@@ -132,6 +132,25 @@ export class PrivateChatProtocol {
     return { thread, allowed: true, isClosed: false };
   }
 
+  /**
+   * 从历史派生重建线程簿记(服务重启后,从持久化 JSONL 恢复协议状态)。
+   * 数据由 engine.rebuildFromHistory 整理(有 threadId 的消息分组派生),
+   * 这里只负责恢复登记——重建是尽力派生,不做完美考古。
+   * 直接替换全部现存线程(调用场景:restore 时 protocol 本为空)。
+   */
+  rebuild(threads: Array<Omit<PrivateThread, 'createdAt'> & { createdAt?: number }>): void {
+    this.threads.clear();
+    this.activeThreadByMember.clear();
+    for (const t of threads) {
+      const thread: PrivateThread = { ...t, createdAt: t.createdAt ?? Date.now() };
+      this.threads.set(thread.threadId, thread);
+      if (thread.status === 'active') {
+        this.activeThreadByMember.set(thread.initiatorId, thread.threadId);
+        this.activeThreadByMember.set(thread.targetId, thread.threadId);
+      }
+    }
+  }
+
   getThread(threadId: string): PrivateThread | undefined {
     return this.threads.get(threadId);
   }

@@ -201,6 +201,11 @@ export class Orchestrator {
     this.subscribeEngine.clearProtocol();
   }
 
+  /** 重启复活:从持久化历史重建私聊协议(线程簿记/硬闸计数/防撞号上限) */
+  rebuildPrivateProtocolFromHistory(): void {
+    this.subscribeEngine.rebuildFromHistory(this.deps.getHistory());
+  }
+
   /** 成员移除:状态清除 + 队列中该成员的条目一并移除 + 关闭 TA 的私聊线程(队列归编排器所有,防御内聚于此) */
   memberRemoved(memberId: string): void {
     delete this.statuses[memberId];

@@ -72,6 +72,91 @@ export class SubscribeEngine {
   constructor(private deps: SubscribeEngineDeps) {}
 
   /**
+   * 从持久化历史重建私聊协议(服务重启后由 ChatRoom.restore 调用,同步纯内存微秒级)。
+   * 派生规则(尽力恢复,不做完美考古):
+   *  - 只认带 threadId 的消息(早期无 threadId 的旧消息跳过——重启后本来就丢);
+   *  - pair = from ↔ audience[0](沿用单 target 语义,多播不引入新协议能力);
+   *  - 组末条 handshake 为 agree/reject → closed,否则 active;
+   *  - count = min(组内消息数, 2):保守重建,宁可提前熔断绝不放行超限
+   *    (3 条硬闸是安全机制;也消灭"第 5/3 轮"荒谬展示);
+   *  - threadCounter 取 max(重建线程最大 index, 历史 privateRound)——防撞号,
+   *    从猜测上限升级为事实上限。
+   */
+  rebuildFromHistory(history: readonly ChatMessage[]): void {
+    interface Rebuilt {
+      threadId: string;
+      index: number;
+      initiatorId: string;
+      targetId: string;
+      count: number;
+      status: 'active' | 'closed';
+      lastHandshake?: 'agree' | 'reject' | 'idea';
+      createdAt: number;
+      maxTs: number;
+    }
+    const byThread = new Map<string, Rebuilt>();
+
+    for (const m of history) {
+      if (!m.threadId || !m.audience || m.audience.length === 0) continue;
+      const targetId = m.audience[0]!;
+      if (targetId === m.from) continue; // 自私聊防御(不应存在)
+      const existing = byThread.get(m.threadId);
+      if (existing) {
+        existing.count += 1;
+        if (m.ts >= existing.maxTs) {
+          existing.maxTs = m.ts;
+          existing.lastHandshake = m.handshake;
+        }
+      } else {
+        byThread.set(m.threadId, {
+          threadId: m.threadId,
+          index: m.privateRound ?? 0,
+          initiatorId: m.from,
+          targetId,
+          count: 1,
+          status: 'active',
+          lastHandshake: m.handshake,
+          createdAt: m.ts,
+          maxTs: m.ts,
+        });
+      }
+    }
+
+    const threads: Array<{
+      threadId: string;
+      index: number;
+      initiatorId: string;
+      targetId: string;
+      count: number;
+      status: 'active' | 'closed';
+      createdAt: number;
+    }> = [];
+    let maxIndex = 0;
+    for (const t of byThread.values()) {
+      const closed =
+        t.status === 'closed' || t.lastHandshake === 'agree' || t.lastHandshake === 'reject';
+      threads.push({
+        threadId: t.threadId,
+        index: t.index,
+        initiatorId: t.initiatorId,
+        targetId: t.targetId,
+        count: Math.min(t.count, 2), // 保守重建:上限 2,下一条回应即触闸
+        status: closed ? 'closed' : 'active',
+        createdAt: t.createdAt,
+      });
+      if (t.index > maxIndex) maxIndex = t.index;
+    }
+    this.protocol.rebuild(threads);
+
+    // counter 防撞号:重建 index 与历史 privateRound 取最大(事实上限)
+    let maxRound = maxIndex;
+    for (const m of history) {
+      if (m.privateRound && m.privateRound > maxRound) maxRound = m.privateRound;
+    }
+    this.protocol.setThreadCounter(maxRound);
+  }
+
+  /**
    * 启动全员错峰独立心跳
    */
   start(members: MemberConfig[]): void {
@@ -80,18 +165,21 @@ export class SubscribeEngine {
     this.isSpeaking = false;
     this.speakerQueue = [];
 
-    // 同步历史消息中的最大私聊会话编号
-    const history = this.deps.getHistory();
-    let maxRound = 0;
-    for (const msg of history) {
-      if (msg.privateRound && msg.privateRound > maxRound) {
-        maxRound = msg.privateRound;
+    // 同步历史消息的最大私聊会话编号(防新线程编号与历史撞号)。
+    // 注:restore 时 rebuildFromHistory 已从事实上限设置 counter 并重建线程簿记;
+    // 此处仅在协议为空时兜底(如老房间未走重建路径),避免双份派生逻辑并存。
+    if (this.protocol.getThreadCounter() === 0) {
+      let maxRound = 0;
+      for (const msg of this.deps.getHistory()) {
+        if (msg.privateRound && msg.privateRound > maxRound) {
+          maxRound = msg.privateRound;
+        }
       }
+      this.protocol.setThreadCounter(maxRound);
     }
-    this.protocol.setThreadCounter(maxRound);
 
     // 记录各成员当前的起始查看位点
-    const historyLen = history.length;
+    const historyLen = this.deps.getHistory().length;
     members.forEach((m, idx) => {
       if (!this.lastSeenIndices.has(m.id)) {
         this.lastSeenIndices.set(m.id, Math.max(0, historyLen - 1));

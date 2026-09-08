@@ -176,6 +176,8 @@ export class ChatRoom {
   async restore(): Promise<void> {
     this.messages = backfillHandshake(await this.persistence.loadMessages(this.config.id));
     this.currentSummary = await this.summaryStore.getSummary('room', this.config.id);
+    // 私聊协议从事实源派生重建(订阅房间重启后线程/硬闸计数恢复;同步纯内存微秒级)
+    this.orch.rebuildPrivateProtocolFromHistory();
   }
 
   /** 获取当前讨论摘要 */

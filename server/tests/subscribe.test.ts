@@ -145,6 +145,55 @@ describe('订阅模式: 私聊握手协议与 3 条硬闸熔断 (protocol)', () 
     expect(reply2.thread.index).toBe(2);
   });
 
+  it('rebuildFromHistory: 从持久化历史重建线程(活跃判定/count 保守上限/防撞号)(D4-B)', async () => {
+    const { SubscribeEngine } = await import('../src/core/modes/subscribe/engine');
+    // 直接验证 protocol 层重建语义(engine 的整理函数经 rebuild 生效)
+    const history: ChatMessage[] = [
+      // 线程1: A↔B 三条,末条 agree → 已终结
+      { id: 'p1', roomId: 'r', from: 'mA', fromName: '甲', text: '结盟?', ts: 1, audience: ['mB'], threadId: 'th1', privateRound: 1 },
+      { id: 'p2', roomId: 'r', from: 'mB', fromName: '乙', text: '好', ts: 2, audience: ['mA'], threadId: 'th1', privateRound: 1, handshake: 'idea' },
+      { id: 'p3', roomId: 'r', from: 'mA', fromName: '甲', text: '一言为定', ts: 3, audience: ['mB'], threadId: 'th1', privateRound: 1, handshake: 'agree' },
+      // 线程2: A↔C 两条进行中(末条无终结握手) → 活跃,count 保守为 2
+      { id: 'p4', roomId: 'r', from: 'mA', fromName: '甲', text: '密谋', ts: 4, audience: ['mC'], threadId: 'th2', privateRound: 2 },
+      { id: 'p5', roomId: 'r', from: 'mC', fromName: '丙', text: '继续', ts: 5, audience: ['mA'], threadId: 'th2', privateRound: 2 },
+      // 早期无 threadId 的消息:跳过不重建
+      { id: 'p0', roomId: 'r', from: 'mB', fromName: '乙', text: '远古私聊', ts: 0, audience: ['mC'] },
+    ];
+
+    // 用 protocol 直接验证 rebuild(引擎整理逻辑经 th2 活跃断言间接覆盖)
+    const protocol = new PrivateChatProtocol();
+    protocol.setThreadCounter(0);
+    // 先经 engine.rebuildFromHistory 全链验证
+    const engineDeps: any = {
+      getRoom: () => ({ members: [] }),
+      getHistory: () => history,
+      speak: async () => ({ status: 'ok', result: '' }),
+      publishMessage: async () => {},
+      sysMessage: async () => {},
+      consumeBudget: () => true,
+      onMentioned: async () => {},
+      onIdle: () => {},
+    };
+    const engine = new SubscribeEngine(engineDeps);
+    engine.rebuildFromHistory(history);
+    const innerProtocol = (engine as any)['protocol'] as PrivateChatProtocol;
+
+    // 线程1 已终结:双方无活跃线程指向它
+    expect(innerProtocol.getActiveThreadBetween('mA', 'mB')?.threadId).toBeUndefined();
+
+    // 线程2 活跃:A 与 C 互相能查到,count 保守 2(下一条回应即触闸)
+    const active = innerProtocol.getActiveThreadBetween('mA', 'mC');
+    expect(active?.threadId).toBe('th2');
+    expect(active?.count).toBe(2);
+    const res = innerProtocol.handleResponse(active!.threadId, 'mC', undefined);
+    expect(res.thread.count).toBe(3);
+    expect(res.isClosed).toBe(true); // 保守上限:重建后仅剩一次回应空间
+
+    // 防撞号:新线程 index 从历史上限(2)之后开始
+    const t3 = innerProtocol.startThread('mB', 'mC');
+    expect(t3.index).toBe(3);
+  });
+
   it('closeThreadsForMember: 成员移除关闭其参与的活跃线程,他人线程不受影响', () => {
     const protocol = new PrivateChatProtocol();
     const t1 = protocol.startThread('m1', 'm2'); // 甲↔乙
