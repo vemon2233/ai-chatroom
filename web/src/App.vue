@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { initStore, store, openRoom } from '@/store';
 import Sidebar from '@/components/layout/Sidebar.vue';
 import RoomTabBar from '@/components/layout/RoomTabBar.vue';
@@ -10,6 +11,7 @@ import DialogHost from '@/components/ui/DialogHost.vue';
 
 import logoUrl from './assets/icon.png';
 
+const { t } = useI18n();
 const showNewRoom = ref(false);
 
 onMounted(() => initStore());
@@ -24,13 +26,13 @@ onMounted(() => initStore());
       <RoomView v-else-if="store.activeSession?.type === 'room' && store.currentRoom" />
       <div v-else class="empty-wrap">
         <div class="empty-content">
-          <img class="empty-logo" :src="logoUrl" alt="AI 聊天室 logo" />
-          <div class="empty-title">AI 聊天室</div>
-          <div class="empty-sub">多个 AI agent 同处一室，聊天 · 探讨 · 辩论</div>
+          <img class="empty-logo" :src="logoUrl" :alt="t('ui.logoAlt')" />
+          <div class="empty-title">{{ t('ui.appTitle') }}</div>
+          <div class="empty-sub">{{ t('ui.appSubtitle') }}</div>
           <button class="empty-action-btn" type="button" @click="showNewRoom = true">
-            ＋ 新建房间
+            {{ t('ui.newRoomBtn') }}
           </button>
-          <div class="empty-hint">从左侧选择群聊房间或在角色列表中发起专属私聊</div>
+          <div class="empty-hint">{{ t('ui.emptyHint') }}</div>
         </div>
       </div>
     </main>
