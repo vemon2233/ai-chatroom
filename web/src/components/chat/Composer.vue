@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { setEditingMessage, sessionActions, store, sayDirect, stopDirect } from '@/store';
 import { api } from '@/services/api';
 import { detectMention, type TextSegment } from '@/utils/mentions';
+
+const { t } = useI18n();
 
 const props = withDefaults(
   defineProps<{
@@ -61,7 +64,7 @@ const candidates = computed<Candidate[]>(() => {
   const q = popup.value.query.toLowerCase();
   const list: Candidate[] = [];
   if ('all'.startsWith(q) || q === '') {
-    list.push({ label: '@all', sub: '所有人轮流发言(可带轮数,如 @all2)', insert: '@all' });
+    list.push({ label: '@all', sub: t('chat.mentionAllSub'), insert: '@all' });
   }
   for (const m of store.currentRoom?.config.members ?? []) {
     if (m.name.toLowerCase().includes(q)) {
@@ -189,21 +192,21 @@ async function onStop() {
     <!-- 编辑模式提示条 -->
     <div v-if="store.editingContext" class="editing-banner">
       <div class="editing-info">
-        <span class="editing-badge">✏️ 编辑模式</span>
+        <span class="editing-badge">{{ t('chat.editingBadge') }}</span>
         <span class="editing-desc">
-          正在修改 <strong>{{ store.editingContext.fromName }}</strong> 的发言（后续对话已清除）
+          {{ t('chat.editingDescPrefix') }} <strong>{{ store.editingContext.fromName }}</strong> {{ t('chat.editingDescSuffix') }}
         </span>
       </div>
-      <button class="cancel-edit-btn" type="button" @click="cancelEdit">✕ 取消编辑</button>
+      <button class="cancel-edit-btn" type="button" @click="cancelEdit">{{ t('chat.cancelEdit') }}</button>
     </div>
 
     <!-- 语法提示:常驻可见 -->
     <div v-else class="syntax-hint">
       <template v-if="mode === 'direct'">
-        正在与 {{ store.currentDirectChar?.name || '角色' }} 一对一私聊 · Enter 发送，Shift+Enter 换行
+        {{ t('chat.hintDirect', { name: store.currentDirectChar?.name || t('chat.charFallback') }) }}
       </template>
       <template v-else>
-        无@=接棒续聊 · @成员=点名(答完指定下一位并暂停) · 接棒@成员=TA直接起头 · @allN=轮流N轮
+        {{ t('chat.hintRoom') }}
       </template>
     </div>
 
@@ -211,16 +214,16 @@ async function onStop() {
       <button
         class="attach-btn"
         disabled
-        title="附件功能即将支持"
+        :title="t('chat.attachTitle')"
         type="button"
-      >添加文件</button>
+      >{{ t('chat.attachBtn') }}</button>
 
       <div class="input-wrap">
         <textarea
           ref="inputEl"
           v-model="text"
           rows="1"
-          placeholder="发消息…(Enter 发送)"
+          :placeholder="t('chat.inputPlaceholder')"
           @input="onInput"
           @click="refreshPopup"
           @keydown="onKeydown"
@@ -239,14 +242,14 @@ async function onStop() {
             <span class="mention-label">{{ c.label }}</span>
             <span class="mention-sub">{{ c.sub }}</span>
           </div>
-          <div class="mention-footer">↑↓ 选择 · Tab/Enter 确认 · Esc 关闭</div>
+          <div class="mention-footer">{{ t('chat.mentionFooter') }}</div>
         </div>
       </div>
 
       <button v-if="!busy" class="btn btn-primary send" @click="send">
-        {{ store.editingContext ? '更新' : '发送' }}
+        {{ store.editingContext ? t('chat.updateBtn') : t('chat.sendBtn') }}
       </button>
-      <button v-else class="btn stop send" @click="onStop">停止</button>
+      <button v-else class="btn stop send" @click="onStop">{{ t('chat.stopBtn') }}</button>
     </div>
   </div>
 </template>

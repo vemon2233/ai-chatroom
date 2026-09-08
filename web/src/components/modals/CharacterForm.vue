@@ -3,9 +3,12 @@
 // 只管字段编辑;提交逻辑由宿主组件决定(入库/入库+拉入房间)。
 
 import { onMounted, ref, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { store } from '@/store';
 import { COLOR_OPTIONS, colorForName } from '@/utils/avatar';
 import type { Character } from '@server/core/types';
+
+const { t } = useI18n();
 
 const props = defineProps<{
   /** 编辑预填(传入即视为编辑态);null = 新建空白 */
@@ -87,38 +90,38 @@ defineExpose({ submit, valid, reset });
   <!-- 单根容器:宿主的 v-show(手风琴折叠)需要唯一根元素——fragment 根会让 v-show 静默失效 -->
   <div class="char-form">
     <div class="form-row">
-      <label>名字与颜色</label>
+      <label>{{ t('form.nameColor') }}</label>
       <div class="name-color-row">
         <div class="color-select-wrap">
           <span class="color-dot" :style="{ background: color }"></span>
-          <select v-model="color" class="color-select" title="选择头像背景颜色">
+          <select v-model="color" class="color-select" :title="t('form.pickAvatarColor')">
             <option v-for="opt in COLOR_OPTIONS" :key="opt.value" :value="opt.value">
               {{ opt.label }}
             </option>
           </select>
         </div>
-        <input v-model="name" type="text" class="name-input" placeholder="如:正方 / 首席架构师" />
+        <input v-model="name" type="text" class="name-input" :placeholder="t('form.namePlaceholder')" />
       </div>
     </div>
 
     <div class="form-row">
-      <label>适配器(CLI)</label>
+      <label>{{ t('form.adapterLabel') }}</label>
       <select v-model="adapter">
         <option v-for="a in store.adapters" :key="a.key" :value="a.key">{{ a.displayName }}</option>
       </select>
     </div>
     <div class="form-row">
-      <label>人设 / 立场(注入该角色每次发言)</label>
-      <textarea v-model="persona" placeholder="这个角色是谁、什么立场、怎么说话"></textarea>
+      <label>{{ t('form.personaLabel') }}</label>
+      <textarea v-model="persona" :placeholder="t('form.personaPlaceholder')"></textarea>
     </div>
     <div class="grid2-eq">
       <div class="form-row">
-        <label class="nowrap-label">model 档 (可选)</label>
-        <input v-model="modelArg" type="text" placeholder="如 sonnet / haiku" />
+        <label class="nowrap-label">{{ t('form.modelArgLabel') }}</label>
+        <input v-model="modelArg" type="text" :placeholder="t('form.modelArgPlaceholder')" />
       </div>
       <div class="form-row">
-        <label class="nowrap-label" title="仅自己可见，方便区分不同角色的使用场景">备注 (可选)</label>
-        <input v-model="note" type="text" placeholder="什么时候用这个角色" />
+        <label class="nowrap-label" :title="t('form.noteTitle')">{{ t('form.noteLabel') }}</label>
+        <input v-model="note" type="text" :placeholder="t('form.notePlaceholder')" />
       </div>
     </div>
     <slot name="after-form" />

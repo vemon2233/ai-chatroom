@@ -5,7 +5,10 @@
 // 样式只存在这一份;业务列表只负责传数据与接事件(对齐 overlay 原语化先例)。
 
 import { computed } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { initialsFor, colorForName } from '@/utils/avatar';
+
+const { t } = useI18n();
 
 const props = defineProps<{
   /** 主行名称(initials 取字真源) */
@@ -50,9 +53,9 @@ const avatarColor = computed(() => props.color ?? colorForName(props.title));
       <div class="card-sub">{{ sub }}</div>
     </div>
     <div class="card-actions">
-      <button v-if="canExport" class="card-btn export" :title="exportTitle || '导出'" @click.stop="emit('export')">导出</button>
-      <button v-if="canEdit" class="card-btn edit" :title="editTitle || '编辑'" @click.stop="emit('edit')">编辑</button>
-      <button class="card-btn remove" title="删除" @click.stop="emit('remove')">删除</button>
+      <button v-if="canExport" class="card-btn export" :title="exportTitle || t('ui.export')" @click.stop="emit('export')">{{ t('ui.export') }}</button>
+      <button v-if="canEdit" class="card-btn edit" :title="editTitle || t('ui.edit')" @click.stop="emit('edit')">{{ t('ui.edit') }}</button>
+      <button class="card-btn remove" :title="t('ui.delete')" @click.stop="emit('remove')">{{ t('ui.delete') }}</button>
     </div>
   </div>
 </template>

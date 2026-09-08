@@ -3,6 +3,7 @@
 // 边 1v1 私聊边微调人设 Prompt 与模型参数，支持上下文模式切换与角色删除
 
 import { computed, ref, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { store, refreshCharacters, closeSession, closeInspector } from '@/store';
 import { api } from '@/services/api';
 import { dialog } from '@/composables/useDialog';
@@ -15,6 +16,7 @@ const formRef = ref<InstanceType<typeof CharacterForm> | null>(null);
 const isSaving = ref(false);
 const saveSuccess = ref(false);
 const errorMessage = ref('');
+const { t } = useI18n();
 
 const userPersona = ref<UserPersonaSnapshot | null>(null);
 const isMetaSaving = ref(false);
@@ -62,7 +64,7 @@ async function handleSavePersona(persona?: UserPersonaSnapshot | null) {
       metaSaveSuccess.value = false;
     }, 1500);
   } catch (err: any) {
-    metaError.value = err?.message || '保存身份失败';
+    metaError.value = err?.message || t('inspector.directManage.savePersonaFailed');
   } finally {
     isMetaSaving.value = false;
   }
@@ -87,7 +89,7 @@ async function handleSubmit(body: Omit<Character, 'id' | 'createdAt'>) {
       saveSuccess.value = false;
     }, 2000);
   } catch (err: any) {
-    errorMessage.value = err?.message || '保存角色失败';
+    errorMessage.value = err?.message || t('inspector.directManage.saveCharFailed');
   } finally {
     isSaving.value = false;
   }
@@ -99,9 +101,9 @@ async function handleDeleteCharacter() {
   const targetName = character.value.name;
 
   const ok = await dialog.confirm(
-    '删除角色',
-    `确定删除角色「${targetName}」吗？已加入房间的成员不受影响，该角色的专属私聊记录将被清理。`,
-    { danger: true, confirmText: '删除角色' },
+    t('inspector.directManage.deleteConfirmTitle'),
+    t('inspector.directManage.deleteConfirmBody', { name: targetName }),
+    { danger: true, confirmText: t('inspector.directManage.deleteConfirmBtn') },
   );
   if (!ok) return;
 
@@ -116,7 +118,7 @@ async function handleDeleteCharacter() {
   <div class="inspector-direct-manage">
     <div class="manage-subbar">
       <div class="subbar-meta">
-        <span class="meta-title">角色与私聊设置</span>
+        <span class="meta-title">{{ t('inspector.directManage.title') }}</span>
       </div>
       <div class="subbar-actions">
         <button
@@ -124,7 +126,7 @@ async function handleDeleteCharacter() {
           class="btn-export btn btn-secondary"
           @click="handleExportCharacter"
         >
-          导出角色
+          {{ t('inspector.directManage.exportCharacter') }}
         </button>
         <button
           type="button"
@@ -132,14 +134,14 @@ async function handleDeleteCharacter() {
           :disabled="isSaving"
           @click="formRef?.submit()"
         >
-          {{ isSaving ? '保存中...' : '保存人设' }}
+          {{ isSaving ? t('inspector.directManage.saving') : t('inspector.directManage.savePersona') }}
         </button>
       </div>
     </div>
 
     <!-- 成功或错误通知提示条 -->
     <div v-if="saveSuccess || metaSaveSuccess" class="alert-bar success">
-      ✓ {{ saveSuccess ? '角色人设与参数已更新' : '私聊身份已生效' }}
+      ✓ {{ saveSuccess ? t('inspector.directManage.toastCharUpdated') : t('inspector.directManage.toastPersonaApplied') }}
     </div>
     <div v-if="errorMessage || metaError" class="alert-bar error">
       {{ errorMessage || metaError }}
@@ -149,8 +151,8 @@ async function handleDeleteCharacter() {
     <div class="manage-body">
       <div class="form-row">
         <label>
-          我的私聊身份
-          <span v-if="isDirectLocked" class="lock-pill">已有消息锁定</span>
+          {{ t('inspector.directManage.myPersona') }}
+          <span v-if="isDirectLocked" class="lock-pill">{{ t('inspector.directManage.lockPill') }}</span>
         </label>
         <UserPersonaSelector
           v-model="userPersona"
@@ -167,18 +169,18 @@ async function handleDeleteCharacter() {
 
       <!-- 底部危险区 -->
       <div class="danger-zone">
-        <div class="danger-title">危险区域</div>
+        <div class="danger-title">{{ t('inspector.directManage.dangerTitle') }}</div>
         <div class="danger-row">
           <div class="danger-desc">
-            <span class="danger-name">删除此角色</span>
-            <span class="danger-sub">从角色库永久移除并关闭当前私聊窗口</span>
+            <span class="danger-name">{{ t('inspector.directManage.deleteCharName') }}</span>
+            <span class="danger-sub">{{ t('inspector.directManage.deleteCharSub') }}</span>
           </div>
           <button
             type="button"
             class="btn btn-ghost btn-danger-action"
             @click="handleDeleteCharacter"
           >
-            删除角色
+            {{ t('inspector.directManage.deleteCharBtn') }}
           </button>
         </div>
       </div>

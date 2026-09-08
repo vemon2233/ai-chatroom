@@ -6,6 +6,7 @@
 // 防误解:用户不会以为"勾了角色还要填表单"。取消勾选/清空表单不自动回弹(用户主导)。
 
 import { computed, ref, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { store, refreshCharacters } from '@/store';
 import { api } from '@/services/api';
 import { dialog } from '@/composables/useDialog';
@@ -13,6 +14,8 @@ import { initialsFor, colorForName } from '@/utils/avatar';
 import type { Character } from '@server/core/types';
 import Modal from '@/components/ui/Modal.vue';
 import CharacterForm from './CharacterForm.vue';
+
+const { t } = useI18n();
 
 const model = defineModel<boolean>({ default: false });
 
@@ -61,7 +64,7 @@ const pickedCount = computed(() => picked.value.size);
 /** 新建角色并立即拉入房间 */
 async function createAndPull(body: Omit<Character, 'id' | 'createdAt'>) {
   if (!body) {
-    await dialog.alert('角色需要名字和人设', '名字和人设都是必填项。');
+    await dialog.alert(t('form.needNamePersonaTitle'), t('form.needNamePersonaBody'));
     return;
   }
   const roomId = store.currentRoom!.config.id;
@@ -71,14 +74,14 @@ async function createAndPull(body: Omit<Character, 'id' | 'createdAt'>) {
     await refreshCharacters();
     formRef.value?.reset();
   } catch (e) {
-    await dialog.alert('添加失败', String((e as Error).message));
+    await dialog.alert(t('form.addFailedTitle'), String((e as Error).message));
   }
 }
 
 async function submit() {
   const roomId = store.currentRoom!.config.id;
   if (picked.value.size === 0 && !formRef.value?.valid()) {
-    await dialog.alert('还没有可添加的内容', '请先勾选角色库成员,或展开"新建角色"填写。');
+    await dialog.alert(t('form.nothingToAddTitle'), t('form.nothingToAddBody'));
     return;
   }
   if (picked.value.size > 0) {
@@ -95,10 +98,10 @@ async function submit() {
 </script>
 
 <template>
-  <Modal v-model="model" title="添加成员" width="560px">
+  <Modal v-model="model" :title="t('form.addMemberTitle')" width="560px">
     <!-- 选卡区(可折叠;勾选数徽标) -->
     <div class="sec-head" @click="togglePickSection">
-      <span class="sec-title">从角色库选择<span v-if="pickedCount > 0" class="sec-badge">已选 {{ pickedCount }}</span></span>
+      <span class="sec-title">{{ t('form.pickFromLib') }}<span v-if="pickedCount > 0" class="sec-badge">{{ t('form.selectedCount', { n: pickedCount }) }}</span></span>
       <span class="sec-caret" :class="{ open: showPick }">▾</span>
     </div>
     <div v-show="showPick" class="char-grid">
@@ -118,7 +121,7 @@ async function submit() {
 
     <!-- 新建区(可折叠;用户开始填写即视为转向新建意图 → 折叠选卡区) -->
     <div class="sec-head" @click="toggleCreate">
-      <span class="sec-title">新建角色<span class="sec-sub">保存进角色库,并立即拉入本房间</span></span>
+      <span class="sec-title">{{ t('form.createNewChar') }}<span class="sec-sub">{{ t('form.createNewCharSub') }}</span></span>
       <span class="sec-caret" :class="{ open: showCreate }">▾</span>
     </div>
     <CharacterForm
@@ -131,8 +134,8 @@ async function submit() {
     </CharacterForm>
 
     <template #footer>
-      <button class="btn btn-ghost" @click="model = false">取消</button>
-      <button class="btn btn-primary" @click="submit">添加到房间</button>
+      <button class="btn btn-ghost" @click="model = false">{{ t('common.cancel') }}</button>
+      <button class="btn btn-primary" @click="submit">{{ t('form.addToRoom') }}</button>
     </template>
   </Modal>
 </template>

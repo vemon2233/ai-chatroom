@@ -3,7 +3,9 @@
 // 统计每个角色的发言条数、活跃份额占比、Token 消耗、费用与耗时，支持导出 Markdown 简报
 
 import { computed, onMounted, ref, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { api } from '@/services/api';
+import { currentLang } from '@/i18n';
 import type { SessionStats, MemberStats } from '@server/core/types';
 
 const props = defineProps<{
@@ -14,6 +16,7 @@ const props = defineProps<{
 const stats = ref<SessionStats | null>(null);
 const isLoading = ref(false);
 const errorMsg = ref('');
+const { t } = useI18n();
 
 const sortedMembers = computed<MemberStats[]>(() => {
   if (!stats.value?.members) return [];
@@ -40,7 +43,7 @@ async function loadStats() {
         : await api.directStats(props.sessionId);
     stats.value = res;
   } catch (err: any) {
-    errorMsg.value = err?.message || '获取统计数据失败';
+    errorMsg.value = err?.message || t('inspector.stats.loadFailed');
   } finally {
     isLoading.value = false;
   }
@@ -56,7 +59,7 @@ function formatDuration(ms: number): string {
 }
 
 function formatNumber(num: number): string {
-  return (num || 0).toLocaleString();
+  return (num || 0).toLocaleString(currentLang() === 'zh' ? 'zh-CN' : 'en-US');
 }
 
 function initialsFor(name: string): string {
@@ -70,18 +73,18 @@ function initialsFor(name: string): string {
     <!-- 顶部轻量操作栏 (样式与摘要、日志、管理严格对齐) -->
     <div class="manage-subbar">
       <div class="subbar-meta">
-        <span class="meta-title">用量与开销统计</span>
-        <span v-if="stats" class="meta-pill">涵盖 {{ stats.totalMessages }} 条消息</span>
+        <span class="meta-title">{{ t('inspector.stats.title') }}</span>
+        <span v-if="stats" class="meta-pill">{{ t('inspector.stats.coversMessages', { count: stats.totalMessages }) }}</span>
       </div>
       <div class="subbar-actions">
-        <button type="button" class="btn-refresh btn btn-ghost" :disabled="isLoading" title="刷新统计数据"
+        <button type="button" class="btn-refresh btn btn-ghost" :disabled="isLoading" :title="t('inspector.stats.refreshTitle')"
           @click="loadStats">
           <svg class="refresh-icon" :class="{ spinning: isLoading }" viewBox="0 0 24 24" width="13" height="13"
             fill="none" stroke="currentColor" stroke-width="2">
             <polyline points="23 4 23 10 17 10" />
             <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
           </svg>
-          刷新
+          {{ t('inspector.stats.refresh') }}
         </button>
       </div>
     </div>
@@ -97,7 +100,7 @@ function initialsFor(name: string): string {
       <div v-if="isLoading && !stats" class="stats-loading">
         <div class="shimmer-card"></div>
         <div class="shimmer-card"></div>
-        <p class="loading-hint">正在统计全量消息流与 Token 开销...</p>
+        <p class="loading-hint">{{ t('inspector.stats.loadingHint') }}</p>
       </div>
 
       <template v-else-if="stats">
@@ -106,28 +109,28 @@ function initialsFor(name: string): string {
           <div class="kpi-card">
             <span class="kpi-icon">💬</span>
             <div class="kpi-info">
-              <span class="kpi-label">总发言条数</span>
+              <span class="kpi-label">{{ t('inspector.stats.kpiMessages') }}</span>
               <span class="kpi-val">{{ formatNumber(stats.totalMessages) }}</span>
             </div>
           </div>
           <div class="kpi-card">
             <span class="kpi-icon">💰</span>
             <div class="kpi-info">
-              <span class="kpi-label">累计费用 (USD)</span>
+              <span class="kpi-label">{{ t('inspector.stats.kpiCost') }}</span>
               <span class="kpi-val cost">${{ stats.totalCostUsd.toFixed(4) }}</span>
             </div>
           </div>
           <div class="kpi-card">
             <span class="kpi-icon">📥</span>
             <div class="kpi-info">
-              <span class="kpi-label">输入 Tokens</span>
+              <span class="kpi-label">{{ t('inspector.stats.kpiInput') }}</span>
               <span class="kpi-val">{{ formatNumber(stats.totalInputTokens) }}</span>
             </div>
           </div>
           <div class="kpi-card">
             <span class="kpi-icon">📤</span>
             <div class="kpi-info">
-              <span class="kpi-label">输出 Tokens</span>
+              <span class="kpi-label">{{ t('inspector.stats.kpiOutput') }}</span>
               <span class="kpi-val">{{ formatNumber(stats.totalOutputTokens) }}</span>
             </div>
           </div>
@@ -136,12 +139,12 @@ function initialsFor(name: string): string {
         <!-- 角色用量明细排行榜 -->
         <div class="breakdown-section">
           <div class="section-head">
-            <span class="head-title">角色明细排行榜</span>
-            <span class="head-sub">按发言条数与 Token 综合排序</span>
+            <span class="head-title">{{ t('inspector.stats.rankTitle') }}</span>
+            <span class="head-sub">{{ t('inspector.stats.rankSub') }}</span>
           </div>
 
           <div v-if="stats.members.length === 0" class="breakdown-empty">
-            暂无角色发言记录
+            {{ t('inspector.stats.rankEmpty') }}
           </div>
 
           <div v-else class="member-cards-list">
@@ -173,8 +176,8 @@ function initialsFor(name: string): string {
               <!-- 活跃度与发言份额条 (借鉴 retro.sharePct) -->
               <div class="share-row">
                 <div class="share-labels">
-                  <span class="share-text">对话活跃份额</span>
-                  <span class="share-num"><b>{{ m.messageCount }}</b> 条 ({{ m.sharePct }}%)</span>
+                  <span class="share-text">{{ t('inspector.stats.shareLabel') }}</span>
+                  <span class="share-num"><b>{{ m.messageCount }}</b> {{ t('inspector.stats.shareUnit') }} ({{ m.sharePct }}%)</span>
                 </div>
                 <div class="progress-bar-bg">
                   <div
@@ -190,19 +193,19 @@ function initialsFor(name: string): string {
               <!-- Token 与性能微矩阵 -->
               <div class="metrics-matrix">
                 <div class="metric-item">
-                  <span class="m-label">输入 Token</span>
+                  <span class="m-label">{{ t('inspector.stats.metricInput') }}</span>
                   <span class="m-val">{{ formatNumber(m.inputTokens) }}</span>
                 </div>
                 <div class="metric-item">
-                  <span class="m-label">输出 Token</span>
+                  <span class="m-label">{{ t('inspector.stats.metricOutput') }}</span>
                   <span class="m-val">{{ formatNumber(m.outputTokens) }}</span>
                 </div>
                 <div class="metric-item">
-                  <span class="m-label">平均耗时</span>
+                  <span class="m-label">{{ t('inspector.stats.metricAvgDuration') }}</span>
                   <span class="m-val">{{ formatDuration(m.avgDurationMs) }}</span>
                 </div>
                 <div v-if="m.skips > 0 || m.errors > 0" class="metric-item quality">
-                  <span class="m-label">跳过 / 报错</span>
+                  <span class="m-label">{{ t('inspector.stats.metricSkipsErrors') }}</span>
                   <span class="m-val">{{ m.skips }} / {{ m.errors }}</span>
                 </div>
               </div>
@@ -212,14 +215,14 @@ function initialsFor(name: string): string {
 
         <!-- 底部计费依据说明 -->
         <div class="stats-footer-note">
-          <span>💡 费用按各模型 CLI 官方实时上报结算；未提供开销返回的适配器将仅统计输入输出 Tokens。</span>
+          <span>{{ t('inspector.stats.footerNote') }}</span>
         </div>
       </template>
 
       <!-- 完全无数据 -->
       <div v-else class="empty-placeholder">
         <span class="empty-icon">📊</span>
-        <p>暂无用量与开销统计数据</p>
+        <p>{{ t('inspector.stats.emptyStats') }}</p>
       </div>
     </div>
   </div>

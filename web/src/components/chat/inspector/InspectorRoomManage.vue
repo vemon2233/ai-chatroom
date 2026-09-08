@@ -3,6 +3,7 @@
 // 边聊边改，即时更新房间配置与参数
 
 import { computed, ref, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { store, refreshRooms, closeRoom, closeInspector } from '@/store';
 import { api } from '@/services/api';
 import { dialog } from '@/composables/useDialog';
@@ -14,6 +15,7 @@ const formRef = ref<InstanceType<typeof RoomForm> | null>(null);
 const isSaving = ref(false);
 const saveSuccess = ref(false);
 const errorMessage = ref('');
+const { t } = useI18n();
 
 const room = computed<RoomConfig | null>(() => store.currentRoom?.config ?? null);
 
@@ -54,7 +56,7 @@ async function handleSubmit(body: RoomFormBody) {
       saveSuccess.value = false;
     }, 2000);
   } catch (err: any) {
-    errorMessage.value = err?.message || '保存设置失败';
+    errorMessage.value = err?.message || t('inspector.roomManage.saveFailed');
   } finally {
     isSaving.value = false;
   }
@@ -66,9 +68,9 @@ async function handleDeleteRoom() {
   const targetName = room.value.name;
 
   const ok = await dialog.confirm(
-    '删除房间',
-    `确定删除房间「${targetName}」吗？聊天历史文件将保留（重启后不再复活）。`,
-    { danger: true, confirmText: '删除房间' },
+    t('inspector.roomManage.deleteConfirmTitle'),
+    t('inspector.roomManage.deleteConfirmBody', { name: targetName }),
+    { danger: true, confirmText: t('inspector.roomManage.deleteConfirmBtn') },
   );
   if (!ok) return;
 
@@ -83,21 +85,21 @@ async function handleDeleteRoom() {
   <div class="inspector-room-manage">
     <div class="manage-subbar">
       <div class="subbar-meta">
-        <span class="meta-title">房间管理</span>
+        <span class="meta-title">{{ t('inspector.roomManage.title') }}</span>
       </div>
       <div class="subbar-actions">
         <button type="button" class="btn-export btn btn-secondary" @click="handleExportRoom">
-          导出配置
+          {{ t('inspector.roomManage.exportConfig') }}
         </button>
         <button type="button" class="btn-save btn btn-primary" :disabled="isSaving" @click="formRef?.submit()">
-          {{ isSaving ? '保存中...' : '保存设置' }}
+          {{ isSaving ? t('inspector.roomManage.saving') : t('inspector.roomManage.saveSettings') }}
         </button>
       </div>
     </div>
 
     <!-- 成功或错误通知提示条 -->
     <div v-if="saveSuccess" class="alert-bar success">
-      ✓ 设置已保存并即时生效
+      {{ t('inspector.roomManage.savedToast') }}
     </div>
     <div v-if="errorMessage" class="alert-bar error">
       {{ errorMessage }}
@@ -115,14 +117,14 @@ async function handleDeleteRoom() {
 
       <!-- 底部危险区 -->
       <div class="danger-zone">
-        <div class="danger-title">危险区域</div>
+        <div class="danger-title">{{ t('inspector.roomManage.dangerTitle') }}</div>
         <div class="danger-row">
           <div class="danger-desc">
-            <span class="danger-name">删除此房间</span>
-            <span class="danger-sub">解散当前房间讨论，关闭全部会话窗口</span>
+            <span class="danger-name">{{ t('inspector.roomManage.deleteRoomName') }}</span>
+            <span class="danger-sub">{{ t('inspector.roomManage.deleteRoomSub') }}</span>
           </div>
           <button type="button" class="btn btn-ghost btn-danger-action" @click="handleDeleteRoom">
-            删除房间
+            {{ t('inspector.roomManage.deleteRoomBtn') }}
           </button>
         </div>
       </div>

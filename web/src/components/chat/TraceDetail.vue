@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
+import { useI18n } from 'vue-i18n';
 import type { ChatMessage } from '@server/core/types';
+
+const { t } = useI18n();
 
 const props = defineProps<{ detail: NonNullable<ChatMessage['detail']> }>();
 
@@ -17,7 +20,7 @@ const visibleTrace = computed(() => {
   return trace.slice(-8);
 });
 
-const LABEL: Record<string, string> = { thinking: '思考', tool_use: '工具调用', tool_result: '结果', text: '正文' };
+const LABEL: Record<string, string> = { thinking: 'chat.kindThinking', tool_use: 'chat.kindToolUse', tool_result: 'chat.kindToolResult', text: 'chat.kindText' };
 
 if (!hasTrace.value && hasThinking.value) tab.value = 'thinking';
 if (!hasTrace.value && !hasThinking.value) tab.value = 'usage';
@@ -26,9 +29,9 @@ if (!hasTrace.value && !hasThinking.value) tab.value = 'usage';
 <template>
   <div class="detail" @click.stop>
     <div class="tabs">
-      <span v-if="hasTrace" :class="{ on: tab === 'trace' }" @click="tab = 'trace'">工作过程</span>
-      <span v-if="hasThinking" :class="{ on: tab === 'thinking' }" @click="tab = 'thinking'">思考全文</span>
-      <span :class="{ on: tab === 'usage' }" @click="tab = 'usage'">用量</span>
+      <span v-if="hasTrace" :class="{ on: tab === 'trace' }" @click="tab = 'trace'">{{ t('chat.tabTrace') }}</span>
+      <span v-if="hasThinking" :class="{ on: tab === 'thinking' }" @click="tab = 'thinking'">{{ t('chat.tabThinking') }}</span>
+      <span :class="{ on: tab === 'usage' }" @click="tab = 'usage'">{{ t('chat.tabUsage') }}</span>
     </div>
 
     <!-- 工作过程时间线(左色条区分类型,无图标) -->
@@ -38,11 +41,11 @@ if (!hasTrace.value && !hasThinking.value) tab.value = 'usage';
         class="trace-toggle"
         @click="collapsed = false"
       >
-        ⋯ 展开全部 {{ detail.trace!.length }} 步(当前显示最后 8 步)
+        {{ t('chat.expandAll', { count: detail.trace!.length }) }}
       </div>
-      <div v-for="(t, i) in visibleTrace" :key="i" class="trace-item" :class="t.kind">
-        <div class="tlabel">{{ t.label ? `${t.label} · ` : '' }}{{ LABEL[t.kind] ?? t.kind }}</div>
-        <pre>{{ t.content }}</pre>
+      <div v-for="(tr, i) in visibleTrace" :key="i" class="trace-item" :class="tr.kind">
+        <div class="tlabel">{{ tr.label ? `${tr.label} · ` : '' }}{{ LABEL[tr.kind] ? t(LABEL[tr.kind]!) : tr.kind }}</div>
+        <pre>{{ tr.content }}</pre>
       </div>
     </div>
 

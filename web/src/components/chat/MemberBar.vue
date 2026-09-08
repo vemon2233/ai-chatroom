@@ -1,27 +1,29 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { store } from '@/store';
 import { api } from '@/services/api';
 import { dialog } from '@/composables/useDialog';
 import { initialsFor } from '@/utils/avatar';
 import AddMemberPanel from '@/components/modals/AddMemberPanel.vue';
 
+const { t } = useI18n();
 const showAdd = ref(false);
 const room = computed(() => store.currentRoom!);
 
-const STATUS_LABEL: Record<string, string> = {
-  idle: '待命',
-  thinking: '思考中',
-  streaming: '输出中',
-  error: '出错',
+const STATUS_KEY: Record<string, string> = {
+  idle: 'chat.statusIdle',
+  thinking: 'chat.statusThinking',
+  streaming: 'chat.statusStreaming',
+  error: 'chat.statusError',
 };
 
 async function onChipClick(memberId: string) {
   const member = room.value.config.members.find((m) => m.id === memberId);
   if (!member) return;
   const text = await dialog.prompt(
-    `给 ${member.name} 下指令`,
-    '这条指令只有 TA 会看到(注入 TA 下一次发言的 prompt):',
+    t('chat.instructTitle', { name: member.name }),
+    t('chat.instructBody'),
   );
   if (text?.trim()) {
     await api.instruct(room.value.config.id, memberId, text.trim());
@@ -29,9 +31,9 @@ async function onChipClick(memberId: string) {
 }
 
 async function onRemove(memberId: string, name: string) {
-  const ok = await dialog.confirm('移出房间', `确定让 ${name} 退出房间?`, {
+  const ok = await dialog.confirm(t('chat.removeTitle'), t('chat.removeBody', { name }), {
     danger: true,
-    confirmText: '移出',
+    confirmText: t('chat.removeConfirm'),
   });
   if (!ok) return;
   await api.removeMember(room.value.config.id, memberId);
@@ -44,16 +46,16 @@ async function onRemove(memberId: string, name: string) {
       v-for="m in room.config.members"
       :key="m.id"
       class="chip"
-      :title="`${m.persona}\n点击下指令 | ✕ 移出房间`"
+      :title="t('chat.chipHint', { persona: m.persona })"
       @click="onChipClick(m.id)"
     >
       <span class="dot" :class="room.statuses[m.id] ?? 'idle'"></span>
       <span class="chip-avatar" :style="{ background: m.color }">{{ initialsFor(m.name) }}</span>
       <span class="chip-name">{{ m.name }}</span>
-      <span class="chip-adapter">{{ m.adapter }} · {{ STATUS_LABEL[room.statuses[m.id] ?? 'idle'] }}</span>
+      <span class="chip-adapter">{{ m.adapter }} · {{ t(STATUS_KEY[room.statuses[m.id] ?? 'idle'] ?? 'chat.statusIdle') }}</span>
       <span class="chip-remove" @click.stop="onRemove(m.id, m.name)">✕</span>
     </div>
-    <button class="chip add" @click="showAdd = true">＋ 添加成员</button>
+    <button class="chip add" @click="showAdd = true">{{ t('chat.addMember') }}</button>
 
     <AddMemberPanel v-model="showAdd" />
   </div>

@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { computed } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { store } from '@/store';
 import { initialsFor } from '@/utils/avatar';
 import type { UserPersonaSnapshot } from '@server/core/types';
+
+const { t } = useI18n();
 
 const props = withDefaults(
   defineProps<{
@@ -50,7 +53,7 @@ const currentPersona = computed(() => props.modelValue);
     <!-- 仅当宿主明确传入 label 时展示，默认由外部 .form-row > label 控制，防止套娃双重标题 -->
     <div v-if="label" class="field-header">
       <label class="field-label">{{ label }}</label>
-      <span v-if="isLocked" class="lock-pill">已有消息锁定</span>
+      <span v-if="isLocked" class="lock-pill">{{ t('chat.lockedPill') }}</span>
     </div>
 
     <div class="select-wrapper">
@@ -59,8 +62,8 @@ const currentPersona = computed(() => props.modelValue);
         class="persona-select"
         :disabled="isLocked"
       >
-        <option value="">默认 (以「用户」身份发言)</option>
-        <optgroup v-if="store.characters.length > 0" label="角色库">
+        <option value="">{{ t('chat.defaultOption') }}</option>
+        <optgroup v-if="store.characters.length > 0" :label="t('chat.charLibrary')">
           <option v-for="c in store.characters" :key="c.id" :value="c.id">
             {{ c.name }} ({{ c.adapter }})
           </option>
@@ -69,7 +72,7 @@ const currentPersona = computed(() => props.modelValue);
     </div>
 
     <div v-if="isLocked" class="locked-hint">
-      🔒 会话已有消息记录，身份设定已锁定。如需更换请先清空历史消息。
+      {{ t('chat.lockedHint') }}
     </div>
 
     <!-- 选中身份的轻量预览条：极简微卡片，无深色侵入，完全契合纸面质感 -->
@@ -83,10 +86,10 @@ const currentPersona = computed(() => props.modelValue);
       <div class="chip-info">
         <div class="chip-name-row">
           <span class="chip-name">{{ currentPersona.name }}</span>
-          <span class="chip-tag">我的化身</span>
+          <span class="chip-tag">{{ t('chat.myPersonaTag') }}</span>
         </div>
         <div class="chip-desc" :title="currentPersona.persona">
-          {{ currentPersona.persona || '无详细设定' }}
+          {{ currentPersona.persona || t('chat.noPersona') }}
         </div>
       </div>
     </div>

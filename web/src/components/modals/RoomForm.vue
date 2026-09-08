@@ -5,10 +5,13 @@
 //                 其余(名称/主题/发言长度/发言上限)可改即时生效。
 
 import { ref, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { store } from '@/store';
 import { COLOR_OPTIONS, colorForName } from '@/utils/avatar';
 import type { RoomConfig, UserPersonaSnapshot } from '@server/core/types';
 import UserPersonaSelector from '@/components/chat/inspector/UserPersonaSelector.vue';
+
+const { t } = useI18n();
 
 const props = withDefaults(defineProps<{
   mode: 'create' | 'settings';
@@ -78,9 +81,9 @@ watch(
 
 function submit() {
   emit('submit', {
-    name: name.value.trim() || (isCreate() ? '新房间' : name.value.trim()),
+    name: name.value.trim() || (isCreate() ? t('form.defaultRoomName') : name.value.trim()),
     color: color.value,
-    topic: topic.value.trim() || (isCreate() ? '自由聊天' : topic.value.trim()),
+    topic: topic.value.trim() || (isCreate() ? t('form.defaultTopic') : topic.value.trim()),
     speechLength: speechLength.value,
     projectPath: projectPath.value.trim(),
     toolPermission: projectPath.value.trim() ? toolPermission.value : 'readonly',
@@ -124,100 +127,100 @@ defineExpose({ submit, reset });
   <!-- 单根容器(宿主 v-show/布局锚点) -->
   <div class="room-form">
     <div class="form-row">
-      <label>房间名称与颜色</label>
+      <label>{{ t('form.roomNameColor') }}</label>
       <div class="name-color-row">
         <div class="color-select-wrap">
           <span class="color-dot" :style="{ background: color }"></span>
-          <select v-model="color" class="color-select" title="选择房间背景颜色">
+          <select v-model="color" class="color-select" :title="t('form.pickRoomColor')">
             <option v-for="opt in COLOR_OPTIONS" :key="opt.value" :value="opt.value">
               {{ opt.label }}
             </option>
           </select>
         </div>
-        <input v-model="name" type="text" class="name-input" placeholder="例如:技术选型讨论" />
+        <input v-model="name" type="text" class="name-input" :placeholder="t('form.roomNamePlaceholder')" />
       </div>
     </div>
 
     <div class="form-row">
-      <label>主题 / 讨论题目</label>
-      <textarea v-model="topic" placeholder="例如:React 和 Vue 该选哪个?考虑团队规模和学习成本"></textarea>
+      <label>{{ t('form.topicLabel') }}</label>
+      <textarea v-model="topic" :placeholder="t('form.topicPlaceholder')"></textarea>
     </div>
 
     <div class="form-row">
       <label>
-        我的发言身份
-        <span v-if="isLocked" class="lock-pill">已有消息锁定</span>
+        {{ t('form.myPersona') }}
+        <span v-if="isLocked" class="lock-pill">{{ t('form.lockedByMessages') }}</span>
       </label>
       <UserPersonaSelector v-model="userPersona" :is-locked="isLocked" />
     </div>
 
     <div class="grid2-eq">
       <div class="form-row">
-        <label class="nowrap-label">发言长度<span v-if="isCreate()" class="field-hint">(进房可改)</span></label>
+        <label class="nowrap-label">{{ t('form.speechLength') }}<span v-if="isCreate()" class="field-hint">{{ t('form.editableHint') }}</span></label>
         <select v-model="speechLength">
-          <option value="short" title="300字内，快节奏交锋">简短 (约300字)</option>
-          <option value="normal" title="600字内，论证完整">标准 (约600字)</option>
-          <option value="long" title="不限长，充分展开论述">详尽 (不限长)</option>
+          <option value="short" :title="t('form.speechShortTitle')">{{ t('form.speechShort') }}</option>
+          <option value="normal" :title="t('form.speechNormalTitle')">{{ t('form.speechNormal') }}</option>
+          <option value="long" :title="t('form.speechLongTitle')">{{ t('form.speechLong') }}</option>
         </select>
       </div>
       <div class="form-row">
-        <label class="nowrap-label" title="达到上限后自动暂停讨论，发新消息继续">发言上限 (轮次)<span v-if="!isCreate()" class="field-hint">(即时生效)</span></label>
+        <label class="nowrap-label" :title="t('form.chainBudgetTitle')">{{ t('form.chainBudget') }}<span v-if="!isCreate()" class="field-hint">{{ t('form.instantHint') }}</span></label>
         <input v-model.number="chainBudget" type="number" min="1" max="50" />
       </div>
     </div>
 
     <!-- 建时锁定区:settings 模式禁用 -->
     <div class="form-row" :class="{ 'row-locked': !isCreate() }">
-      <label>讨论模式<span v-if="!isCreate()" class="lock-pill">创建后不可改</span></label>
+      <label>{{ t('form.modeLabel') }}<span v-if="!isCreate()" class="lock-pill">{{ t('form.lockedAfterCreate') }}</span></label>
       <div class="perm-row">
         <label class="perm" :class="{ sel: mode === 'baton', dis: !isCreate() }">
           <input v-model="mode" type="radio" value="baton" :disabled="!isCreate()" />
-          <span><b>接棒模式 (默认)</b>发言者尾行指定下一位, 链式推进</span>
+          <span><b>{{ t('form.modeBatonLabel') }}</b>{{ t('form.modeBatonDesc') }}</span>
         </label>
         <label class="perm" :class="{ sel: mode === 'subscribe', dis: !isCreate() }">
           <input v-model="mode" type="radio" value="subscribe" :disabled="!isCreate()" />
-          <span><b>订阅模式 (去中心群聊)</b>Agent 错峰心跳自主刷群, 支持纯并行发言与私聊</span>
+          <span><b>{{ t('form.modeSubscribeLabel') }}</b>{{ t('form.modeSubscribeDesc') }}</span>
         </label>
       </div>
     </div>
 
     <div class="form-row" :class="{ 'row-locked': !isCreate() }">
-      <label>上下文供给模式<span v-if="!isCreate()" class="lock-pill">创建后不可改</span></label>
+      <label>{{ t('form.contextModeLabel') }}<span v-if="!isCreate()" class="lock-pill">{{ t('form.lockedAfterCreate') }}</span></label>
       <div class="perm-row">
         <label class="perm" :class="{ sel: contextMode === 'stateless', dis: !isCreate() }">
           <input v-model="contextMode" type="radio" value="stateless" :disabled="!isCreate()" />
-          <span><b>无状态全量 (推荐)</b>每次注入最新完整历史，稳定可靠，敏捷支持回滚截断</span>
+          <span><b>{{ t('form.ctxStatelessLabel') }}</b>{{ t('form.ctxStatelessDesc') }}</span>
         </label>
         <label class="perm" :class="{ sel: contextMode === 'stateful', dis: !isCreate() }">
           <input v-model="contextMode" type="radio" value="stateful" :disabled="!isCreate()" />
-          <span><b>有状态增量 (--resume)</b>首次全量，后续仅投递新增消息，Token 极省极速</span>
+          <span><b>{{ t('form.ctxStatefulLabel') }}</b>{{ t('form.ctxStatefulDesc') }}</span>
         </label>
       </div>
     </div>
 
     <div class="form-row">
-      <label>项目目录<span v-if="!isCreate()" class="lock-pill">创建后不可改</span></label>
+      <label>{{ t('form.projectDir') }}<span v-if="!isCreate()" class="lock-pill">{{ t('form.lockedAfterCreate') }}</span></label>
       <input
         v-model="projectPath"
         type="text"
         :disabled="!isCreate()"
-        placeholder="D:\path\to\project(留空则纯话题讨论)"
+        :placeholder="t('form.projectPathPlaceholder')"
       />
     </div>
     <div class="form-row" :class="{ 'row-locked': !isCreate() }">
-      <label>成员工具权限<span v-if="!isCreate()" class="lock-pill">作用于绑定项目</span></label>
+      <label>{{ t('form.toolPerm') }}<span v-if="!isCreate()" class="lock-pill">{{ t('form.toolPermScope') }}</span></label>
       <div class="perm-row">
         <label class="perm" :class="{ sel: toolPermission === 'readonly', dis: !isCreate() }">
           <input v-model="toolPermission" type="radio" value="readonly" :disabled="!isCreate()" />
-          <span><b>只读</b>可读/搜项目文件,不可改</span>
+          <span><b>{{ t('form.permReadonlyLabel') }}</b>{{ t('form.permReadonlyDesc') }}</span>
         </label>
         <label class="perm" :class="{ sel: toolPermission === 'readwrite', dis: !isCreate() }">
           <input v-model="toolPermission" type="radio" value="readwrite" :disabled="!isCreate()" />
-          <span><b>读写</b>可修改项目文件</span>
+          <span><b>{{ t('form.permReadwriteLabel') }}</b>{{ t('form.permReadwriteDesc') }}</span>
         </label>
         <label class="perm" :class="{ sel: toolPermission === 'full', dis: !isCreate() }">
           <input v-model="toolPermission" type="radio" value="full" :disabled="!isCreate()" />
-          <span><b>完全</b>读写+执行命令(危险)</span>
+          <span><b>{{ t('form.permFullLabel') }}</b>{{ t('form.permFullDesc') }}</span>
         </label>
       </div>
     </div>

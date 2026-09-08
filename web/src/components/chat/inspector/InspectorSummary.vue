@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { api } from '@/services/api';
 import { store } from '@/store';
 import { renderMarkdown } from '@/utils/markdown';
@@ -11,6 +12,8 @@ const props = defineProps<{
   sessionType: 'room' | 'direct';
   sessionId: string;
 }>();
+
+const { t } = useI18n();
 
 const summariesList = ref<SummarySnapshotItem[]>([]);
 const isLoadingSummaries = ref(false);
@@ -84,7 +87,7 @@ async function selectSummary(summaryId: string) {
   } catch (err) {
     if (reqId === detailRequestId) {
       console.error('加载摘要详情失败:', err);
-      summaryError.value = '加载摘要详情失败';
+      summaryError.value = t('inspector.summary.loadDetailFailed');
     }
   } finally {
     if (reqId === detailRequestId) {
@@ -137,13 +140,13 @@ async function handleRefreshSummary() {
       res = await api.refreshDirectSummary(props.sessionId);
     }
     if (res.status === 'error') {
-      summaryError.value = res.error || '生成摘要失败';
+      summaryError.value = res.error || t('inspector.summary.generateFailed');
     } else {
       store.currentSummary = res;
       await loadSummaries(false);
     }
   } catch (err: any) {
-    summaryError.value = err?.message || '生成摘要失败';
+    summaryError.value = err?.message || t('inspector.summary.generateFailed');
   } finally {
     isRefreshingSummary.value = false;
   }
@@ -161,8 +164,8 @@ async function copySummaryText(text: string) {
 
 function getSummaryExportTitle(): string {
   return props.sessionType === 'room'
-    ? (store.currentRoom?.config.name || '讨论摘要')
-    : (`与 ${store.currentDirectChar?.name || '角色'} 的讨论摘要`);
+    ? (store.currentRoom?.config.name || t('inspector.summary.exportDefaultTitle'))
+    : t('inspector.summary.exportWithChar', { name: store.currentDirectChar?.name || t('inspector.summary.charFallback') });
 }
 
 function getMemberNamesMap(): Record<string, string> {
@@ -227,7 +230,7 @@ const privateDigestCount = computed(() => {
 const privateDigestsMarkdown = computed(() => {
   const digests = currentSummaryDetail.value?.privateDigests;
   if (!digests || Object.keys(digests).length === 0) {
-    return '_暂无成员私聊纪要_';
+    return t('inspector.summary.noPrivateDigest');
   }
   const lines: string[] = [];
   for (const [memberId, d] of Object.entries(digests)) {
@@ -235,7 +238,7 @@ const privateDigestsMarkdown = computed(() => {
       ? store.currentRoom?.config.members.find((m) => m.id === memberId)
       : null;
     const name = member?.name ?? memberId;
-    lines.push(`### 【${name}】的私聊纪要\n`);
+    lines.push(t('inspector.summary.privateDigestTitle', { name }) + '\n');
     lines.push(d.text.trim());
     lines.push('\n---\n');
   }
@@ -249,7 +252,7 @@ function formatTime(ts: number): string {
 
 function formatSummaryTitle(item: SummarySnapshotItem): string {
   const time = formatTime(item.createdAt);
-  const typeStr = item.trigger === 'auto' ? '自动提炼' : '手动刷新';
+  const typeStr = item.trigger === 'auto' ? t('inspector.summary.autoRefine') : t('inspector.summary.manualRefresh');
   return `${time} (${typeStr})`;
 }
 
@@ -309,15 +312,15 @@ onUnmounted(() => {
     <div class="traces-timeline" :style="{ height: `${summaryResize.height.value}px` }">
       <div class="logs-subbar">
         <div class="subbar-meta">
-          <span class="meta-title">讨论摘要文件</span>
-          <span class="meta-pill">共 {{ summariesList.length }} 份</span>
+          <span class="meta-title">{{ t('inspector.summary.filesTitle') }}</span>
+          <span class="meta-pill">{{ t('inspector.summary.filesCount', { count: summariesList.length }) }}</span>
         </div>
         <div class="subbar-actions">
           <button
             type="button"
             class="btn-generate-summary btn btn-primary"
             :disabled="isRefreshingSummary || !hasNewMessagesForSummary"
-            :title="!hasNewMessagesForSummary ? '暂无新增发言，当前摘要已是最新' : (isRefreshingSummary ? '生成中...' : '提炼并保存最新摘要')"
+            :title="!hasNewMessagesForSummary ? t('inspector.summary.generateTitleNoNew') : (isRefreshingSummary ? t('inspector.summary.generateTitleBusy') : t('inspector.summary.generateTitleFresh'))"
             @click="handleRefreshSummary"
           >
             <svg
@@ -333,13 +336,13 @@ onUnmounted(() => {
               <polyline points="23 4 23 10 17 10" />
               <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
             </svg>
-            {{ isRefreshingSummary ? '生成中...' : '生成摘要' }}
+            {{ isRefreshingSummary ? t('inspector.summary.generating') : t('inspector.summary.generateSummary') }}
           </button>
           <button
             type="button"
             class="btn-refresh btn btn-ghost"
             :disabled="isLoadingSummaries"
-            title="刷新文件列表"
+            :title="t('inspector.summary.refreshTitle')"
             @click="loadSummaries(false)"
           >
             <svg
@@ -355,13 +358,13 @@ onUnmounted(() => {
               <polyline points="23 4 23 10 17 10" />
               <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
             </svg>
-            刷新
+            {{ t('inspector.summary.refresh') }}
           </button>
         </div>
       </div>
 
-      <div v-if="isLoadingSummaries && summariesList.length === 0" class="traces-loading">正在拉取摘要文件列表...</div>
-      <div v-else-if="summariesList.length === 0" class="traces-empty">暂无历史摘要文件</div>
+      <div v-if="isLoadingSummaries && summariesList.length === 0" class="traces-loading">{{ t('inspector.summary.loadingList') }}</div>
+      <div v-else-if="summariesList.length === 0" class="traces-empty">{{ t('inspector.summary.emptyList') }}</div>
       <div v-else class="traces-items-scroll">
         <button
           v-for="item in summariesList"
@@ -380,7 +383,7 @@ onUnmounted(() => {
                 class="btn-item-export"
                 :class="{ spinning: exportingItemIds.has(item.id) }"
                 :disabled="exportingItemIds.has(item.id)"
-                title="直接导出此份讨论摘要快照为 Markdown"
+                :title="t('inspector.summary.exportItemTitle')"
                 @click.stop="handleExportItem(item)"
               >
                 <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2">
@@ -392,16 +395,16 @@ onUnmounted(() => {
             </div>
           </div>
           <div class="item-sub">
-            <span class="item-adapter">涵盖 {{ item.messageCount }} 条</span>
-            <span class="item-duration">{{ item.trigger === 'auto' ? '自动' : '手动' }}</span>
-            <span class="item-status" :class="item.status ?? 'ok'">{{ item.status === 'error' ? '失败' : '有效' }}</span>
+            <span class="item-adapter">{{ t('inspector.summary.coversItems', { count: item.messageCount }) }}</span>
+            <span class="item-duration">{{ item.trigger === 'auto' ? t('inspector.summary.autoShort') : t('inspector.summary.manualShort') }}</span>
+            <span class="item-status" :class="item.status ?? 'ok'">{{ item.status === 'error' ? t('inspector.summary.statusFailed') : t('inspector.summary.statusValid') }}</span>
           </div>
         </button>
       </div>
     </div>
 
     <!-- 上下拖拽分界线 -->
-    <div class="timeline-v-resizer" title="按住上下拖动调节摘要列表高度" @mousedown.prevent="summaryResize.onMouseDown">
+    <div class="timeline-v-resizer" :title="t('inspector.summary.resizerHint')" @mousedown.prevent="summaryResize.onMouseDown">
       <div class="v-resizer-line"></div>
     </div>
 
@@ -410,19 +413,19 @@ onUnmounted(() => {
       <div v-if="summaryError" class="summary-error">
         {{ summaryError }}
       </div>
-      <div v-if="isLoadingSummaryDetail" class="detail-loading">正在读取摘要详情...</div>
+      <div v-if="isLoadingSummaryDetail" class="detail-loading">{{ t('inspector.summary.loadingDetail') }}</div>
       <div v-else-if="!currentSummaryDetail && !summaryData?.text" class="detail-empty">
         <div class="empty-icon">📝</div>
-        <h4>暂无讨论摘要</h4>
-        <p>多 Agent 交流或私聊积累一定量后，点击上方「生成新摘要」，管理员将提炼核心议题与分歧。</p>
+        <h4>{{ t('inspector.summary.emptyTitle') }}</h4>
+        <p>{{ t('inspector.summary.emptyBody') }}</p>
         <button
           type="button"
           class="btn btn-primary"
           :disabled="isRefreshingSummary || !hasNewMessagesForSummary"
-          :title="!hasNewMessagesForSummary ? '暂无有效发言，无法生成摘要' : '立即生成首份摘要'"
+          :title="!hasNewMessagesForSummary ? t('inspector.summary.emptyNoNew') : t('inspector.summary.firstSummary')"
           @click="handleRefreshSummary"
         >
-          立即生成首份摘要
+          {{ t('inspector.summary.firstSummary') }}
         </button>
       </div>
       <div v-else-if="currentSummaryDetail" class="detail-content">
@@ -435,7 +438,7 @@ onUnmounted(() => {
               :class="{ active: summarySubTab === 'public' }"
               @click="summarySubTab = 'public'"
             >
-              公聊大纲总结
+              {{ t('inspector.summary.tabPublic') }}
             </button>
             <button
               v-if="hasPrivateDigests"
@@ -444,7 +447,7 @@ onUnmounted(() => {
               :class="{ active: summarySubTab === 'private' }"
               @click="summarySubTab = 'private'"
             >
-              成员私聊纪要 ({{ privateDigestCount }})
+              {{ t('inspector.summary.tabPrivate', { count: privateDigestCount }) }}
             </button>
           </div>
           <div class="detail-actions">
@@ -452,17 +455,17 @@ onUnmounted(() => {
               type="button"
               class="btn-copy-trace btn btn-ghost"
               :disabled="isLoadingSummaryDetail || !currentSummaryDetail"
-              title="导出当前讨论摘要与私聊纪要为 Markdown 文档"
+              :title="t('inspector.summary.exportTitle')"
               @click="handleExportSummary"
             >
-              {{ isLoadingSummaryDetail ? '加载中...' : '导出' }}
+              {{ isLoadingSummaryDetail ? t('inspector.summary.loadingBtn') : t('inspector.summary.exportBtn') }}
             </button>
             <button
               type="button"
               class="btn-copy-trace btn btn-ghost"
               @click="copySummaryText(summarySubTab === 'public' ? currentSummaryDetail.text : privateDigestsMarkdown)"
             >
-              {{ copySummaryFeedback ? '已复制' : '复制文本' }}
+              {{ copySummaryFeedback ? t('inspector.summary.copied') : t('inspector.summary.copyText') }}
             </button>
           </div>
         </div>

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { api } from '@/services/api';
 import { store } from '@/store';
 import type { AgentTraceLog } from '@server/core/types';
@@ -13,6 +14,7 @@ const props = defineProps<{
 
 const tracesList = ref<TraceSummaryItem[]>([]);
 const isLoadingTraces = ref(false);
+const { t } = useI18n();
 const selectedMessageId = ref<string | null>(null);
 const currentTraceDetail = ref<AgentTraceLog | null>(null);
 const isLoadingDetail = ref(false);
@@ -160,15 +162,15 @@ onUnmounted(() => {
     <div class="traces-timeline" :style="{ height: `${logsResize.height.value}px` }">
       <div class="logs-subbar">
         <div class="subbar-meta">
-          <span class="meta-title">Agent 调用轮次</span>
-          <span class="meta-pill">共 {{ tracesList.length }} 次</span>
+          <span class="meta-title">{{ t('inspector.logs.title') }}</span>
+          <span class="meta-pill">{{ t('inspector.logs.totalCount', { count: tracesList.length }) }}</span>
         </div>
         <div class="subbar-actions">
           <button
             type="button"
             class="btn-refresh btn btn-ghost"
             :disabled="isLoadingTraces"
-            title="刷新日志列表"
+            :title="t('inspector.logs.refreshTitle')"
             @click="loadTraces(false)"
           >
             <svg
@@ -184,13 +186,13 @@ onUnmounted(() => {
               <polyline points="23 4 23 10 17 10" />
               <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
             </svg>
-            刷新
+            {{ t('inspector.logs.refresh') }}
           </button>
         </div>
       </div>
 
-      <div v-if="isLoadingTraces && tracesList.length === 0" class="traces-loading">正在拉取日志列表...</div>
-      <div v-else-if="tracesList.length === 0" class="traces-empty">暂无 Agent 调用记录</div>
+      <div v-if="isLoadingTraces && tracesList.length === 0" class="traces-loading">{{ t('inspector.logs.loadingList') }}</div>
+      <div v-else-if="tracesList.length === 0" class="traces-empty">{{ t('inspector.logs.emptyList') }}</div>
       <div v-else class="traces-items-scroll">
         <button
           v-for="item in tracesList"
@@ -214,14 +216,14 @@ onUnmounted(() => {
     </div>
 
     <!-- 上下拖拽分界线 -->
-    <div class="timeline-v-resizer" title="按住上下拖动调节轮次列表高度" @mousedown.prevent="logsResize.onMouseDown">
+    <div class="timeline-v-resizer" :title="t('inspector.logs.resizerHint')" @mousedown.prevent="logsResize.onMouseDown">
       <div class="v-resizer-line"></div>
     </div>
 
     <!-- 选中轮次完整详情 -->
     <div class="trace-detail-panel">
-      <div v-if="isLoadingDetail" class="detail-loading">正在读取完整输入输出...</div>
-      <div v-else-if="!currentTraceDetail" class="detail-empty">请在上方选择一次调用记录</div>
+      <div v-if="isLoadingDetail" class="detail-loading">{{ t('inspector.logs.loadingDetail') }}</div>
+      <div v-else-if="!currentTraceDetail" class="detail-empty">{{ t('inspector.logs.emptyDetail') }}</div>
       <div v-else class="detail-content">
         <!-- 详情顶栏切换 -->
         <div class="detail-switch-bar">
@@ -232,7 +234,7 @@ onUnmounted(() => {
               :class="{ active: detailSubTab === 'input' }"
               @click="detailSubTab = 'input'"
             >
-              全部输入 (Prompt)
+              {{ t('inspector.logs.tabInput') }}
             </button>
             <button
               type="button"
@@ -240,7 +242,7 @@ onUnmounted(() => {
               :class="{ active: detailSubTab === 'output' }"
               @click="detailSubTab = 'output'"
             >
-              全部输出 (Result)
+              {{ t('inspector.logs.tabOutput') }}
             </button>
           </div>
           <button
@@ -248,27 +250,27 @@ onUnmounted(() => {
             class="btn-copy-trace btn btn-ghost"
             @click="copyText(detailSubTab === 'input' ? currentTraceDetail.input.prompt : currentTraceDetail.output.result, detailSubTab)"
           >
-            {{ copyFeedback === detailSubTab ? '已复制 ✓' : '复制内容' }}
+            {{ copyFeedback === detailSubTab ? t('inspector.logs.copied') : t('inspector.logs.copyContent') }}
           </button>
         </div>
 
         <!-- 输入视图 -->
         <div v-if="detailSubTab === 'input'" class="detail-viewer">
           <div class="viewer-meta-row">
-            <span class="label">上下文模式:</span>
+            <span class="label">{{ t('inspector.logs.contextModeLabel') }}</span>
             <span
               class="context-mode-pill"
               :class="currentTraceDetail.input.resumeSessionId ? 'stateful' : 'stateless'"
             >
-              {{ currentTraceDetail.input.resumeSessionId ? '⚡ 有状态增量 (Delta Resume)' : '📦 无状态全量 (Full Context)' }}
+              {{ currentTraceDetail.input.resumeSessionId ? t('inspector.logs.stateful') : t('inspector.logs.stateless') }}
             </span>
           </div>
           <div v-if="currentTraceDetail.input.command" class="viewer-meta-row">
-            <span class="label">CLI 指令:</span>
+            <span class="label">{{ t('inspector.logs.cliCommand') }}</span>
             <code>{{ formatCliCommand(currentTraceDetail.input) }}</code>
           </div>
           <div v-if="currentTraceDetail.input.cwd" class="viewer-meta-row">
-            <span class="label">工作目录:</span>
+            <span class="label">{{ t('inspector.logs.workDir') }}</span>
             <code>{{ currentTraceDetail.input.cwd }}</code>
           </div>
           <div class="viewer-code-block">
@@ -279,7 +281,7 @@ onUnmounted(() => {
         <!-- 输出视图 -->
         <div v-else class="detail-viewer">
           <div v-if="currentTraceDetail.output.thinking" class="thinking-section">
-            <div class="section-title">🧠 思考过程 (Thinking)</div>
+            <div class="section-title">{{ t('inspector.logs.thinking') }}</div>
             <pre class="thinking-text"><code>{{ currentTraceDetail.output.thinking }}</code></pre>
           </div>
 
@@ -287,7 +289,7 @@ onUnmounted(() => {
             v-if="currentTraceDetail.output.trace && currentTraceDetail.output.trace.length > 0"
             class="trace-steps-section"
           >
-            <div class="section-title">🛠️ 工作过程时间线 ({{ currentTraceDetail.output.trace.length }} 步)</div>
+            <div class="section-title">{{ t('inspector.logs.traceTimeline', { count: currentTraceDetail.output.trace.length }) }}</div>
             <div class="trace-timeline-box">
               <div v-for="(t, idx) in currentTraceDetail.output.trace" :key="idx" class="trace-step-item">
                 <div class="step-head">
@@ -300,7 +302,7 @@ onUnmounted(() => {
           </div>
 
           <div class="result-section">
-            <div class="section-title">💬 最终输出正文 (Result)</div>
+            <div class="section-title">{{ t('inspector.logs.result') }}</div>
             <pre class="result-text"><code>{{ currentTraceDetail.output.result }}</code></pre>
           </div>
         </div>

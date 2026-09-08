@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
 import MessageBubble from './MessageBubble.vue';
 import type { ChatMessage } from '@server/core/types';
+
+const { t } = useI18n();
 
 export type FlowMessage = ChatMessage | (ChatMessage & { streaming: true });
 
@@ -78,7 +81,7 @@ watch(
     <!-- 顶部历史折叠指示条 -->
     <div v-if="hiddenCount > 0" class="load-more-wrap">
       <button class="load-more-btn" type="button" @click="loadMore">
-        ↑ 查看更早的消息 (还有 {{ hiddenCount }} 条未展开)
+        {{ t('chat.loadMore', { count: hiddenCount }) }}
       </button>
     </div>
 

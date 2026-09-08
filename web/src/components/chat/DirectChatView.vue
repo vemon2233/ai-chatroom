@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { store, resetDirect, toggleInspector } from '@/store';
 import { streamPlaceholder } from '@/utils/chat';
 import { dialog } from '@/composables/useDialog';
@@ -9,6 +10,8 @@ import ChatFlow from './ChatFlow.vue';
 import Composer from './Composer.vue';
 import ChatInspector from './ChatInspector.vue';
 import type { ChatMessage } from '@server/core/types';
+
+const { t } = useI18n();
 
 const char = computed(() => {
   if (!store.currentDirectChar) return null as any;
@@ -27,7 +30,7 @@ const renderList = computed<Array<ChatMessage | (ChatMessage & { streaming: true
       roomId: `direct_${char.value.id}`,
       from: char.value.id,
       fromName: char.value.name,
-      text: streamPlaceholder(store.directStream ?? { text: '', thinking: '回复中…' }),
+      text: streamPlaceholder(store.directStream ?? { text: '', thinking: t('chat.replyingText') }),
       ts: Date.now(),
       streaming: true,
     });
@@ -37,9 +40,9 @@ const renderList = computed<Array<ChatMessage | (ChatMessage & { streaming: true
 
 async function handleReset() {
   const ok = await dialog.confirm(
-    '清空私聊记录',
-    `确认清空与角色「${char.value.name}」的全部私聊记录吗？此操作无法撤销。`,
-    { danger: true, confirmText: '清空' },
+    t('chat.directClearTitle'),
+    t('chat.directClearBody', { name: char.value.name }),
+    { danger: true, confirmText: t('chat.clearConfirm') },
   );
   if (!ok) return;
   await resetDirect();
@@ -48,9 +51,9 @@ async function handleReset() {
 function handleExport() {
   if (!char.value) return;
   exportChatHistoryMarkdown({
-    title: `与 ${char.value.name} 的私聊`,
+    title: t('chat.exportDirectTitle', { name: char.value.name }),
     sessionType: 'direct',
-    members: [char.value.name, '用户'],
+    members: [char.value.name, t('chat.roleUser')],
     messages: store.directMessages,
   });
 }
@@ -63,7 +66,7 @@ function handleExport() {
         :title="char.name"
         :subtitle="`${char.adapter} · ${char.persona}`"
         :live="isGenerating"
-        :status-text="isGenerating ? '回复中' : '待命'"
+        :status-text="isGenerating ? t('chat.statusReplying') : t('chat.statusIdle')"
         :status-kind="isGenerating ? 'baton' : 'idle'"
       >
         <template #actions>
@@ -71,48 +74,48 @@ function handleExport() {
             class="btn btn-ghost btn-panel-toggle"
             :class="{ active: store.activeInspectorTab === 'summary' }"
             type="button"
-            title="查看或刷新讨论摘要"
+            :title="t('chat.titleSummary')"
             @click="toggleInspector('summary')"
           >
-            摘要
+            {{ t('chat.tabSummary') }}
           </button>
           <button
             class="btn btn-ghost btn-panel-toggle"
             :class="{ active: store.activeInspectorTab === 'stats' }"
             type="button"
-            title="查看会话用量与开销统计"
+            :title="t('chat.titleStats')"
             @click="toggleInspector('stats')"
           >
-            统计
+            {{ t('chat.tabStats') }}
           </button>
           <button
             class="btn btn-ghost btn-panel-toggle"
             :class="{ active: store.activeInspectorTab === 'logs' }"
             type="button"
-            title="查看 Agent 调用输入输出日志"
+            :title="t('chat.titleLogs')"
             @click="toggleInspector('logs')"
           >
-            日志
+            {{ t('chat.tabLogs') }}
           </button>
           <button
             class="btn btn-ghost btn-panel-toggle"
             :class="{ active: store.activeInspectorTab === 'manage' }"
             type="button"
-            title="管理角色人设与参数"
+            :title="t('chat.titleManageDirect')"
             @click="toggleInspector('manage')"
           >
-            管理
+            {{ t('chat.tabManage') }}
           </button>
           <button
             class="btn btn-ghost"
             type="button"
-            title="导出当前私聊记录为 Markdown"
+            :title="t('chat.titleExportDirect')"
             @click="handleExport"
           >
-            导出
+            {{ t('chat.exportBtn') }}
           </button>
           <button class="btn btn-ghost btn-danger" type="button" @click="handleReset">
-            清空
+            {{ t('chat.clearBtn') }}
           </button>
         </template>
       </ChatHeader>
@@ -121,8 +124,8 @@ function handleExport() {
         <div class="direct-chat-column">
           <ChatFlow
             :messages="renderList"
-            :empty-title="`与 ${char.name} 的专属私聊`"
-            empty-sub="输入消息，直接开展一对一探讨与交流。"
+            :empty-title="t('chat.directEmptyTitle', { name: char.name })"
+            :empty-sub="t('chat.directEmptySub')"
           />
           <Composer mode="direct" />
         </div>

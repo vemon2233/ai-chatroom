@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { setEditingMessage, sessionActions, store } from '@/store';
 import { dialog } from '@/composables/useDialog';
 import { renderMarkdown } from '@/utils/markdown';
 import { initialsFor, colorForName } from '@/utils/avatar';
 import type { ChatMessage } from '@server/core/types';
 import TraceDetail from './TraceDetail.vue';
+
+const { t } = useI18n();
 
 const props = defineProps<{ msg: ChatMessage & { streaming?: true } }>();
 const showDetail = ref(false);
@@ -146,33 +149,33 @@ async function checkConfirm(actionName: string): Promise<boolean> {
 
   let tip = '';
   if (busy && count > 0) {
-    tip = `当前有成员正在发言中，此操作将停止当前生成，并清除此消息后的 ${count} 条对话记录。确定要继续吗？`;
+    tip = t('chat.confirmBusyCount', { count });
   } else if (busy) {
-    tip = `当前有成员正在发言中，此操作将停止当前生成并继续执行。确定要继续吗？`;
+    tip = t('chat.confirmBusy');
   } else {
-    tip = `此操作将清除此消息后的 ${count} 条对话记录。确定要继续吗？`;
+    tip = t('chat.confirmCount', { count });
   }
 
-  return await dialog.confirm(`${actionName}确认`, tip, {
+  return await dialog.confirm(t('chat.actionConfirm', { action: actionName }), tip, {
     danger: true,
-    confirmText: '确定并继续',
+    confirmText: t('chat.confirmProceed'),
   });
 }
 
 async function onReroll() {
   if (!store.activeSession) return;
-  const ok = await checkConfirm('重新生成');
+  const ok = await checkConfirm(t('chat.actionReroll'));
   if (!ok) return;
   try {
     await sessionActions.reroll(props.msg.id);
   } catch (err: any) {
-    await dialog.alert('操作失败', err.message || '重roll失败');
+    await dialog.alert(t('chat.opFailed'), err.message || t('chat.rerollFailed'));
   }
 }
 
 async function onEdit() {
   if (!store.activeSession) return;
-  const ok = await checkConfirm('编辑发言');
+  const ok = await checkConfirm(t('chat.actionEdit'));
   if (!ok) return;
   try {
     await sessionActions.truncateAfter(props.msg.id);
@@ -183,7 +186,7 @@ async function onEdit() {
       text: cleanText.value,
     });
   } catch (err: any) {
-    await dialog.alert('操作失败', err.message || '截断后续记录失败');
+    await dialog.alert(t('chat.opFailed'), err.message || t('chat.truncateFailed'));
   }
 }
 
@@ -206,9 +209,9 @@ const avatarText = computed(() => {
     if (hasCustomUserPersona.value) {
       return initialsFor(props.msg.fromName!);
     }
-    return '我';
+    return t('chat.me');
   }
-  if (isScout.value) return '侦';
+  if (isScout.value) return t('chat.scoutInitial');
   return initialsFor(member.value?.name ?? directChar.value?.name ?? props.msg.fromName ?? '?');
 });
 
@@ -216,20 +219,20 @@ const avatarText = computed(() => {
 const senderName = computed(() => {
   if (isMe.value) {
     if (hasCustomUserPersona.value) {
-      return `${props.msg.fromName} (我)`;
+      return t('chat.meWithName', { name: props.msg.fromName! });
     }
-    return '我';
+    return t('chat.me');
   }
   return member.value?.name ?? directChar.value?.name ?? props.msg.fromName ?? props.msg.from;
 });
 const senderRole = computed(() => {
   if (isMe.value) {
     if (hasCustomUserPersona.value) {
-      return '化身';
+      return t('chat.rolePersona');
     }
-    return '用户';
+    return t('chat.roleUser');
   }
-  if (isScout.value) return '侦察';
+  if (isScout.value) return t('chat.roleScout');
   return member.value?.adapter ?? directChar.value?.adapter ?? '';
 });
 const timeLabel = computed(() => {
@@ -262,29 +265,29 @@ const privateActionBadge = computed(() => {
   const act = props.msg.privateAction || props.msg.handshake;
   if (!act) return null;
   if (act === 'start') {
-    return { type: 'start', label: '发起新私聊' };
+    return { type: 'start', label: t('chat.hsStart') };
   }
   if (act === 'agree') {
-    return { type: 'agree', label: '同意' };
+    return { type: 'agree', label: t('chat.hsAgree') };
   }
   if (act === 'reject') {
-    return { type: 'reject', label: '拒绝' };
+    return { type: 'reject', label: t('chat.hsReject') };
   }
   if (act === 'idea') {
-    return { type: 'idea', label: '提出想法' };
+    return { type: 'idea', label: t('chat.hsIdea') };
   }
   if (act === 'reply') {
-    return { type: 'reply', label: '回复' };
+    return { type: 'reply', label: t('chat.hsReply') };
   }
   return null;
 });
 
 const batonBadge = computed(() => {
   if (props.msg.batonToUser) {
-    return { type: 'to-user', label: '🤝 交还话题' };
+    return { type: 'to-user', label: t('chat.batonToUser') };
   }
   if (props.msg.batonTarget) {
-    return { type: 'baton', label: `🎯 接棒 @${props.msg.batonTarget}` };
+    return { type: 'baton', label: t('chat.batonPass', { name: props.msg.batonTarget }) };
   }
   // 兜底历史消息兼容：从文本或 detail 中动态解析
   const raw = props.msg.text || '';
@@ -292,12 +295,12 @@ const batonBadge = computed(() => {
   if (m) {
     const target = m[1]!.replace(/^@/, '').trim();
     if (/结束|收敛|无需|到此/.test(target)) {
-      return { type: 'end', label: '🏁 讨论结束' };
+      return { type: 'end', label: t('chat.batonEnd') };
     }
     if (['用户', 'user'].includes(target.toLowerCase())) {
-      return { type: 'to-user', label: '🤝 交还话题' };
+      return { type: 'to-user', label: t('chat.batonToUser') };
     }
-    return { type: 'baton', label: `🎯 接棒 @${target}` };
+    return { type: 'baton', label: t('chat.batonPass', { name: target }) };
   }
   return null;
 });
@@ -320,7 +323,7 @@ function onBubbleClick(e: MouseEvent) {
         const code = codeEl.textContent || '';
         void navigator.clipboard.writeText(code).then(() => {
           const orig = target.textContent;
-          target.textContent = '已复制!';
+          target.textContent = t('chat.copiedText');
           target.classList.add('copied');
           setTimeout(() => {
             target.textContent = orig;
@@ -348,8 +351,8 @@ function onBubbleClick(e: MouseEvent) {
       <div class="sender">
         <span class="sender-name">{{ senderName }}</span>
         <span v-if="senderRole" class="sender-role">· {{ senderRole }}</span>
-        <span v-if="audienceNames" class="sender-audience">🔒 仅 {{ audienceNames }} 可见</span>
-        <span v-if="audienceNames" class="private-round-pill">私聊{{ msg.privateRound || 1 }}</span>
+        <span v-if="audienceNames" class="sender-audience">{{ t('chat.privateVisible', { names: audienceNames }) }}</span>
+        <span v-if="audienceNames" class="private-round-pill">{{ t('chat.privateRound', { n: msg.privateRound || 1 }) }}</span>
         <span v-if="privateActionBadge" class="handshake-pill" :class="privateActionBadge.type">{{ privateActionBadge.label }}</span>
         <span v-if="batonBadge" class="baton-pill" :class="batonBadge.type">{{ batonBadge.label }}</span>
         <span class="sender-time">· {{ timeLabel }}</span>
@@ -358,7 +361,7 @@ function onBubbleClick(e: MouseEvent) {
         class="bubble"
         :class="{ clickable, streaming: msg.streaming }"
         @click="onBubbleClick"
-        :title="clickable ? '点击展开工作过程 / 用量' : undefined"
+        :title="clickable ? t('chat.bubbleTitle') : undefined"
       >
         <div ref="textEl" class="text markdown-body" v-html="renderedHtml"></div>
         <div class="bubble-footer">
@@ -368,7 +371,7 @@ function onBubbleClick(e: MouseEvent) {
               v-if="canCopy"
               class="msg-act-btn"
               :class="{ copied: isCopied }"
-              :title="isCopied ? '已复制到剪贴板' : '复制内容'"
+              :title="isCopied ? t('chat.copiedTitle') : t('chat.copyTitle')"
               type="button"
               @click.stop="onCopy"
             >
@@ -383,7 +386,7 @@ function onBubbleClick(e: MouseEvent) {
             <button
               v-if="canReroll"
               class="msg-act-btn"
-              title="重新生成此发言"
+              :title="t('chat.rerollTitle')"
               type="button"
               @click.stop="onReroll"
             >
@@ -394,7 +397,7 @@ function onBubbleClick(e: MouseEvent) {
             <button
               v-if="canEdit"
               class="msg-act-btn"
-              title="编辑发言并清除后续记录"
+              :title="t('chat.editTitle')"
               type="button"
               @click.stop="onEdit"
             >

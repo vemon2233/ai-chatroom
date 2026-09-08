@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import { onUnmounted, ref } from 'vue';
+import { useI18n } from 'vue-i18n';
 import InspectorSummary from './inspector/InspectorSummary.vue';
 import InspectorLogs from './inspector/InspectorLogs.vue';
 import InspectorStats from './inspector/InspectorStats.vue';
 import InspectorRoomManage from './inspector/InspectorRoomManage.vue';
 import InspectorDirectManage from './inspector/InspectorDirectManage.vue';
+
+const { t } = useI18n();
 
 const props = defineProps<{
   activeTab: 'summary' | 'stats' | 'logs' | 'manage';
@@ -89,7 +92,7 @@ onUnmounted(() => {
     :class="{ 'is-dragging': isDragging }"
   >
     <!-- 左侧可拖拽分割线 -->
-    <div class="inspector-resizer" title="按住左右拖动调节面板宽度" @mousedown.prevent="onMouseDown">
+    <div class="inspector-resizer" :title="t('chat.resizeHint')" @mousedown.prevent="onMouseDown">
       <div class="resizer-line"></div>
     </div>
 

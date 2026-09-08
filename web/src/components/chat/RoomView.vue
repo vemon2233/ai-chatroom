@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { store, clearRoomMessages, toggleInspector } from '@/store';
 import { api } from '@/services/api';
 import { initialsFor } from '@/utils/avatar';
@@ -13,17 +14,29 @@ import Composer from './Composer.vue';
 import ChatInspector from './ChatInspector.vue';
 import type { ChatMessage } from '@server/core/types';
 
+const { t } = useI18n();
 const room = computed(() => store.currentRoom!);
 
+const PERM_KEY: Record<string, string> = {
+  readonly: 'chat.permReadonly',
+  readwrite: 'chat.permReadwrite',
+  full: 'chat.permFull',
+};
 const permName = computed(() =>
-  ({ readonly: '只读', readwrite: '读写', full: '完全' } as Record<string, string>)[room.value.config.toolPermission] ?? '只读',
+  t(PERM_KEY[room.value.config.toolPermission] ?? 'chat.permReadonly'),
 );
 const projName = computed(() =>
   room.value.config.projectPath ? room.value.config.projectPath.split(/[\\/]/).pop() : '',
 );
-const orchName = computed(() =>
-  ({ idle: '待命', baton: '自由讨论', roundrobin: '轮流发言' } as Record<string, string>)[room.value.orchestration] ?? '',
-);
+const ORCH_KEY: Record<string, string> = {
+  idle: 'chat.statusIdle',
+  baton: 'chat.modeFreeDiscuss',
+  roundrobin: 'chat.modeRoundRobin',
+};
+const orchName = computed(() => {
+  const key = ORCH_KEY[room.value.orchestration];
+  return key ? t(key) : '';
+});
 /** 副行「绿点」:编排进行中(baton/roundrobin)= ok 绿;待命 = 灰 */
 const live = computed(() => room.value.orchestration !== 'idle');
 /** 顶栏头像堆:前 5 个成员,超出 +N 灰圆 */
@@ -47,7 +60,7 @@ const renderList = computed<Array<ChatMessage | (ChatMessage & { streaming: true
         roomId: room.value.config.id,
         from: m.id,
         fromName: m.name,
-        text: streamPlaceholder(buf || { text: '', thinking: status === 'thinking' ? '推理中…' : '' }),
+        text: streamPlaceholder(buf || { text: '', thinking: status === 'thinking' ? t('chat.thinkingText') : '' }),
         ts: Date.now(),
         streaming: true,
       });
@@ -58,9 +71,9 @@ const renderList = computed<Array<ChatMessage | (ChatMessage & { streaming: true
 
 async function handleClear() {
   const ok = await dialog.confirm(
-    '清空聊天记录',
-    `确认清空房间「${room.value.config.name}」的全部聊天记录吗？此操作无法撤销。`,
-    { danger: true, confirmText: '清空' },
+    t('chat.clearTitle'),
+    t('chat.clearBody', { name: room.value.config.name }),
+    { danger: true, confirmText: t('chat.clearConfirm') },
   );
   if (!ok) return;
   await clearRoomMessages(room.value.config.id);
@@ -81,7 +94,7 @@ function handleExport() {
   <div class="room-wrap">
     <div class="room-card">
       <ChatHeader :title="room.config.name"
-        :subtitle="`${memberCount} 成员 · ${orchName}${projName ? ` · ${projName}(${permName})` : ''}`" :live="live"
+        :subtitle="`${t('chat.memberUnit', { count: memberCount })} · ${orchName}${projName ? ` · ${t('chat.projectPerm', { project: projName, perm: permName })}` : ''}`" :live="live"
         :status-text="orchName" :status-kind="room.orchestration">
         <template #prefix>
           <div class="avatar-stack">
@@ -94,26 +107,26 @@ function handleExport() {
         </template>
         <template #actions>
           <button class="btn btn-ghost btn-panel-toggle" :class="{ active: store.activeInspectorTab === 'summary' }"
-            type="button" title="查看或刷新讨论摘要" @click="toggleInspector('summary')">
-            摘要
+            type="button" :title="t('chat.titleSummary')" @click="toggleInspector('summary')">
+            {{ t('chat.tabSummary') }}
           </button>
           <button class="btn btn-ghost btn-panel-toggle" :class="{ active: store.activeInspectorTab === 'stats' }"
-            type="button" title="查看会话用量与开销统计" @click="toggleInspector('stats')">
-            统计
+            type="button" :title="t('chat.titleStats')" @click="toggleInspector('stats')">
+            {{ t('chat.tabStats') }}
           </button>
           <button class="btn btn-ghost btn-panel-toggle" :class="{ active: store.activeInspectorTab === 'logs' }"
-            type="button" title="查看 Agent 调用输入输出日志" @click="toggleInspector('logs')">
-            日志
+            type="button" :title="t('chat.titleLogs')" @click="toggleInspector('logs')">
+            {{ t('chat.tabLogs') }}
           </button>
           <button class="btn btn-ghost btn-panel-toggle" :class="{ active: store.activeInspectorTab === 'manage' }"
-            type="button" title="管理房间设置与成员" @click="toggleInspector('manage')">
-            管理
+            type="button" :title="t('chat.titleManageRoom')" @click="toggleInspector('manage')">
+            {{ t('chat.tabManage') }}
           </button>
-          <button class="btn btn-ghost" type="button" title="导出当前房间聊天记录为 Markdown" @click="handleExport">
-            导出
+          <button class="btn btn-ghost" type="button" :title="t('chat.titleExportRoom')" @click="handleExport">
+            {{ t('chat.exportBtn') }}
           </button>
           <button class="btn btn-ghost btn-danger" type="button" @click="handleClear">
-            清空
+            {{ t('chat.clearBtn') }}
           </button>
         </template>
       </ChatHeader>
@@ -121,8 +134,8 @@ function handleExport() {
       <div class="room-split-layout">
         <div class="room-chat-column">
           <MemberBar />
-          <ChatFlow :messages="renderList" :empty-title="`欢迎来到 ${room.config.name}`"
-            empty-sub="输入消息开始讨论，可使用 @ 呼叫成员参与交流。" />
+          <ChatFlow :messages="renderList" :empty-title="t('chat.welcomeRoom', { name: room.config.name })"
+            :empty-sub="t('chat.welcomeSub')" />
           <Composer mode="room" />
         </div>
 

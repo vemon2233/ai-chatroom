@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { computed } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { store, enterRoom, openDirectChat, closeSession, type Session } from '@/store';
 
+const { t } = useI18n();
 const emit = defineEmits<{ (e: 'new-room'): void }>();
 
 interface TabItem {
@@ -17,7 +19,7 @@ const tabs = computed<TabItem[]>(() => {
     if (s.type === 'room') {
       const roomInList = store.rooms.find((r) => r.config.id === s.id);
       const isCurrent = store.activeSession?.type === 'room' && store.activeSession.id === s.id;
-      const name = isCurrent && store.currentRoom ? store.currentRoom.config.name : roomInList?.config.name ?? '新房间';
+      const name = isCurrent && store.currentRoom ? store.currentRoom.config.name : roomInList?.config.name ?? t('ui.newRoomFallback');
       const live = isCurrent && store.currentRoom ? store.currentRoom.orchestration !== 'idle' : false;
       return {
         key: `room:${s.id}`,
@@ -30,7 +32,7 @@ const tabs = computed<TabItem[]>(() => {
       const char = store.characters.find((c) => c.id === s.characterId);
       const isCurrent =
         store.activeSession?.type === 'direct' && store.activeSession.characterId === s.characterId;
-      const name = char ? char.name : '私聊';
+      const name = char ? char.name : t('ui.directFallback');
       const live = isCurrent ? store.directStatus !== 'idle' : false;
       return {
         key: `direct:${s.characterId}`,
@@ -75,12 +77,12 @@ function onCloseClick(e: MouseEvent, s: Session) {
         :title="tab.name"
         @click="onTabClick(tab)"
       >
-        <span v-if="tab.live" class="tab-live-dot" title="活跃中"></span>
+        <span v-if="tab.live" class="tab-live-dot" :title="t('ui.liveTitle')"></span>
         <span class="tab-title">{{ tab.name }}</span>
         <button
           class="tab-close"
           type="button"
-          title="关闭标签页"
+          :title="t('ui.closeTab')"
           @click="onCloseClick($event, tab.session)"
         >
           ✕
@@ -91,7 +93,7 @@ function onCloseClick(e: MouseEvent, s: Session) {
     <button
       class="tab-add"
       type="button"
-      title="新建房间"
+      :title="t('ui.newRoomTitle')"
       @click="emit('new-room')"
     >
       ＋

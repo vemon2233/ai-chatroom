@@ -3,8 +3,10 @@
 // 承载 useDialog 发起的 confirm/prompt/alert,压在一切覆盖层之上(--z-dialog)。
 
 import { ref, watch } from 'vue';
+import { useI18n } from 'vue-i18n';
 import { dialogState, settleDialog } from '@/composables/useDialog';
 
+const { t } = useI18n();
 const inputValue = ref('');
 const d = dialogState;
 
@@ -53,16 +55,16 @@ function onKeydown(e: KeyboardEvent) {
             autofocus
             @keydown="onKeydown"
           />
-          <div v-if="d.current.kind === 'prompt'" class="dlg-hint">Enter 确认 · Esc 取消</div>
+          <div v-if="d.current.kind === 'prompt'" class="dlg-hint">{{ t('ui.dialogHint') }}</div>
         </div>
         <footer class="overlay-footer">
-          <button v-if="d.current.kind !== 'alert'" class="btn btn-ghost" @click="cancel">取消</button>
+          <button v-if="d.current.kind !== 'alert'" class="btn btn-ghost" @click="cancel">{{ t('ui.cancel') }}</button>
           <button
             class="btn"
             :class="d.current.danger ? 'btn-danger-solid' : 'btn-primary'"
             @click="ok"
           >
-            {{ d.current.confirmText ?? (d.current.kind === 'alert' ? '知道了' : '确定') }}
+            {{ d.current.confirmText ?? (d.current.kind === 'alert' ? t('ui.gotIt') : t('ui.confirm')) }}
           </button>
         </footer>
       </div>
