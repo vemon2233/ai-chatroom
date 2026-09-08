@@ -6,6 +6,7 @@ import { computed, ref, watch } from 'vue';
 import { store, refreshRooms, closeRoom, closeInspector } from '@/store';
 import { api } from '@/services/api';
 import { dialog } from '@/composables/useDialog';
+import { downloadFile } from '@/utils/download';
 import type { RoomConfig } from '@server/core/types';
 import RoomForm, { type RoomFormBody } from '@/components/modals/RoomForm.vue';
 
@@ -24,6 +25,11 @@ watch(
     errorMessage.value = '';
   },
 );
+
+function handleExportRoom() {
+  if (!room.value) return;
+  downloadFile(api.exportRoomUrl(room.value.id), `${room.value.name}.json`);
+}
 
 async function handleSubmit(body: RoomFormBody) {
   if (!room.value) return;
@@ -78,9 +84,14 @@ async function handleDeleteRoom() {
       <div class="subbar-meta">
         <span class="meta-title">房间管理</span>
       </div>
-      <button type="button" class="btn-save btn btn-primary" :disabled="isSaving" @click="formRef?.submit()">
-        {{ isSaving ? '保存中...' : '保存设置' }}
-      </button>
+      <div class="subbar-actions">
+        <button type="button" class="btn-export btn btn-secondary" @click="handleExportRoom">
+          导出配置
+        </button>
+        <button type="button" class="btn-save btn btn-primary" :disabled="isSaving" @click="formRef?.submit()">
+          {{ isSaving ? '保存中...' : '保存设置' }}
+        </button>
+      </div>
     </div>
 
     <!-- 成功或错误通知提示条 -->
@@ -156,6 +167,32 @@ async function handleDeleteRoom() {
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 150px;
+}
+
+.subbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-export {
+  display: flex;
+  align-items: center;
+  padding: 4px 10px;
+  font-size: 12px;
+  height: auto;
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-export:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: var(--accent-border);
 }
 
 .btn-save {

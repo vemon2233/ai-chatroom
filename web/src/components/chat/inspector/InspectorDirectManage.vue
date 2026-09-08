@@ -6,6 +6,7 @@ import { computed, ref, watch } from 'vue';
 import { store, refreshCharacters, closeSession, closeInspector } from '@/store';
 import { api } from '@/services/api';
 import { dialog } from '@/composables/useDialog';
+import { downloadFile } from '@/utils/download';
 import type { Character } from '@server/core/types';
 import CharacterForm from '@/components/modals/CharacterForm.vue';
 
@@ -25,6 +26,11 @@ watch(
   },
   { immediate: true },
 );
+
+function handleExportCharacter() {
+  if (!character.value) return;
+  downloadFile(api.exportCharacterUrl(character.value.id), `${character.value.name}.json`);
+}
 
 async function handleSubmit(body: Omit<Character, 'id' | 'createdAt'>) {
   if (!character.value) return;
@@ -71,14 +77,23 @@ async function handleDeleteCharacter() {
       <div class="subbar-meta">
         <span class="meta-title">角色管理</span>
       </div>
-      <button
-        type="button"
-        class="btn-save btn btn-primary"
-        :disabled="isSaving"
-        @click="formRef?.submit()"
-      >
-        {{ isSaving ? '保存中...' : '保存人设' }}
-      </button>
+      <div class="subbar-actions">
+        <button
+          type="button"
+          class="btn-export btn btn-secondary"
+          @click="handleExportCharacter"
+        >
+          导出角色
+        </button>
+        <button
+          type="button"
+          class="btn-save btn btn-primary"
+          :disabled="isSaving"
+          @click="formRef?.submit()"
+        >
+          {{ isSaving ? '保存中...' : '保存人设' }}
+        </button>
+      </div>
     </div>
 
     <!-- 成功或错误通知提示条 -->
@@ -162,6 +177,32 @@ async function handleDeleteCharacter() {
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 150px;
+}
+
+.subbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-export {
+  display: flex;
+  align-items: center;
+  padding: 4px 10px;
+  font-size: 12px;
+  height: auto;
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-export:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: var(--accent-border);
 }
 
 .btn-save {

@@ -10,6 +10,8 @@ import { getAdapter as getAdapterByKind } from '../adapters/index';
 import { Admin } from '../core/admin';
 import { getTrace, listTraces, computeSessionStats, saveTrace } from '../store/trace';
 import { listSummarySnapshots, getSummarySnapshot, getSummary, saveSummarySnapshot } from '../store/summary';
+import { parseCharacterCard, detectImportType } from '../core/characterCard';
+import { dedupeName } from '../core/room';
 import {
   appendDirectMessage,
   loadDirectMessages,
@@ -43,6 +45,25 @@ function readBody(req: IncomingMessage): Promise<any> {
         reject(e);
       }
     });
+    req.on('error', reject);
+  });
+}
+
+/** 读取原始请求二进制 Buffer (支持 JSON 文本与 PNG 二进制图片，上限 15MB) */
+function readRawBody(req: IncomingMessage, maxBytes = 15 * 1024 * 1024): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let total = 0;
+    req.on('data', (c) => {
+      const buf = Buffer.isBuffer(c) ? c : Buffer.from(c);
+      total += buf.length;
+      if (total > maxBytes) {
+        reject(new Error('上传文件超出最大限制 (15MB)'));
+        return;
+      }
+      chunks.push(buf);
+    });
+    req.on('end', () => resolve(Buffer.concat(chunks)));
     req.on('error', reject);
   });
 }
@@ -82,6 +103,101 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
     summaryStore,
     traceStore,
   });
+
+  async function doImportCharacter(buf: Buffer): Promise<Character> {
+    const detected = detectImportType(buf);
+    if (detected.type === 'room') {
+      throw new Error('该文件为房间配置文件，无法作为角色卡导入');
+    }
+    await characters.ensureLoaded();
+    const parsed = parseCharacterCard(buf, {
+      defaultAdapter: cfg.admin?.adapter || 'claude',
+      availableAdapters: Object.keys(adapterConfigs),
+    });
+    const existingNames = characters.list().map((c) => c.name);
+    const dedupedName = dedupeName(parsed.name, existingNames);
+    const created = await characters.create({
+      ...parsed,
+      name: dedupedName,
+    });
+    bus.broadcast({ type: 'characters' });
+    return created;
+  }
+
+  async function doImportRoom(buf: Buffer): Promise<{ id: string; state: any }> {
+    const detected = detectImportType(buf);
+    if (detected.type === 'character') {
+      throw new Error('该文件为角色卡，无法作为房间配置导入');
+    }
+    let rawData: any;
+    try {
+      rawData = JSON.parse(buf.toString('utf8'));
+    } catch {
+      throw new Error('房间配置文件必须是合法的 JSON 格式');
+    }
+    if (!rawData || typeof rawData !== 'object' || Array.isArray(rawData)) {
+      throw new Error('无效的房间配置结构');
+    }
+
+    const name = typeof rawData.name === 'string' && rawData.name.trim() ? rawData.name.trim() : '未命名房间';
+    const existingNames = Array.from(rooms.values()).map((r) => r.config.name);
+    const dedupedName = dedupeName(name, existingNames);
+
+    // 成员快照自愈与清洗 (剥离旧 sessionIds)
+    const rawMembers = Array.isArray(rawData.members) ? rawData.members : [];
+    const defaultAdapter = cfg.admin?.adapter || Object.keys(adapterConfigs)[0] || 'claude';
+    const cleanedMembers = rawMembers.map((m: any, idx: number) => {
+      const mAdapter = (typeof m.adapter === 'string' && adapterConfigs[m.adapter]) ? m.adapter : defaultAdapter;
+      return {
+        id: `m${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}_${idx}`,
+        name: typeof m.name === 'string' && m.name.trim() ? m.name.trim() : `成员${idx + 1}`,
+        avatar: typeof m.avatar === 'string' ? m.avatar : '',
+        adapter: mAdapter,
+        model: typeof m.model === 'string' ? m.model : undefined,
+        color: typeof m.color === 'string' ? m.color : undefined,
+        persona: typeof m.persona === 'string' ? m.persona : '',
+        thinking: typeof m.thinking === 'boolean' ? m.thinking : undefined,
+        extraArgs: Array.isArray(m.extraArgs) ? m.extraArgs.map(String) : undefined,
+      };
+    });
+
+    // 项目路径跨机检查：本地不存在则置空
+    let projectPath: string | undefined = undefined;
+    if (typeof rawData.projectPath === 'string' && existsSync(rawData.projectPath)) {
+      projectPath = rawData.projectPath;
+    }
+
+    const rcfg = makeRoomConfig({
+      name: dedupedName,
+      topic: typeof rawData.topic === 'string' ? rawData.topic : undefined,
+      color: typeof rawData.color === 'string' ? rawData.color : undefined,
+      speechLength: rawData.speechLength,
+      chainBudget: rawData.chainBudget,
+      mode: rawData.mode === 'subscribe' ? 'subscribe' : 'baton',
+      toolPermission: rawData.toolPermission,
+      contextMode: rawData.contextMode === 'stateful' ? 'stateful' : 'stateless',
+      projectPath,
+      members: cleanedMembers,
+    });
+
+    const newRoom = new ChatRoom(
+      rcfg, bus, adapterConfigs, cfg.admin,
+      {
+        persistRoom,
+        loadMessages: (roomId: string) => loadRoomMessages(roomId),
+        rewriteMessages: (roomId: string, messages: import('../core/types').ChatMessage[]) =>
+          rewriteRoomMessages(roomId, messages),
+        appendMessage,
+      },
+      cfg.summary,
+      { summaryStore, traceStore },
+    );
+
+    rooms.set(newRoom.id, newRoom);
+    await persistRoom(rcfg);
+    bus.broadcast({ type: 'rooms' });
+    return { id: newRoom.id, state: newRoom.getState() };
+  }
 
   return {
     rooms,
@@ -125,10 +241,69 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
         bus.broadcast({ type: 'characters' });
         return json(res, 201, c);
       }
+
+      // ---- 通用智能导入网关 (自动嗅探角色卡与房间配置) ----
+      if (p === '/api/import' && method === 'POST') {
+        try {
+          const buf = await readRawBody(req);
+          if (!buf.length) return json(res, 400, { error: '上传内容为空' });
+          const detected = detectImportType(buf);
+          if (detected.type === 'character') {
+            const character = await doImportCharacter(buf);
+            return json(res, 201, { type: 'character', character, id: character.id });
+          } else if (detected.type === 'room') {
+            const roomResult = await doImportRoom(buf);
+            return json(res, 201, { type: 'room', id: roomResult.id, state: roomResult.state });
+          } else {
+            return json(res, 400, { error: detected.error || '无法识别的文件类型，既非角色卡亦非房间配置' });
+          }
+        } catch (err: any) {
+          return json(res, 400, { error: err.message || '导入失败' });
+        }
+      }
+
+      // ---- 角色导入 (支持原生 JSON、SillyTavern V1/V2/V3 JSON 与 PNG 角色卡) ----
+      if (p === '/api/characters/import' && method === 'POST') {
+        try {
+          const buf = await readRawBody(req);
+          if (!buf.length) return json(res, 400, { error: '上传内容为空' });
+          const created = await doImportCharacter(buf);
+          return json(res, 201, created);
+        } catch (err: any) {
+          return json(res, 400, { error: err.message || '角色卡解析失败' });
+        }
+      }
+
       const charMatch = p.match(/^\/api\/characters\/([^/]+)(?:\/(.+))?$/);
       if (charMatch) {
         const id = decodeURIComponent(charMatch[1]!);
         const sub = charMatch[2];
+
+        // 角色导出为原生标准 JSON
+        if (sub === 'export' && method === 'GET') {
+          await characters.ensureLoaded();
+          const char = characters.get(id);
+          if (!char) return json(res, 404, { error: '角色不存在' });
+          const clean = {
+            schema: 'ai-chatroom.character.v1',
+            name: char.name,
+            avatar: char.avatar || '',
+            adapter: char.adapter,
+            model: char.model,
+            color: char.color,
+            persona: char.persona,
+            thinking: char.thinking,
+            extraArgs: char.extraArgs,
+            note: char.note,
+          };
+          const filename = `${encodeURIComponent(char.name)}.json`;
+          res.writeHead(200, {
+            'Content-Type': 'application/json; charset=utf-8',
+            'Content-Disposition': `attachment; filename="${filename}"; filename*=UTF-8''${filename}`,
+          });
+          res.end(JSON.stringify(clean, null, 2));
+          return;
+        }
 
         // 1v1 私聊历史
         if (sub === 'messages' && method === 'GET') {
@@ -327,6 +502,18 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
         return json(res, 201, { id: room.id, state: room.getState() });
       }
 
+      // ---- 房间导入 (自包含快照, 防腐自愈, 重名消歧) ----
+      if (p === '/api/rooms/import' && method === 'POST') {
+        try {
+          const buf = await readRawBody(req);
+          if (!buf.length) return json(res, 400, { error: '上传内容为空' });
+          const result = await doImportRoom(buf);
+          return json(res, 201, result);
+        } catch (err: any) {
+          return json(res, 400, { error: err.message || '房间导入失败' });
+        }
+      }
+
       const roomMatch = p.match(/^\/api\/rooms\/([^/]+)(?:\/(.+))?$/);
       if (roomMatch) {
         const roomId = decodeURIComponent(roomMatch[1]!);
@@ -334,6 +521,35 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
         const room = rooms.get(roomId);
         if (!room && sub !== 'messages') {
           return json(res, 404, { error: `房间不存在: ${roomId}` });
+        }
+
+        // 房间配置导出 (含成员快照, 无历史消息, 清洗 sessionIds)
+        if (sub === 'export' && method === 'GET') {
+          const r = room!.config;
+          const cleanMembers = r.members.map((m) => {
+            const { sessionIds, ...rest } = m;
+            return rest;
+          });
+          const exportData = {
+            schema: 'ai-chatroom.room.v1',
+            name: r.name,
+            topic: r.topic,
+            color: r.color,
+            speechLength: r.speechLength,
+            chainBudget: r.chainBudget,
+            mode: r.mode,
+            toolPermission: r.toolPermission,
+            contextMode: r.contextMode,
+            projectPath: r.projectPath,
+            members: cleanMembers,
+          };
+          const filename = `${encodeURIComponent(r.name)}.json`;
+          res.writeHead(200, {
+            'Content-Type': 'application/json; charset=utf-8',
+            'Content-Disposition': `attachment; filename="${filename}"; filename*=UTF-8''${filename}`,
+          });
+          res.end(JSON.stringify(exportData, null, 2));
+          return;
         }
 
         // 房间详情

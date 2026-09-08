@@ -3,6 +3,7 @@ import { onUnmounted, ref } from 'vue';
 import { store, refreshRooms, refreshCharacters, openRoom, closeRoom, closeSession, openDirectChat, openInspector } from '@/store';
 import { api, type RoomListItem } from '@/services/api';
 import { dialog } from '@/composables/useDialog';
+import { downloadFile } from '@/utils/download';
 import NewRoomModal from '@/components/modals/NewRoomModal.vue';
 import CharacterModal from '@/components/modals/CharacterModal.vue';
 import SidebarCard from '@/components/ui/SidebarCard.vue';
@@ -12,27 +13,64 @@ const emit = defineEmits<{ (e: 'enter-room', id: string): void }>();
 
 const showNewRoom = ref(false);
 const showCharModal = ref(false);
+const fileInputRef = ref<HTMLInputElement | null>(null);
 
 function switchTab(tab: 'rooms' | 'chars') {
   store.sidebarTab = tab;
 }
 
-async function editRoom(room: RoomListItem) {
-  await openRoom(room.config.id);
-  openInspector('manage');
+function onExportRoom(r: RoomListItem) {
+  downloadFile(api.exportRoomUrl(r.config.id), `${r.config.name}.json`);
 }
 
-async function editCharacter(c: import('@server/core/types').Character) {
-  await openDirectChat(c);
-  openInspector('manage');
+function triggerImport() {
+  fileInputRef.value?.click();
 }
 
-function onImportRoom() {
-  void dialog.alert('功能提示', '房间导入导出功能已定案，将在后续批次提供。');
+async function onFileChange(e: Event) {
+  const input = e.target as HTMLInputElement;
+  const files = Array.from(input.files ?? []);
+  if (files.length === 0) return;
+
+  let importedChars = 0;
+  let lastRoomId: string | null = null;
+  let lastCharId: string | null = null;
+
+  for (const file of files) {
+    try {
+      const res = await api.smartImport(file);
+      if (res.type === 'character') {
+        importedChars++;
+        lastCharId = res.id;
+      } else if (res.type === 'room') {
+        lastRoomId = res.id;
+      }
+    } catch (err: any) {
+      void dialog.alert('导入失败', `文件「${file.name}」导入失败: ${err?.message || String(err)}`);
+    }
+  }
+
+  if (lastRoomId) {
+    await refreshRooms();
+    store.sidebarTab = 'rooms';
+    await openRoom(lastRoomId);
+  }
+  if (importedChars > 0) {
+    await refreshCharacters();
+    if (!lastRoomId) {
+      store.sidebarTab = 'chars';
+      if (lastCharId) {
+        const char = store.characters.find((c) => c.id === lastCharId);
+        if (char) openDirectChat(char);
+      }
+    }
+  }
+
+  input.value = '';
 }
 
-function onImportCharacter() {
-  void dialog.alert('功能提示', '角色导入导出功能已定案，将在后续批次提供。');
+function onExportCharacter(c: import('@server/core/types').Character) {
+  downloadFile(api.exportCharacterUrl(c.id), `${c.name}.json`);
 }
 
 async function onDeleteRoom(id: string, name: string) {
@@ -149,12 +187,12 @@ onUnmounted(() => {
     <div v-show="store.sidebarTab === 'rooms'" class="panel">
       <div class="actions">
         <button class="new-btn" @click="showNewRoom = true">＋ 新房间</button>
-        <button class="import-btn" @click="onImportRoom">导入</button>
+        <button class="import-btn" @click="triggerImport">导入</button>
       </div>
       <div class="list">
         <SidebarCard v-for="r in store.rooms" :key="r.config.id" :title="r.config.name" :badge="`${r.config.members.length}人`"
           :sub="roomSub(r)" :color="r.config.color" :active="store.activeSession?.type === 'room' && store.activeSession.id === r.config.id"
-          :can-edit="true" edit-title="管理房间" @click="openRoom(r.config.id)" @edit="editRoom(r)"
+          :can-export="true" export-title="导出配置" @click="openRoom(r.config.id)" @export="onExportRoom(r)"
           @remove="onDeleteRoom(r.config.id, r.config.name)" />
         <div v-if="store.rooms.length === 0" class="list-empty">还没有房间</div>
       </div>
@@ -163,18 +201,21 @@ onUnmounted(() => {
     <div v-show="store.sidebarTab === 'chars'" class="panel">
       <div class="actions">
         <button class="new-btn" @click="showCharModal = true">＋ 新角色</button>
-        <button class="import-btn" @click="onImportCharacter">导入</button>
+        <button class="import-btn" @click="triggerImport">导入</button>
       </div>
       <div class="list">
         <SidebarCard v-for="c in store.characters" :key="c.id" :title="c.name" :badge="c.adapter" :sub="c.persona"
-          :color="c.color" :can-edit="true" edit-title="管理角色" :active="store.activeSession?.type === 'direct' && store.activeSession.characterId === c.id"
-          @click="openDirectChat(c)" @edit="editCharacter(c)" @remove="onDeleteCharacter(c.id, c.name)" />
+          :color="c.color" :can-export="true" export-title="导出角色" :active="store.activeSession?.type === 'direct' && store.activeSession.characterId === c.id"
+          @click="openDirectChat(c)" @export="onExportCharacter(c)" @remove="onDeleteCharacter(c.id, c.name)" />
         <div v-if="store.characters.length === 0" class="list-empty">还没有角色</div>
       </div>
     </div>
 
     <NewRoomModal v-model="showNewRoom" />
     <CharacterModal v-model="showCharModal" />
+
+    <!-- 隐藏的通用文件导入 input (自动嗅探角色卡或房间配置) -->
+    <input ref="fileInputRef" type="file" accept=".json,image/png" multiple style="display: none" @change="onFileChange" />
 
     <!-- 右侧可拖拽分割线 -->
     <div

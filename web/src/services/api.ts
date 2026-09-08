@@ -130,4 +130,43 @@ export const api = {
   // 会话用量与开销度量统计
   roomStats: (roomId: string) => req<import('@server/core/types').SessionStats>(`/api/rooms/${roomId}/stats`),
   directStats: (characterId: string) => req<import('@server/core/types').SessionStats>(`/api/characters/${characterId}/stats`),
+
+  // 导入导出 API
+  exportCharacterUrl: (id: string) => `/api/characters/${encodeURIComponent(id)}/export`,
+  exportRoomUrl: (id: string) => `/api/rooms/${encodeURIComponent(id)}/export`,
+  importCharacter: async (file: File): Promise<Character> => {
+    const res = await fetch('/api/characters/import', {
+      method: 'POST',
+      headers: { 'Content-Type': file.type || 'application/octet-stream' },
+      body: file,
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error((j as any).error ?? `角色导入失败(${res.status})`);
+    return j as Character;
+  },
+  importRoom: async (file: File): Promise<{ id: string; state: RoomState }> => {
+    const res = await fetch('/api/rooms/import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: file,
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error((j as any).error ?? `房间导入失败(${res.status})`);
+    return j as { id: string; state: RoomState };
+  },
+  smartImport: async (
+    file: File,
+  ): Promise<
+    | { type: 'character'; character: Character; id: string }
+    | { type: 'room'; id: string; state: RoomState }
+  > => {
+    const res = await fetch('/api/import', {
+      method: 'POST',
+      headers: { 'Content-Type': file.type || 'application/octet-stream' },
+      body: file,
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error((j as any).error ?? `导入失败(${res.status})`);
+    return j;
+  },
 };

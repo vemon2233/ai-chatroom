@@ -22,12 +22,17 @@ const props = defineProps<{
   canEdit?: boolean;
   /** 编辑按钮悬浮提示(默认'编辑') */
   editTitle?: string;
+  /** 是否支持导出按钮 */
+  canExport?: boolean;
+  /** 导出按钮悬浮提示(默认'导出') */
+  exportTitle?: string;
 }>();
 
 const emit = defineEmits<{
   (e: 'click'): void;
   (e: 'remove'): void;
   (e: 'edit'): void;
+  (e: 'export'): void;
 }>();
 
 const initials = computed(() => initialsFor(props.title));
@@ -45,6 +50,7 @@ const avatarColor = computed(() => props.color ?? colorForName(props.title));
       <div class="card-sub">{{ sub }}</div>
     </div>
     <div class="card-actions">
+      <button v-if="canExport" class="card-btn export" :title="exportTitle || '导出'" @click.stop="emit('export')">导出</button>
       <button v-if="canEdit" class="card-btn edit" :title="editTitle || '编辑'" @click.stop="emit('edit')">编辑</button>
       <button class="card-btn remove" title="删除" @click.stop="emit('remove')">删除</button>
     </div>
@@ -132,10 +138,12 @@ const avatarColor = computed(() => props.color ?? colorForName(props.title));
   cursor: pointer;
   transition: background 0.12s, color 0.12s;
 }
+.card-btn.export,
 .card-btn.edit {
   color: var(--text-muted);
   border: 1px solid var(--border);
 }
+.card-btn.export:hover,
 .card-btn.edit:hover {
   background: var(--accent-soft);
   color: var(--accent);
