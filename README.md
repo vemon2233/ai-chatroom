@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="picture/icon.png" width="96" alt="AI 聊天室 logo">
+</p>
+
 # AI 聊天室 / AI Chatroom
 
 **[English](./README-EN.md) | 中文**
@@ -8,19 +12,17 @@
 [![Platform: Windows](https://img.shields.io/badge/Platform-Windows-blue)](#%EF%B8%8F-已知边界)
 [![Node](https://img.shields.io/badge/Node-%3E%3D18-green)](#%EF%B8%8F-快速开始)
 
-<!-- 截图占位:跑三个场景各截一张,上传图床(或 GitHub Issue 附图)后替换下方链接并取消注释
-### 🎬 辩论:多个 agent 就一个话题正反对垒
+### 🎭 角色扮演:人设角色同台,沉浸式互动
 
-![辩论](https://raw.githubusercontent.com/vemon2233/ai-chatroom/main/docs/screenshot-debate.png)
+<img src="picture/screenshot_roleplay.png" width="720" alt="角色扮演场景截图">
 
 ### 🏗️ 架构讨论:绑定项目目录,agent 读码议设计
 
-![架构讨论](https://raw.githubusercontent.com/vemon2233/ai-chatroom/main/docs/screenshot-architecture.png)
+<img src="picture/screenshot_architecture.png" width="720" alt="架构讨论场景截图">
 
-### 🎭 角色扮演:人设角色同台,沉浸式互动
+### 🎬 辩论:多个 agent 就一个话题正反对垒
 
-![角色扮演](https://raw.githubusercontent.com/vemon2233/ai-chatroom/main/docs/screenshot-roleplay.png)
--->
+<img src="picture/screenshot_debate.png" width="720" alt="辩论场景截图">
 
 ---
 
@@ -33,7 +35,7 @@
   - **轮流模式**:`@allN` 让全体成员轮流各发言 N 轮
 - **@语法驱动** — `@成员名` 点名回应、`@allN` 轮流、无 @ 则随机/接棒续聊,与消息内协议兼容中英双语标签(`<接棒>`/`<pass>`)
 - **1v1 角色私聊** — 与任意成员开独立私聊线程(独立历史/会话/摘要),带握手协议防私聊内容泄漏进公聊
-- **角色库** — 角色是全局资产(人设 prompt + 头像),拉入房间即成成员,支持 SillyTavern 角色卡导入
+- **角色库 + SillyTavern 角色卡导入** — 角色是全局资产(人设 prompt + 头像),拉入房间即成成员;一键导入 SillyTavern 角色卡(V1/V2/V3 JSON 与 PNG 内嵌卡,纯原生解析)
 - **多家 CLI 接入** — 内置 Claude Code / Codex / Gemini / Qwen Code 四家适配器;其他 CLI 在 `server/src/adapters/` 加一个解析器即可接入
 - **房间持久化** — 房间/历史/会话 ID 落盘,重启自动复活;上下文压缩层(链式摘要/原生 compact)支撑长程讨论
 - **完整可观测** — 每次调用的 trace(思考过程/token 用量/耗时/成本)可展开查看
@@ -111,6 +113,21 @@ npm test   # server vitest:编排器状态机 29 场景 + 接棒解析 + 持久�
 - `codex` / `gemini` 适配器为 experimental,零实测;gemini 无 trace/session 上报
 - 房间删除后 JSONL 历史文件保留(不做 GC)
 - 编排运行态不持久化(重启后接棒链/轮次不自动恢复,发消息重新驱动)
+
+## ☕ 赞赏支持
+
+如果这个项目对你有帮助,欢迎请作者喝杯咖啡~
+
+<!-- 收款码占位:把微信/支付宝收款码截图存为 picture/donate_wechat.png 与 picture/donate_alipay.png -->
+
+<p align="center">
+  <img src="picture/donate_wechat.png" width="220" alt="微信收款码">
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <img src="picture/donate_alipay.png" width="220" alt="支付宝收款码">
+</p>
+
+<!-- 外网捐赠:注册 ko-fi.com 后把 vemon2233 换成你的用户名;也可换/加 patreon / 爱发电链接 -->
+[![Ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/vemon2233)
 
 ## 📄 License
 

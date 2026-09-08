@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="picture/icon.png" width="96" alt="AI Chatroom logo">
+</p>
+
 # AI Chatroom / AI 聊天室
 
 **English | [中文](./README.md)**
@@ -8,19 +12,17 @@ Multiple AI agent CLIs (Claude Code / Codex / Gemini / any custom CLI) in a sing
 [![Platform: Windows](https://img.shields.io/badge/Platform-Windows-blue)](#%EF%B8%8F-known-limitations)
 [![Node](https://img.shields.io/badge/Node-%3E%3D18-green)](#%EF%B8%8F-quick-start)
 
-<!-- Screenshot placeholders: run the three scenarios, upload the shots (e.g. via GitHub issue comments), then replace the links below and uncomment
-### 🎬 Debate: multiple agents arguing pro/con on one topic
+### 🎭 Role-play: persona characters on one stage, immersive interaction
 
-![Debate](https://raw.githubusercontent.com/vemon2233/ai-chatroom/main/docs/screenshot-debate.png)
+<img src="picture/screenshot_roleplay_en.png" width="720" alt="Role-play screenshot">
 
 ### 🏗️ Architecture discussion: bind a project folder, agents read the code and discuss design
 
-![Architecture](https://raw.githubusercontent.com/vemon2233/ai-chatroom/main/docs/screenshot-architecture.png)
+<img src="picture/screenshot_architecture_en.png" width="720" alt="Architecture discussion screenshot">
 
-### 🎭 Role-play: persona characters on one stage, immersive interaction
+### 🎬 Debate: multiple agents arguing pro/con on one topic
 
-![Role-play](https://raw.githubusercontent.com/vemon2233/ai-chatroom/main/docs/screenshot-roleplay.png)
--->
+<img src="picture/screenshot_debate_en.png" width="720" alt="Debate screenshot">
 
 ---
 
@@ -33,7 +35,7 @@ Multiple AI agent CLIs (Claude Code / Codex / Gemini / any custom CLI) in a sing
   - **Round-robin mode**: `@allN` makes every member speak N rounds in turn
 - **@-syntax driven** — `@member` for callouts, `@allN` for round-robin, plain text for random/baton continuation; in-message protocol tags parse as the union of Chinese and English (`<接棒>`/`<pass>`)
 - **1v1 private chats** — Open an isolated DM thread with any member (separate history/session/summary), with a handshake protocol that keeps private content out of the public room
-- **Character library** — Characters are global assets (persona prompt + avatar); pulling one into a room creates a member. SillyTavern character cards can be imported
+- **Character library + SillyTavern import** — Characters are global assets (persona prompt + avatar); pulling one into a room creates a member. Import SillyTavern character cards in one click (V1/V2/V3 JSON and PNG-embedded cards, natively parsed)
 - **Multiple CLIs supported** — Built-in adapters for Claude Code / Codex / Gemini / Qwen Code; other CLIs plug in by adding a parser under `server/src/adapters/`
 - **Persistent rooms** — Rooms/history/session IDs are persisted and revived on restart; a context-compression layer (chained summaries / native compact) supports long-running discussions
 - **Full observability** — Every invocation's trace (thinking process / token usage / duration / cost) is expandable
@@ -111,6 +113,21 @@ npm test   # server vitest: 29 orchestrator state-machine scenarios + baton pars
 - `codex` / `gemini` adapters are experimental and untested; gemini has no trace/session reporting
 - JSONL history files are kept after room deletion (no GC)
 - Orchestration runtime state is not persisted (baton chains/rounds don't auto-resume after restart; send a message to re-drive)
+
+## ☕ Support the Project
+
+If this project helps you, consider buying the author a coffee~
+
+<!-- QR placeholder: save your WeChat/Alipay QR codes as picture/donate_wechat.png and picture/donate_alipay.png -->
+
+<p align="center">
+  <img src="picture/donate_wechat.png" width="220" alt="WeChat QR">
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <img src="picture/donate_alipay.png" width="220" alt="Alipay QR">
+</p>
+
+<!-- International donation: register at ko-fi.com and replace vemon2233 with your handle; patreon / afdian also work -->
+[![Ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/vemon2233)
 
 ## 📄 License
 
