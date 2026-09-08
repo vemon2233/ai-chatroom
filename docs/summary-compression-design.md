@@ -103,7 +103,7 @@
 | D7 | 配置 `summary:` 段(model/autoThreshold/privateThreshold/compactThreshold,0=关);超时熔断复用 admin 段 |
 | D8 | 1v1 direct:接入链式+锚点+prompt 注入;保持纯手动刷新;不加 compact/私聊纪要 |
 | D9 | 前端:仅修错误形状处理(status=error 不进空态判断);涵盖 N 条绑定不变 |
-| D10 | 不做 generating 状态广播;`afterRounds:'finalSummary'` 命名不动 |
+| D10 | 不做 generating 状态广播;终局总结功能(`afterRounds:'finalSummary'`)已于 2026-09-08 整体废除，收尾状态标记改为 `afterRounds:'roundsEnd'` |
 
 实测依据(本机已验证):
 - `printf '/compact' | claude -p --resume <sid> --model haiku --output-format json` 可行,压缩真实发生,尊重 --model(haiku 档 $0.05/次)

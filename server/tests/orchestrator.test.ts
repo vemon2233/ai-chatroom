@@ -328,7 +328,7 @@ describe('编排器状态机:<接棒> 用户指令', () => {
 });
 
 describe('编排器状态机:@allN 轮流', () => {
-  it('轮流 N 轮 + 终局总结,跑完 idle', async () => {
+  it('轮流 N 轮跑完 idle(无额外总结发言)', async () => {
     const members = makeMembers(2, ['甲', '乙']);
     const h = makeHarness(
       Array.from({ length: 10 }, (_, i) => ({ result: `发言${i}` })),
@@ -337,8 +337,8 @@ describe('编排器状态机:@allN 轮流', () => {
     );
     await h.orch.onUserMessage('@all2');
     await settle(500);
-    // 2 轮 × 2 成员 + 1 终局总结 = 5 次调用
-    expect(h.fake.callCount()).toBe(5);
+    // 2 轮 × 2 成员 = 4 次调用
+    expect(h.fake.callCount()).toBe(4);
     expect(h.orch.state).toBe('idle');
     const sys = h.messages.filter((m) => m.system).map((m) => m.text).join('|');
     expect(sys).toContain('轮流发言结束');
@@ -377,7 +377,7 @@ describe('编排器状态机:@allN 轮流', () => {
     expect(h.orch.state).toBe('idle');
     const sys = h.messages.filter((m) => m.system).map((m) => m.text).join('|');
     expect(sys).toContain('轮流发言 1 轮'); // 空格形态轮数被解析
-    expect(h.fake.callCount()).toBe(4); // 3 成员 × 1 轮 + 终局
+    expect(h.fake.callCount()).toBe(3); // 3 成员 × 1 轮
   });
 
   it('轮流中 stop:剩余条目全部丢弃(世代计数)', async () => {
@@ -583,7 +583,7 @@ describe('编排器状态机:杂项入口', () => {
     const h = makeHarness([], { mode: 'subscribe', chainBudget: 1 }, members, {
       m1: [{ result: '曹操1投票' }],
       m2: [{ result: '曹操2投票' }],
-      m3: [{ result: '曹操3投票' }, { result: '总结发言' }],
+      m3: [{ result: '曹操3投票' }],
     });
 
     await h.orch.onUserMessage('@all 1');

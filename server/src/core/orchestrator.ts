@@ -82,8 +82,8 @@ interface SpeechEntry {
   generation: number;
   /** 接棒条目:发言结束后解析尾行决定下一位。chain=链上(结果直接开跑)/ callout=回应用户点名(结果待命暂停) */
   batonMode?: 'chain' | 'callout';
-  /** @allN 条目跑完后的终局动作 */
-  afterRounds?: 'finalSummary';
+  /** @allN 轮次全部结束的收尾标记(打在最后一名成员的正常发言条目上) */
+  afterRounds?: 'roundsEnd';
   /** 订阅模式:点名/起头/轮流等强制回应条目——prompt 禁跳过 + silent 兜底通知(仅订阅模式条目标记;跳过出口只属于心跳自主决策) */
   mustRespond?: boolean;
 }
@@ -345,7 +345,7 @@ export class Orchestrator {
         return;
       }
       case 'all': {
-        // 轮流 N 轮:bump 世代,预入队全部条目(辩手×N轮 + 轮末小结 + 终局总结)
+        // 轮流 N 轮:bump 世代,预入队全部条目(成员×N轮)
         this.bumpGeneration();
         this.cancelAll();
         this.pendingNextId = undefined;
@@ -513,11 +513,15 @@ export class Orchestrator {
     const mustRespond = this.deps.room.mode === 'subscribe'; // 订阅模式下轮流发言禁跳过
     for (let r = 1; r <= rounds; r++) {
       members.forEach((m, i) => {
-        this.enqueue({ memberId: m.id, trigger: this.turnTrigger(r, i, members.length), mustRespond: mustRespond || undefined });
+        const isLastEntry = r === rounds && i === members.length - 1;
+        this.enqueue({
+          memberId: m.id,
+          trigger: this.turnTrigger(r, i, members.length),
+          mustRespond: mustRespond || undefined,
+          afterRounds: isLastEntry ? 'roundsEnd' : undefined,
+        });
       });
     }
-    const lastMember = members[members.length - 1]!;
-    this.enqueue({ memberId: lastMember.id, trigger: this.finalTrigger(), afterRounds: 'finalSummary', mustRespond: mustRespond || undefined });
     void this.sysMessage(`开始轮流发言 ${rounds} 轮`);
   }
 
@@ -527,10 +531,6 @@ export class Orchestrator {
       return `这是第 ${roundNo} 轮的收尾发言。针对前面发言者的观点进行回应、反驳或补充。`;
     }
     return `这是第 ${roundNo} 轮发言。${first ? '请先亮明你的立场。' : '针对前面发言者的观点进行回应、反驳或补充。'}`;
-  }
-
-  private finalTrigger(): string {
-    return '讨论已到最后一轮,这是收场总结(终局发言,没有下一位)。请总结:各方核心观点、分歧点、可能的共识或结论。不要再写接棒行。';
   }
 
   // ---------- 单次发言执行(invoke)+ 尾部决策 ----------
@@ -758,8 +758,8 @@ export class Orchestrator {
       this.maybeCompact(member);
     }
 
-    // 终局条目:轮流跑完回 idle
-    if (entry.afterRounds === 'finalSummary') {
+    // 轮次结束:轮流跑完回 idle
+    if (entry.afterRounds === 'roundsEnd') {
       await this.sysMessage('轮流发言结束。可继续 @成员 追问或发消息自由讨论。');
       this.setState('idle');
       return;
