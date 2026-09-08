@@ -64,7 +64,7 @@ function readRawBody(req: IncomingMessage, maxBytes = 15 * 1024 * 1024): Promise
       const buf = Buffer.isBuffer(c) ? c : Buffer.from(c);
       total += buf.length;
       if (total > maxBytes) {
-        reject(new Error('上传文件超出最大限制 (15MB)'));
+        reject(new Error(t(settings.getLang(), 'api.uploadTooLarge')));
         return;
       }
       chunks.push(buf);
@@ -93,6 +93,7 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
           return getAdapterByKind(entry.kind);
         },
         { command: adminAdapterEntry.command, args: adminAdapterEntry.args },
+        settings.getLang,
       )
     : undefined;
 
@@ -101,7 +102,7 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
     adapterConfigs,
     resolveAdapter: (adapterKey: string) => {
       const entry = adapterConfigs[adapterKey];
-      if (!entry) throw new Error(`未知适配器配置: ${adapterKey}`);
+      if (!entry) throw new Error(t(settings.getLang(), 'api.unknownAdapterCfg', { key: adapterKey }));
       return getAdapterByKind(entry.kind);
     },
     admin: adminInstance,
@@ -114,7 +115,7 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
   async function doImportCharacter(buf: Buffer): Promise<Character> {
     const detected = detectImportType(buf);
     if (detected.type === 'room') {
-      throw new Error('该文件为房间配置文件，无法作为角色卡导入');
+      throw new Error(t(settings.getLang(), 'api.roomFileNotCharacter'));
     }
     await characters.ensureLoaded();
     const parsed = parseCharacterCard(buf, {
@@ -134,19 +135,19 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
   async function doImportRoom(buf: Buffer): Promise<{ id: string; state: any }> {
     const detected = detectImportType(buf);
     if (detected.type === 'character') {
-      throw new Error('该文件为角色卡，无法作为房间配置导入');
+      throw new Error(t(settings.getLang(), 'api.characterFileNotRoom'));
     }
     let rawData: any;
     try {
       rawData = JSON.parse(buf.toString('utf8'));
     } catch {
-      throw new Error('房间配置文件必须是合法的 JSON 格式');
+      throw new Error(t(settings.getLang(), 'api.roomJsonInvalid'));
     }
     if (!rawData || typeof rawData !== 'object' || Array.isArray(rawData)) {
-      throw new Error('无效的房间配置结构');
+      throw new Error(t(settings.getLang(), 'api.roomStructInvalid'));
     }
 
-    const name = typeof rawData.name === 'string' && rawData.name.trim() ? rawData.name.trim() : '未命名房间';
+    const name = typeof rawData.name === 'string' && rawData.name.trim() ? rawData.name.trim() : t(settings.getLang(), 'api.unnamedRoom');
     const existingNames = Array.from(rooms.values()).map((r) => r.config.name);
     const dedupedName = dedupeName(name, existingNames);
 
@@ -157,7 +158,7 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
       const mAdapter = (typeof m.adapter === 'string' && adapterConfigs[m.adapter]) ? m.adapter : defaultAdapter;
       return {
         id: `m${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}_${idx}`,
-        name: typeof m.name === 'string' && m.name.trim() ? m.name.trim() : `成员${idx + 1}`,
+        name: typeof m.name === 'string' && m.name.trim() ? m.name.trim() : t(settings.getLang(), 'api.memberN', { n: idx + 1 }),
         avatar: typeof m.avatar === 'string' ? m.avatar : '',
         adapter: mAdapter,
         model: typeof m.model === 'string' ? m.model : undefined,
@@ -177,7 +178,7 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
     const userPersona = rawData.userPersona && typeof rawData.userPersona === 'object'
       ? {
           characterId: typeof rawData.userPersona.characterId === 'string' ? rawData.userPersona.characterId : undefined,
-          name: typeof rawData.userPersona.name === 'string' ? rawData.userPersona.name : '用户',
+          name: typeof rawData.userPersona.name === 'string' ? rawData.userPersona.name : t(settings.getLang(), 'sys.user'),
           avatar: typeof rawData.userPersona.avatar === 'string' ? rawData.userPersona.avatar : undefined,
           color: typeof rawData.userPersona.color === 'string' ? rawData.userPersona.color : undefined,
           persona: typeof rawData.userPersona.persona === 'string' ? rawData.userPersona.persona : undefined,
@@ -196,7 +197,7 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
       projectPath,
       userPersona,
       members: cleanedMembers,
-    });
+    }, settings.getLang());
 
     const newRoom = new ChatRoom(
       rcfg, bus, adapterConfigs, cfg.admin,
@@ -256,10 +257,10 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
       if (p === '/api/characters' && method === 'POST') {
         const body = await readBody(req);
         if (!body.name?.trim() || !body.persona?.trim()) {
-          return json(res, 400, { error: '角色需要名字和人设' });
+          return json(res, 400, { error: t(settings.getLang(), 'api.charNeedNamePersona') });
         }
         if (!adapterConfigs[body.adapter]) {
-          return json(res, 400, { error: `未知适配器: ${body.adapter}` });
+          return json(res, 400, { error: t(settings.getLang(), 'api.unknownAdapter', { key: body.adapter }) });
         }
         const c = await characters.create({
           name: body.name.trim(),
@@ -277,7 +278,7 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
       if (p === '/api/import' && method === 'POST') {
         try {
           const buf = await readRawBody(req);
-          if (!buf.length) return json(res, 400, { error: '上传内容为空' });
+          if (!buf.length) return json(res, 400, { error: t(settings.getLang(), 'api.emptyUpload') });
           const detected = detectImportType(buf);
           if (detected.type === 'character') {
             const character = await doImportCharacter(buf);
@@ -286,10 +287,10 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
             const roomResult = await doImportRoom(buf);
             return json(res, 201, { type: 'room', id: roomResult.id, state: roomResult.state });
           } else {
-            return json(res, 400, { error: detected.error || '无法识别的文件类型，既非角色卡亦非房间配置' });
+            return json(res, 400, { error: detected.error || t(settings.getLang(), 'api.unrecognizedFile') });
           }
         } catch (err: any) {
-          return json(res, 400, { error: err.message || '导入失败' });
+          return json(res, 400, { error: err.message || t(settings.getLang(), 'api.importFailed') });
         }
       }
 
@@ -297,11 +298,11 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
       if (p === '/api/characters/import' && method === 'POST') {
         try {
           const buf = await readRawBody(req);
-          if (!buf.length) return json(res, 400, { error: '上传内容为空' });
+          if (!buf.length) return json(res, 400, { error: t(settings.getLang(), 'api.emptyUpload') });
           const created = await doImportCharacter(buf);
           return json(res, 201, created);
         } catch (err: any) {
-          return json(res, 400, { error: err.message || '角色卡解析失败' });
+          return json(res, 400, { error: err.message || t(settings.getLang(), 'api.charCardParseFailed') });
         }
       }
 
@@ -314,7 +315,7 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
         if (sub === 'export' && method === 'GET') {
           await characters.ensureLoaded();
           const char = characters.get(id);
-          if (!char) return json(res, 404, { error: '角色不存在' });
+          if (!char) return json(res, 404, { error: t(settings.getLang(), 'api.charNotFound') });
           const clean = {
             schema: 'ai-chatroom.character.v1',
             name: char.name,
@@ -363,9 +364,9 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
         if (sub === 'say' && method === 'POST') {
           await characters.ensureLoaded();
           const char = characters.get(id);
-          if (!char) return json(res, 404, { error: '角色不存在' });
+          if (!char) return json(res, 404, { error: t(settings.getLang(), 'api.charNotFound') });
           const { text } = await readBody(req);
-          if (!text?.trim()) return json(res, 400, { error: '空消息' });
+          if (!text?.trim()) return json(res, 400, { error: t(settings.getLang(), 'api.emptyMessage') });
           await directChat.userSpeak(char, text.trim());
           return json(res, 200, { ok: true });
         }
@@ -387,7 +388,7 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
         if (charMsgActionMatch && method === 'POST') {
           await characters.ensureLoaded();
           const char = characters.get(id);
-          if (!char) return json(res, 404, { error: '角色不存在' });
+          if (!char) return json(res, 404, { error: t(settings.getLang(), 'api.charNotFound') });
           const msgId = decodeURIComponent(charMsgActionMatch[1]!);
           const action = charMsgActionMatch[2];
           try {
@@ -402,7 +403,7 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
             if (action === 'edit') {
               const body = await readBody(req);
               if (typeof body.text !== 'string' || !body.text.trim()) {
-                return json(res, 400, { error: '编辑文本不能为空' });
+                return json(res, 400, { error: t(settings.getLang(), 'api.editTextEmpty') });
               }
               await directChat.saveEdit(char, msgId, body.text.trim());
               return json(res, 200, { ok: true });
@@ -421,7 +422,7 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
         if (charTraceMatch && method === 'GET') {
           const msgId = decodeURIComponent(charTraceMatch[1]!);
           const trace = await getTrace('direct', id, msgId);
-          if (!trace) return json(res, 404, { error: '未找到调用日志' });
+          if (!trace) return json(res, 404, { error: t(settings.getLang(), 'api.traceNotFound') });
           return json(res, 200, trace);
         }
 
@@ -433,7 +434,7 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
         if (sub === 'summary/refresh' && method === 'POST') {
           await characters.ensureLoaded();
           const char = characters.get(id);
-          if (!char) return json(res, 404, { error: '角色不存在' });
+          if (!char) return json(res, 404, { error: t(settings.getLang(), 'api.charNotFound') });
           const sum = await directChat.refreshSummary(id, char);
           return json(res, 200, sum || { text: '', updatedAt: Date.now(), messageCount: 0 });
         }
@@ -447,7 +448,7 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
         if (charSumMatch && method === 'GET') {
           const sumId = decodeURIComponent(charSumMatch[1]!);
           const snap = await getSummarySnapshot('direct', id, sumId);
-          if (!snap) return json(res, 404, { error: '未找到摘要快照' });
+          if (!snap) return json(res, 404, { error: t(settings.getLang(), 'api.summaryNotFound') });
           return json(res, 200, snap);
         }
 
@@ -455,7 +456,7 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
         if (sub === 'stats' && method === 'GET') {
           await characters.ensureLoaded();
           const char = characters.get(id);
-          if (!char) return json(res, 404, { error: '角色不存在' });
+          if (!char) return json(res, 404, { error: t(settings.getLang(), 'api.charNotFound') });
           const messages = await directChat.getMessages(id);
           const stats = await computeSessionStats('direct', id, [char], messages);
           return json(res, 200, stats);
@@ -464,17 +465,17 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
         if (!sub && (method === 'PUT' || method === 'PATCH')) {
           const body = await readBody(req);
           if (body.adapter && !adapterConfigs[body.adapter]) {
-            return json(res, 400, { error: `未知适配器: ${body.adapter}` });
+            return json(res, 400, { error: t(settings.getLang(), 'api.unknownAdapter', { key: body.adapter }) });
           }
           const updated = await characters.update(id, body);
-          if (!updated) return json(res, 404, { error: '角色不存在' });
+          if (!updated) return json(res, 404, { error: t(settings.getLang(), 'api.charNotFound') });
           directChat.invalidateSession(id);
           bus.broadcast({ type: 'characters' });
           return json(res, 200, updated);
         }
         if (!sub && method === 'DELETE') {
           const ok = await characters.remove(id);
-          if (!ok) return json(res, 404, { error: '角色不存在' });
+          if (!ok) return json(res, 404, { error: t(settings.getLang(), 'api.charNotFound') });
           await directChat.delete(id);
           bus.broadcast({ type: 'characters' });
           return json(res, 200, { ok: true });
@@ -486,13 +487,13 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
       if (pullMatch && method === 'POST') {
         const roomId = decodeURIComponent(pullMatch[1]!);
         const room = rooms.get(roomId);
-        if (!room) return json(res, 404, { error: `房间不存在: ${roomId}` });
+        if (!room) return json(res, 404, { error: t(settings.getLang(), 'api.roomNotFound', { id: roomId }) });
         const { characterIds } = await readBody(req);
         await characters.ensureLoaded();
         const inputs = ((characterIds as string[]) ?? [])
           .map((cid) => characters.get(cid))
           .filter((c): c is Character => !!c);
-        if (inputs.length === 0) return json(res, 400, { error: '没有有效角色' });
+        if (inputs.length === 0) return json(res, 400, { error: t(settings.getLang(), 'api.noValidCharacters') });
         const added = await room.addMembers(
           inputs.map((c) => ({
             name: c.name,
@@ -525,13 +526,13 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
         const body = (await readBody(req)) as CreateRoomInput;
         for (const m of body.members ?? []) {
           if (!adapterConfigs[m.adapter]) {
-            return json(res, 400, { error: `未知适配器: ${m.adapter}` });
+            return json(res, 400, { error: t(settings.getLang(), 'api.unknownAdapter', { key: m.adapter }) });
           }
         }
         if (body.projectPath && !existsSync(body.projectPath)) {
-          return json(res, 400, { error: `项目目录不存在: ${body.projectPath}` });
+          return json(res, 400, { error: t(settings.getLang(), 'api.projectDirMissing', { path: body.projectPath }) });
         }
-        const rcfg = makeRoomConfig(body);
+        const rcfg = makeRoomConfig(body, settings.getLang());
         const room = new ChatRoom(
           rcfg, bus, adapterConfigs, cfg.admin,
           {
@@ -554,7 +555,7 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
       if (p === '/api/rooms/import' && method === 'POST') {
         try {
           const buf = await readRawBody(req);
-          if (!buf.length) return json(res, 400, { error: '上传内容为空' });
+          if (!buf.length) return json(res, 400, { error: t(settings.getLang(), 'api.emptyUpload') });
           const result = await doImportRoom(buf);
           return json(res, 201, result);
         } catch (err: any) {
@@ -568,7 +569,7 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
         const sub = roomMatch[2];
         const room = rooms.get(roomId);
         if (!room && sub !== 'messages') {
-          return json(res, 404, { error: `房间不存在: ${roomId}` });
+          return json(res, 404, { error: t(settings.getLang(), 'api.roomNotFound', { id: roomId }) });
         }
 
         // 房间配置导出 (含成员快照, 无历史消息, 清洗 sessionIds)
@@ -615,7 +616,7 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
         // 用户发言(@语法路由在编排器内处理)
         if (sub === 'say' && method === 'POST') {
           const { text } = await readBody(req);
-          if (!text?.trim()) return json(res, 400, { error: '空消息' });
+          if (!text?.trim()) return json(res, 400, { error: t(settings.getLang(), 'api.emptyMessage') });
           await room!.userSpeak(text.trim());
           return json(res, 200, { ok: true });
         }
@@ -643,7 +644,7 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
             if (action === 'edit') {
               const body = await readBody(req);
               if (typeof body.text !== 'string' || !body.text.trim()) {
-                return json(res, 400, { error: '编辑文本不能为空' });
+                return json(res, 400, { error: t(settings.getLang(), 'api.editTextEmpty') });
               }
               await room!.saveEdit(msgId, body.text.trim());
               return json(res, 200, { ok: true, state: room!.getState() });
@@ -662,7 +663,7 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
         if (roomTraceMatch && method === 'GET') {
           const msgId = decodeURIComponent(roomTraceMatch[1]!);
           const trace = await getTrace('room', roomId, msgId);
-          if (!trace) return json(res, 404, { error: '未找到调用日志' });
+          if (!trace) return json(res, 404, { error: t(settings.getLang(), 'api.traceNotFound') });
           return json(res, 200, trace);
         }
 
@@ -685,7 +686,7 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
         if (roomSumMatch && method === 'GET') {
           const sumId = decodeURIComponent(roomSumMatch[1]!);
           const snap = await getSummarySnapshot('room', roomId, sumId);
-          if (!snap) return json(res, 404, { error: '未找到摘要快照' });
+          if (!snap) return json(res, 404, { error: t(settings.getLang(), 'api.summaryNotFound') });
           return json(res, 200, snap);
         }
 
@@ -698,10 +699,10 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
         // 给指定成员直接下指令
         if (sub === 'instruct' && method === 'POST') {
           const { memberId, text } = await readBody(req);
-          if (!memberId || !text?.trim()) return json(res, 400, { error: '缺 memberId 或 text' });
+          if (!memberId || !text?.trim()) return json(res, 400, { error: t(settings.getLang(), 'api.needMemberAndText') });
           void room!.directInstruction(memberId, text.trim()).catch((e) => {
             console.error(`[instruct] room=${roomId}:`, e);
-            void room!.systemNotice(`指令执行失败: ${String(e)}`);
+            void room!.systemNotice(t(settings.getLang(), 'api.instructionFailed', { msg: String(e) }));
           });
           return json(res, 202, { ok: true });
         }
@@ -711,13 +712,13 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
           const body = await readBody(req);
           const inputs = Array.isArray(body) ? body : body.members;
           if (!Array.isArray(inputs) || inputs.length === 0) {
-            return json(res, 400, { error: '缺 members 数组' });
+            return json(res, 400, { error: t(settings.getLang(), 'api.needMembersArray') });
           }
           for (const m of inputs) {
             if (!m.adapter || !adapterConfigs[m.adapter]) {
-              return json(res, 400, { error: `未知适配器: ${m.adapter}` });
+              return json(res, 400, { error: t(settings.getLang(), 'api.unknownAdapter', { key: m.adapter }) });
             }
-            if (!m.name?.trim()) m.name = '成员';
+            if (!m.name?.trim()) m.name = t(settings.getLang(), 'api.member');
           }
           const added = await room!.addMembers(inputs);
           return json(res, 201, { added, state: room!.getState() });
@@ -738,7 +739,7 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
         if (sub === 'start' && method === 'POST') {
           void room!.start().catch((e) => {
             console.error(`[start] room=${roomId}:`, e);
-            void room!.systemNotice(`编排启动失败: ${String(e)}`);
+            void room!.systemNotice(t(settings.getLang(), 'api.orchStartFailed', { msg: String(e) }));
           });
           return json(res, 202, { ok: true });
         }
@@ -754,7 +755,7 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
             await room!.updateSettings(body);
             return json(res, 200, room!.getState());
           } catch (err: any) {
-            return json(res, 400, { error: err.message || '更新房间设置失败' });
+            return json(res, 400, { error: err.message || t(settings.getLang(), 'api.updateSettingsFailed') });
           }
         }
 
@@ -770,7 +771,7 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
         }
       }
 
-      json(res, 404, { error: `无此路由: ${method} ${p}` });
+      json(res, 404, { error: t(settings.getLang(), 'api.noSuchRoute', { method, path: p }) });
     },
   };
 }

@@ -10,6 +10,8 @@ import { MEMBER_PALETTE } from './palette';
 import type { ChatMessage, DiscussionSummary, MemberConfig, RoomConfig, RoomSettings, RoomState, SummaryConfig } from './types';
 import { assertSessionConfigMutable } from './sessionGuard';
 import type { LangGetter } from './i18n/lang';
+import { t } from './i18n/messages';
+import type { Lang } from './i18n/lang';
 import { getAdapter as getAdapterByKind } from '../adapters/index';
 import { truncateMessages, prepareReroll, prepareEdit, backfillHandshake } from './historyOps';
 import type { AgentTraceLog } from './types';
@@ -81,7 +83,7 @@ export class ChatRoom {
   /** 语言注入(未注入 → zh) */
   private getLangFn?: LangGetter;
   /** 当前语言(发射时刻取值;未注入恒 zh——现状不变量) */
-  protected get lang(): import('./i18n/lang').Lang {
+  protected get lang(): Lang {
     return this.getLangFn?.() ?? 'zh';
   }
 
@@ -127,16 +129,17 @@ export class ChatRoom {
 
     const adminAdapterEntry = adapterConfigs[adminCfg.adapter];
     if (!adminAdapterEntry) {
-      throw new Error(`管理员/侦察适配器未配置: ${adminCfg.adapter}(检查 config/agents.yaml 的 admin.adapter 与 adapters 是否一致)`);
+      throw new Error(t(this.lang, 'room.adminAdapterMissing', { key: adminCfg.adapter }));
     }
     this.admin = new Admin(
       adminCfg,
       (key) => {
         const entry = adapterConfigs[key];
-        if (!entry) throw new Error(`管理员/侦察适配器未配置: ${key}`);
+        if (!entry) throw new Error(t(this.lang, 'room.adminAdapterMissing', { key }));
         return getAdapterByKind(entry.kind);
       },
       { command: adminAdapterEntry.command, args: adminAdapterEntry.args },
+      () => this.lang,
     );
     this.orch = new Orchestrator({
       room: cfg,
@@ -157,14 +160,14 @@ export class ChatRoom {
             messageId: report.id,
             roomId: this.config.id,
             memberId: 'system',
-            memberName: '系统',
+            memberName: t(this.lang, 'sys.speaker'),
             adapter: report.detail?.adapter || this.adminCfg.adapter || 'admin',
             ts: report.ts,
             durationMs: report.detail?.durationMs ?? 0,
             status: 'ok',
-            trigger: '项目目录勘探',
+            trigger: t(this.lang, 'trace.scoutExplore'),
             input: {
-              prompt: report.detail?.trigger || '项目目录勘探',
+              prompt: report.detail?.trigger || t(this.lang, 'trace.scoutExplore'),
               cwd: this.config.projectPath,
             },
             output: {
@@ -240,14 +243,14 @@ export class ChatRoom {
           messageId: snap.id,
           roomId: this.config.id,
           memberId: 'system',
-          memberName: '系统',
+          memberName: t(this.lang, 'sys.speaker'),
           adapter: this.adminCfg.adapter || 'admin',
           ts: sum.updatedAt || Date.now(),
           durationMs: sum.durationMs ?? 0,
           status: sum.status === 'error' ? 'error' : 'ok',
-          trigger: '讨论大纲提炼',
+          trigger: t(this.lang, 'trace.summaryDistill'),
           input: {
-            prompt: '讨论大纲提炼',
+            prompt: t(this.lang, 'trace.summaryDistill'),
           },
           output: {
             result: sum.text,
@@ -316,7 +319,7 @@ export class ChatRoom {
     }
     if (added.length > 0) {
       await this.sysMessage(
-        `${added.map((m) => m.name).join('、')} 加入了房间,当前 ${this.config.members.length} 位成员`,
+        t(this.lang, 'room.memberJoined', { names: added.map((m) => m.name).join('、'), count: this.config.members.length }),
       );
       await this.persistence.persistRoom(this.config);
       this.bus.emitRoomState(this.getState());
@@ -326,10 +329,10 @@ export class ChatRoom {
 
   async removeMember(memberId: string): Promise<void> {
     const idx = this.config.members.findIndex((m) => m.id === memberId);
-    if (idx < 0) throw new Error(`成员不存在: ${memberId}`);
+    if (idx < 0) throw new Error(t(this.lang, 'room.memberMissing', { id: memberId }));
     const [removed] = this.config.members.splice(idx, 1);
     this.orch.memberRemoved(memberId);
-    await this.sysMessage(`${removed!.name} 离开了房间`);
+    await this.sysMessage(t(this.lang, 'room.memberLeft', { name: removed!.name }));
     await this.persistence.persistRoom(this.config);
     this.bus.emitRoomState(this.getState());
   }
@@ -428,9 +431,9 @@ export class ChatRoom {
             ts: digest.updatedAt || Date.now(),
             durationMs: digest.durationMs ?? 0,
             status: 'ok',
-            trigger: '私聊纪要自总结',
+            trigger: t(this.lang, 'trace.privateDigest'),
             input: {
-              prompt: '私聊纪要自总结',
+              prompt: t(this.lang, 'trace.privateDigest'),
             },
             output: {
               result: digest.text,
@@ -472,7 +475,7 @@ export class ChatRoom {
       id: randomUUID(),
       roomId: this.config.id,
       from: 'system',
-      fromName: '系统',
+      fromName: t(this.lang, 'sys.speaker'),
       text,
       ts: Date.now(),
       system: true,
@@ -489,7 +492,7 @@ export class ChatRoom {
       id: randomUUID(),
       roomId: this.config.id,
       from: 'user',
-      fromName: this.config.userPersona?.name || '用户',
+      fromName: this.config.userPersona?.name || t(this.lang, 'sys.user'),
       text,
       ts: Date.now(),
     });
@@ -498,20 +501,20 @@ export class ChatRoom {
 
   directInstruction(memberId: string, text: string): Promise<void> {
     const member = this.config.members.find((m) => m.id === memberId);
-    if (!member) return Promise.reject(new Error(`成员不存在: ${memberId}`));
+    if (!member) return Promise.reject(new Error(t(this.lang, 'room.memberMissing', { id: memberId })));
     this.orch.directInstruction(memberId, text);
     return Promise.resolve();
   }
 
   async start(): Promise<void> {
     if (this.config.members.length === 0) {
-      await this.sysMessage('房间里还没有成员,请先添加成员再开始。');
+      await this.sysMessage(t(this.lang, 'room.needMembersFirst'));
       return;
     }
     if (this.config.mode === 'subscribe') {
-      await this.sysMessage('自由讨论开始(订阅模式): 依据全员发言意愿驱动讨论。');
+      await this.sysMessage(t(this.lang, 'room.startSubscribe'));
     } else {
-      await this.sysMessage('自由讨论开始(接棒模式):有待命接棒者由 TA 起头,否则随机。');
+      await this.sysMessage(t(this.lang, 'room.startBaton'));
     }
     this.orch.startDiscussion();
   }
@@ -525,7 +528,7 @@ export class ChatRoom {
     if (this.orch.state !== 'idle' || this.orch.currentSpeaker != null) {
       await this.stop();
     }
-    this.messages = truncateMessages(this.messages, messageId);
+    this.messages = truncateMessages(this.messages, messageId, this.lang);
     await this.persistence.rewriteMessages(this.config.id, this.messages);
     this.bus.emitRoomMessages(this.config.id, this.messages);
   }
@@ -535,7 +538,7 @@ export class ChatRoom {
     if (this.orch.state !== 'idle' || this.orch.currentSpeaker != null) {
       await this.stop();
     }
-    const { remaining, targetSpeaker } = prepareReroll(this.messages, messageId);
+    const { remaining, targetSpeaker } = prepareReroll(this.messages, messageId, this.lang);
     this.messages = remaining;
     await this.persistence.rewriteMessages(this.config.id, this.messages);
     this.bus.emitRoomMessages(this.config.id, this.messages);
@@ -547,7 +550,7 @@ export class ChatRoom {
     if (this.orch.state !== 'idle' || this.orch.currentSpeaker != null) {
       await this.stop();
     }
-    const { remaining, isUser } = prepareEdit(this.messages, messageId, newText);
+    const { remaining, isUser } = prepareEdit(this.messages, messageId, newText, this.lang);
     this.messages = remaining;
     await this.persistence.rewriteMessages(this.config.id, this.messages);
     this.bus.emitRoomMessages(this.config.id, this.messages);
@@ -593,7 +596,7 @@ export class ChatRoom {
       };
     }
     if (patch.userPersona !== undefined) {
-      assertSessionConfigMutable(this.messages.length, this.config.userPersona, patch.userPersona);
+      assertSessionConfigMutable(this.messages.length, this.config.userPersona, patch.userPersona, this.lang);
       this.config.userPersona = patch.userPersona || undefined;
     }
     await this.persistence.persistRoom(this.config);
@@ -610,7 +613,7 @@ export function dedupeName(base: string, existing: string[]): string {
   }
 }
 
-export function makeRoomConfig(input: CreateRoomInput): RoomConfig {
+export function makeRoomConfig(input: CreateRoomInput, lang: Lang = 'zh'): RoomConfig {
   const members: MemberConfig[] = input.members.map((m, i) => ({
     ...m,
     id: `m${i + 1}_${Math.random().toString(36).slice(2, 6)}`,
@@ -618,9 +621,9 @@ export function makeRoomConfig(input: CreateRoomInput): RoomConfig {
   }));
   return {
     id: `room_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
-    name: input.name || '新房间',
+    name: input.name || t(lang, 'room.defaultName'),
     color: input.color,
-    topic: input.topic || '自由聊天',
+    topic: input.topic || t(lang, 'room.defaultTopic'),
     chainBudget: input.chainBudget ?? 6,
     speechLength: input.speechLength ?? 'normal',
     projectPath: input.projectPath || undefined,

@@ -1,12 +1,14 @@
 import type { ChatMessage } from './types';
 import { inferHandshakeFromText } from './modes/subscribe/audience';
+import { t } from './i18n/messages';
+import type { Lang } from './i18n/lang';
 
 /**
  * 截断指定消息之后的所有后续消息(保留目标消息本身，后续消息全部清除)
  */
-export function truncateMessages(messages: ChatMessage[], messageId: string): ChatMessage[] {
+export function truncateMessages(messages: ChatMessage[], messageId: string, lang: Lang = 'zh'): ChatMessage[] {
   const idx = messages.findIndex((m) => m.id === messageId);
-  if (idx === -1) throw new Error(`未找到指定消息: ${messageId}`);
+  if (idx === -1) throw new Error(t(lang, 'ho.msgNotFound', { id: messageId }));
   return messages.slice(0, idx + 1);
 }
 
@@ -16,12 +18,13 @@ export function truncateMessages(messages: ChatMessage[], messageId: string): Ch
 export function prepareReroll(
   messages: ChatMessage[],
   messageId: string,
+  lang: Lang = 'zh',
 ): { remaining: ChatMessage[]; targetSpeaker: string } {
   const idx = messages.findIndex((m) => m.id === messageId);
-  if (idx === -1) throw new Error(`未找到指定消息: ${messageId}`);
+  if (idx === -1) throw new Error(t(lang, 'ho.msgNotFound', { id: messageId }));
   const target = messages[idx]!;
   if (target.from === 'user' || target.system) {
-    throw new Error('只能对 AI 成员的发言执行重roll');
+    throw new Error(t(lang, 'ho.aiOnly'));
   }
   return {
     remaining: messages.slice(0, idx),
@@ -36,9 +39,10 @@ export function prepareEdit(
   messages: ChatMessage[],
   messageId: string,
   newText: string,
+  lang: Lang = 'zh',
 ): { remaining: ChatMessage[]; isUser: boolean; updatedTarget: ChatMessage } {
   const idx = messages.findIndex((m) => m.id === messageId);
-  if (idx === -1) throw new Error(`未找到指定消息: ${messageId}`);
+  if (idx === -1) throw new Error(t(lang, 'ho.msgNotFound', { id: messageId }));
   const target = { ...messages[idx]! };
   target.text = newText;
   target.ts = Date.now();

@@ -11,6 +11,8 @@ import { collectProjectContext } from './projectContext';
 import { buildScoutPrompt } from './prompt';
 import { oneShotSpeak } from './exec';
 import { filterValidPublic, splitHistoryByAnchor } from './summaryOps';
+import { t } from './i18n/messages';
+import type { Lang, LangGetter } from './i18n/lang';
 
 
 export interface AdminConfig {
@@ -31,11 +33,22 @@ export class Admin {
   private summaryRunning: Promise<DiscussionSummary | null> | null = null;
   private summaryFailureCount = 0;
 
+  /** 语言注入(未注入 → zh,与改造前逐字节一致) */
+  private getLang?: LangGetter;
+
   constructor(
     private cfg: AdminConfig,
     private resolveAdapter: (adapterKey: string) => AgentAdapter,
     private adapterEntry: { command: string; args: string[] },
-  ) {}
+    getLang?: LangGetter,
+  ) {
+    this.getLang = getLang;
+  }
+
+  /** 当前语言(发射时刻取值;未注入恒 zh——现状不变量) */
+  private get lang(): Lang {
+    return this.getLang?.() ?? 'zh';
+  }
 
   /** 显式标记侦察已完成(如历史记录中已存在侦察消息时由 ChatRoom.restore 调用) */
   markScoutDone(): void {
@@ -80,12 +93,12 @@ export class Admin {
         id: randomUUID(),
         roomId: '', // 由调用方回填
         from: 'scout',
-        fromName: '🔍 侦察员',
+        fromName: t(this.lang, 'sys.scout'),
         text,
         ts: Date.now(),
         detail: {
           adapter: this.cfg.adapter,
-          trigger: '开场侦察:分析项目并播报,供全员讨论使用',
+          trigger: t(this.lang, 'admin.scoutTrigger'),
           durationMs: outcome.durationMs,
           usage: outcome.usage,
         },
@@ -116,11 +129,11 @@ export class Admin {
 
     if (this.summaryFailureCount >= this.cfg.maxRetries) {
       return {
-        text: '管理员摘要服务暂时不可用(连续失败已熔断)。',
+        text: t(this.lang, 'admin.summaryBreaker'),
         updatedAt: Date.now(),
         messageCount: validPublic.length,
         status: 'error',
-        error: '熔断保护中',
+        error: t(this.lang, 'admin.breakerError'),
       };
     }
 

@@ -1,6 +1,8 @@
 // 会话人设领域守卫 (方案 A 不变式: 开局定身份，中途不可换)
 
 import type { UserPersonaSnapshot } from './types';
+import { t } from './i18n/messages';
+import type { Lang } from './i18n/lang';
 
 /**
  * 校验当前会话是否允许变更用户人设
@@ -12,6 +14,7 @@ export function assertSessionConfigMutable(
   messageCount: number,
   currentPersona?: UserPersonaSnapshot | null,
   nextPersona?: UserPersonaSnapshot | null,
+  lang: Lang = 'zh',
 ): void {
   if (messageCount <= 0) return;
 
@@ -24,6 +27,6 @@ export function assertSessionConfigMutable(
     : '';
 
   if (curKey !== nextKey) {
-    throw new Error('当前会话已有消息记录，身份设定已锁定。如需更换请先清空历史消息。');
+    throw new Error(t(lang, 'sg.personaLocked'));
   }
 }

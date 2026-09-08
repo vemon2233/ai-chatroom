@@ -8,6 +8,7 @@ import { isPublicSummaryUsable, splitHistoryByAnchor } from './summaryOps';
 import { truncateMessages, prepareReroll, prepareEdit } from './historyOps';
 import { assertSessionConfigMutable } from './sessionGuard';
 import type { Admin } from './admin';
+import { t } from './i18n/messages';
 import type { SummaryStorePort, TraceStorePort } from './room';
 
 /** direct 私聊的持久化窄接口(JSONL 五件,server 装配注入) */
@@ -81,7 +82,7 @@ export class DirectChatService {
   async setMeta(characterId: string, meta: DirectChatMeta): Promise<void> {
     const msgs = await this.getMessages(characterId);
     const current = await this.getMeta(characterId);
-    assertSessionConfigMutable(msgs.length, current.userPersona, meta.userPersona);
+    assertSessionConfigMutable(msgs.length, current.userPersona, meta.userPersona, this.lang);
     this.metas.set(characterId, meta);
     if (this.store.saveDirectMeta) {
       await this.store.saveDirectMeta(characterId, meta);
@@ -140,7 +141,7 @@ export class DirectChatService {
     this.sessionIds.delete(characterId);
     this.lastSeenMessageIds.delete(characterId);
     const msgs = await this.store.loadDirectMessages(characterId);
-    const remaining = truncateMessages(msgs, messageId);
+    const remaining = truncateMessages(msgs, messageId, this.lang);
     await this.store.rewriteDirectMessages(characterId, remaining);
     this.deps.bus.emitDirectMessages(characterId, remaining);
     return remaining;
@@ -161,7 +162,7 @@ export class DirectChatService {
     this.stop(character.id);
     this.sessionIds.delete(character.id);
     const msgs = await this.store.loadDirectMessages(character.id);
-    const { remaining } = prepareReroll(msgs, messageId);
+    const { remaining } = prepareReroll(msgs, messageId, this.lang);
     await this.store.rewriteDirectMessages(character.id, remaining);
     this.deps.bus.emitDirectMessages(character.id, remaining);
     void this.generateReply(character, remaining);
@@ -171,7 +172,7 @@ export class DirectChatService {
   async saveEdit(character: Character, messageId: string, newText: string): Promise<void> {
     this.stop(character.id);
     const msgs = await this.store.loadDirectMessages(character.id);
-    const { remaining, isUser } = prepareEdit(msgs, messageId, newText);
+    const { remaining, isUser } = prepareEdit(msgs, messageId, newText, this.lang);
     await this.store.rewriteDirectMessages(character.id, remaining);
     this.deps.bus.emitDirectMessages(character.id, remaining);
     if (isUser) {
@@ -185,7 +186,7 @@ export class DirectChatService {
     this.stop(character.id);
 
     const meta = await this.getMeta(character.id);
-    const fromName = meta.userPersona?.name || '用户';
+    const fromName = meta.userPersona?.name || t(this.lang, 'sys.user');
 
     const userMsg: ChatMessage = {
       id: randomUUID(),
@@ -207,12 +208,12 @@ export class DirectChatService {
     const task = (async () => {
         const acfg = this.deps.adapterConfigs[character.adapter];
       if (!acfg) {
-        const errText = `适配器未配置: ${character.adapter}`;
+        const errText = t(this.lang, 'sys.adapterMissing', { key: character.adapter });
         const sysMsg: ChatMessage = {
           id: randomUUID(),
           roomId: `direct_${character.id}`,
           from: 'system',
-          fromName: '系统',
+          fromName: t(this.lang, 'sys.speaker'),
           text: errText,
           ts: Date.now(),
           system: true,
@@ -300,7 +301,7 @@ export class DirectChatService {
           durationMs: outcome.durationMs,
           status: outcome.status,
           error: outcome.error,
-          trigger: '1v1用户对话',
+          trigger: t(this.lang, 'trace.directChat'),
           input: {
             prompt,
             command: req.command,
@@ -324,7 +325,7 @@ export class DirectChatService {
           .filter((t) => t.kind === 'text')
           .map((t) => t.content)
           .join('');
-        const text = streamed.trim() || '(已停止思考)';
+        const text = streamed.trim() || t(this.lang, 'sys.stoppedThinking');
         const msgId = randomUUID();
         recordTrace(msgId, text);
         const cancelledMsg: ChatMessage = {
@@ -356,8 +357,11 @@ export class DirectChatService {
           id: randomUUID(),
           roomId: `direct_${character.id}`,
           from: 'system',
-          fromName: '系统',
-          text: `${character.name} 回复失败: ${outcome.error ?? '未知错误'}`,
+          fromName: t(this.lang, 'sys.speaker'),
+          text: t(this.lang, 'direct.replyFailed', {
+            name: character.name,
+            error: outcome.error ?? t(this.lang, 'sys.unknownError'),
+          }),
           ts: Date.now(),
           system: true,
         };
@@ -367,7 +371,7 @@ export class DirectChatService {
       }
 
         // ok
-        const text = outcome.result || '(无输出)';
+        const text = outcome.result || t(this.lang, 'sys.noOutput');
         const msgId = randomUUID();
         recordTrace(msgId, text);
         const botMsg: ChatMessage = {
@@ -454,7 +458,7 @@ export class DirectChatService {
     }
     const res = await this.deps.admin.generateSummary({
       messages: msgs,
-      topic: `与 ${character.name} 的一对一私聊探讨`,
+      topic: t(this.lang, 'admin.directTopic', { name: character.name }),
       prevSummary: prev,
     });
     if (res && res.text) {
@@ -467,7 +471,7 @@ export class DirectChatService {
           messageId: snap.id,
           roomId: characterId,
           memberId: 'system',
-          memberName: '系统',
+          memberName: t(this.lang, 'sys.speaker'),
           adapter: 'admin',
           ts: res.updatedAt || Date.now(),
           durationMs: res.durationMs ?? 0,
