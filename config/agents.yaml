@@ -43,10 +43,9 @@ adapters:
     args:
       - --output-format
       - stream-json         # JSONL 事件流(实测 v0.15.10,事件为自有 schema)
-      - --auth-type
-      - gemini              # 复用 GEMINI_API_KEY;或改为 qwen-oauth 走 /auth 登录态
-      - --model
-      - gemini-3.5-flash    # qwen 默认 coder-model 仅 Qwen 账号可用;gemini auth 需显式指定模型
+      # 认证与模型在 qwen 自身配置(~/.qwen/settings.json,不进仓库):
+      #   modelProviders.openai 指向 DeepSeek(env.OPENAI_API_KEY 存 key)+ model.name 持久选中
+      #   ——server 零 key 零环境变量依赖,spawn 即用
       # prompt 从 stdin 读;resume 由适配器拼 --resume <id>
 
 # 侦察员(Scout):绑定项目的房间,首棒前自动跑一次只读项目分析,全员共享。
