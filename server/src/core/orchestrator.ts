@@ -818,13 +818,13 @@ export class Orchestrator {
           this.setState('idle');
           return;
         }
+        this.budget--;
         if (this.budget <= 0) {
           this.pendingNextId = nextMember.id;
           await this.sysMessage(t(this.lang, 'orch.batonBudgetReached'));
           this.setState('idle');
           return;
         }
-        this.budget--;
         await this.sysMessage(t(this.lang, 'orch.batonPass', { name: member.name, next: nextMember.name }));
         this.enqueue({
           memberId: nextMember.id,

@@ -4,6 +4,7 @@
 import { matchMemberByName } from '../../naming';
 import {
   BATON_LINE as BATON_LINE_SRC, BATON_STRIP, BATON_END_WORDS, AT_NAME, USER_NAME_ALIASES,
+  stripBaton,
 } from '../../../protocolKeywords';
 
 /** 接棒行正则(真源 re-export,既有 import 不动) */
@@ -54,5 +55,5 @@ export function parseBaton(
 
 /** 剥除发言文本中的接棒尾行(在非接棒模式或非链上发言时使用;双语) */
 export function stripBatonLine(text: string): string {
-  return text.replace(BATON_STRIP, '').trimEnd();
+  return stripBaton(text);
 }

@@ -45,6 +45,80 @@ export const AT_NAME_GLOBAL = /@([^\s@,，。]+)/g;
 /** 用户/房主代称(接棒目标指向用户时的名字判定;现状已双语) */
 export const USER_NAME_ALIASES: string[] = ['用户', 'user'];
 
+/**
+ * 从文本中精准提取接棒意图与目标(双语并集)。
+ * 适用于 AI 尾行接棒与用户指令前缀接棒。
+ */
+export function extractBatonTarget(text: string): { type: 'end' | 'to-user' | 'baton'; target?: string } | null {
+  if (!text) return null;
+  const m = text.match(BATON_LINE);
+  if (!m) return null;
+  const directive = (m[1] ?? '').trim();
+  if (BATON_END_WORDS.test(directive)) {
+    return { type: 'end' };
+  }
+  const atHit = directive.match(AT_NAME);
+  const rawName = (atHit?.[1] ?? directive.split(/\s+/)[0] ?? '').trim();
+  if (!rawName) return null;
+  if (USER_NAME_ALIASES.includes(rawName.toLowerCase())) {
+    return { type: 'to-user' };
+  }
+  return { type: 'baton', target: rawName };
+}
+
+/**
+ * 剥除发言文本中的接棒指令，保留附带发言正文(双语并集)。
+ * - 若仅包含指令与目标(如 "<接棒> @刘备(于和伟)"):回退保留 "@刘备(于和伟)"，避免气泡空屏。
+ * - 若包含后续正文(如 "<接棒> @刘备(于和伟) 接着奏乐接着舞"):剥除指令，完整保留后续正文。
+ * - 若为 AI 发言的单独尾行指令:整行剥除，保留上方正文。
+ */
+export function stripBaton(text: string): string {
+  if (!text) return '';
+  const lines = text.split('\n');
+  const resultLines: string[] = [];
+
+  for (const line of lines) {
+    const match = line.match(/^(.*?)(?:<接棒>|【接棒】|<pass>|<PASS>)\s*(.*)$/);
+    if (!match) {
+      resultLines.push(line);
+      continue;
+    }
+
+    const prefix = match[1] ?? '';
+    const remainder = match[2] ?? '';
+
+    let body = remainder;
+    const atHit = remainder.match(/^(@[^\s@,，。]+)\s*(.*)$/);
+    if (atHit) {
+      body = atHit[2] ?? '';
+    } else {
+      const wordHit = remainder.match(/^([^\s@,，。]+)\s*(.*)$/);
+      if (wordHit) {
+        const candidate = wordHit[1]!;
+        if (BATON_END_WORDS.test(candidate) || USER_NAME_ALIASES.includes(candidate.toLowerCase())) {
+          body = wordHit[2] ?? '';
+        }
+      }
+    }
+
+    const preserved = (prefix + (body ? (prefix ? ' ' : '') + body : '')).trim();
+    if (preserved) {
+      resultLines.push(preserved);
+    }
+  }
+
+  const cleaned = resultLines.join('\n').trim();
+  if (cleaned) {
+    return cleaned;
+  }
+
+  const targetHit = extractBatonTarget(text);
+  if (targetHit?.target) {
+    return `@${targetHit.target}`;
+  }
+  return text.trim();
+}
+
 // ---------- 沉默/跳过(订阅模式心跳自决) ----------
 
 /** 精确等于即沉默(中英并集) */

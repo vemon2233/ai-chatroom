@@ -4,6 +4,7 @@
 import type { ChatMessage, DiscussionSummary, DiscussionSummarySnapshot } from '@server/core/types';
 import {
   BATON_LINE, BATON_END_WORDS, BATON_STRIP, DM_STRIP, HANDSHAKE_STRIP, USER_NAME_ALIASES,
+  extractBatonTarget, stripBaton,
 } from '@server/protocolKeywords';
 import { downloadFile } from './download';
 import { t } from '@/i18n';
@@ -46,11 +47,13 @@ export function formatFileTimestamp(ts = Date.now()): string {
   return `${year}${month}${day}_${hour}${minute}${second}`;
 }
 
-/** 彻底剥除所有的控制指令标签 (保证 Markdown 阅读排版的纯粹自然;中英并集真源) */
+/**
+ * 剥除聊天正文中的控制标签 (与 MessageBubble 渲染端纪律严格一致:
+ * 剥除接棒指令、私聊标签、握手标签,保证导出的正文纯粹)。
+ */
 export function stripControlTags(text: string): string {
   if (!text) return '';
-  return text
-    .replace(BATON_STRIP, '')
+  return stripBaton(text)
     .replace(DM_STRIP, '')
     .replace(HANDSHAKE_STRIP, '')
     .trimEnd();
@@ -65,16 +68,17 @@ function resolveBatonBadge(msg: ChatMessage): { type: string; label: string } | 
     return { type: 'baton', label: t('export.batonGive', { name: msg.batonTarget }) };
   }
   const raw = msg.text || '';
-  const m = raw.match(BATON_LINE);
-  if (m) {
-    const target = m[1]!.replace(/^@/, '').trim();
-    if (BATON_END_WORDS.test(target)) {
+  const info = extractBatonTarget(raw);
+  if (info) {
+    if (info.type === 'end') {
       return { type: 'end', label: t('export.batonEnd') };
     }
-    if (USER_NAME_ALIASES.includes(target.toLowerCase())) {
+    if (info.type === 'to-user') {
       return { type: 'to-user', label: t('export.batonToUser') };
     }
-    return { type: 'baton', label: t('export.batonGive', { name: target }) };
+    if (info.type === 'baton' && info.target) {
+      return { type: 'baton', label: t('export.batonGive', { name: info.target }) };
+    }
   }
   return null;
 }

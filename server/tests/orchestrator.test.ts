@@ -205,17 +205,17 @@ describe('编排器状态机:接棒链', () => {
     const h = makeHarness([
       { result: '1\n<接棒>@乙' },
       { result: '2\n<接棒>@甲' },
-    ], { chainBudget: 1 }); // 预算 1:第一棒传棒后耗尽
+    ], { chainBudget: 1 }); // 预算 1: 首棒发言后预算耗尽
     await h.orch.onUserMessage('开始');
     await settle(150);
     const sys = h.messages.filter((m) => m.system).map((m) => m.text).join('|');
     expect(sys).toContain('接棒上限');
     expect(h.orch.state).toBe('idle');
-    // 预算耗尽:被指定的甲进入待命,下次纯文本消息 TA 起头
-    randomSpy?.mockReturnValue(0.99); // 若无待命者会选 m3;有待命者应仍选 m1
+    // 预算耗尽:被指定的乙进入待命,下次纯文本消息 TA 起头
+    randomSpy?.mockReturnValue(0.99); // 若无待命者会选 m3;有待命者应仍选 m2
     await h.orch.onUserMessage('继续');
     await settle(120);
-    expect(h.fake.requests[2]?.member).toBe('m1');
+    expect(h.fake.requests[1]?.member).toBe('m2');
   });
 
   it('旧语法【接棒】仍解析(resume 旧 session 记忆惯性)', async () => {

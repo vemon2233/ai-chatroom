@@ -6,7 +6,10 @@ import { dialog } from '@/composables/useDialog';
 import { renderMarkdown } from '@/utils/markdown';
 import { initialsFor, colorForName } from '@/utils/avatar';
 import type { ChatMessage } from '@server/core/types';
-import { BATON_STRIP, BATON_LINE, BATON_END_WORDS, USER_NAME_ALIASES } from '@server/protocolKeywords';
+import {
+  BATON_STRIP, BATON_LINE, BATON_END_WORDS, USER_NAME_ALIASES,
+  stripBaton, extractBatonTarget,
+} from '@server/protocolKeywords';
 import TraceDetail from './TraceDetail.vue';
 
 const { t } = useI18n();
@@ -18,7 +21,7 @@ const isMultiLine = ref(false);
 
 const cleanText = computed(() => {
   const raw = props.msg.text || '';
-  return raw.replace(BATON_STRIP, '').trimEnd();
+  return stripBaton(raw);
 });
 
 function checkMultiLine() {
@@ -245,7 +248,7 @@ const timeLabel = computed(() => {
 
 const meta = computed(() => {
   const d = props.msg.detail;
-  if (!d) return isMe.value ? timeLabel.value : '';
+  if (!d) return '';
   const parts: string[] = [];
   if (d.durationMs != null && d.durationMs > 0) parts.push(`${(d.durationMs / 1000).toFixed(1)}s`);
   if (d.usage?.outputTokens != null) parts.push(`${d.usage.outputTokens} tok`);
@@ -255,7 +258,7 @@ const meta = computed(() => {
 
 const audienceNames = computed(() => {
   if (!props.msg.audience || props.msg.audience.length === 0) return '';
-  const names = props.msg.audience.map((id) => {
+  const names = props.msg.audience.map((id: string) => {
     const hit = room.value?.config.members.find((m) => m.id === id);
     return hit ? hit.name : id;
   });
@@ -290,18 +293,19 @@ const batonBadge = computed(() => {
   if (props.msg.batonTarget) {
     return { type: 'baton', label: t('chat.batonPass', { name: props.msg.batonTarget }) };
   }
-  // 兜底历史消息兼容：从文本或 detail 中动态解析(中英标签并集真源)
+  // 兜底历史消息兼容：从文本中精准提取接棒目标
   const raw = props.msg.text || '';
-  const m = raw.match(BATON_LINE);
-  if (m) {
-    const target = m[1]!.replace(/^@/, '').trim();
-    if (BATON_END_WORDS.test(target)) {
+  const info = extractBatonTarget(raw);
+  if (info) {
+    if (info.type === 'end') {
       return { type: 'end', label: t('chat.batonEnd') };
     }
-    if (USER_NAME_ALIASES.includes(target.toLowerCase())) {
+    if (info.type === 'to-user') {
       return { type: 'to-user', label: t('chat.batonToUser') };
     }
-    return { type: 'baton', label: t('chat.batonPass', { name: target }) };
+    if (info.type === 'baton' && info.target) {
+      return { type: 'baton', label: t('chat.batonPass', { name: info.target }) };
+    }
   }
   return null;
 });

@@ -9,6 +9,7 @@ import {
 } from '../src/core/modes/subscribe/audience';
 import {
   BATON_LINE, BATON_END_WORDS, batonTagFor, USER_NAME_ALIASES, isSilentText,
+  extractBatonTarget,
 } from '../src/protocolKeywords';
 
 const members = [
@@ -32,9 +33,28 @@ describe('协议标签双语并集解析', () => {
     expect(parseBaton('over to you\n<pass>user', members, 'm1')?.toUser).toBe(true);
     expect(parseBaton('交给你\n<接棒>用户', members, 'm1')?.toUser).toBe(true);
   });
-  it('stripBatonLine 双语剥除', () => {
+  it('stripBatonLine 双语剥除与指令正文共存测试', () => {
     expect(stripBatonLine('正文\n<接棒>@乙')).toBe('正文');
     expect(stripBatonLine('body\n<pass>@Bob')).toBe('body');
+    // 用户指令行首并附带正文: 完整保留正文，不吞文本
+    expect(stripBatonLine('<接棒> @刘备(于和伟) 接着奏乐接着舞')).toBe('接着奏乐接着舞');
+    // 用户仅发指令而无附带正文: 回退保留 @名字，避免气泡空屏
+    expect(stripBatonLine('<接棒> @刘备(于和伟)')).toBe('@刘备(于和伟)');
+  });
+  it('extractBatonTarget 能精准截断后续正文，不污染徽章名字', () => {
+    expect(extractBatonTarget('<接棒> @刘备(于和伟) 接着奏乐接着舞')).toEqual({
+      type: 'baton',
+      target: '刘备(于和伟)',
+    });
+    expect(extractBatonTarget('<接棒> @刘备(于和伟)')).toEqual({
+      type: 'baton',
+      target: '刘备(于和伟)',
+    });
+    expect(extractBatonTarget('<接棒> 结束')).toEqual({ type: 'end' });
+    expect(extractBatonTarget('<pass> @Bob let us dance')).toEqual({
+      type: 'baton',
+      target: 'Bob',
+    });
   });
   it('BATON_LINE 不误配正文普通尖括号', () => {
     expect('see <code>blocks</code> often'.match(BATON_LINE)).toBeNull();
