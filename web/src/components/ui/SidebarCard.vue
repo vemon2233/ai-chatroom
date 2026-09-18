@@ -154,7 +154,7 @@ const avatarColor = computed(() => props.color ?? colorForName(props.title));
 }
 .card-btn.remove {
   color: var(--danger);
-  border: 1px solid rgba(229, 72, 77, 0.45);
+  border: 1px solid var(--danger-border);
 }
 .card-btn.remove:hover {
   background: var(--danger);

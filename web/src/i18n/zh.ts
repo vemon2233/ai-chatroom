@@ -28,6 +28,7 @@ export const zh = {
     importFailedBody: '文件「{file}」导入失败: {reason}',
     langZh: '中',
     langEn: 'EN',
+    themeToggle: '切换深浅主题',
   },
   common: {
     cancel: '取消',

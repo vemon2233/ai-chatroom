@@ -368,7 +368,7 @@ function initialsFor(name: string): string {
 }
 
 .kpi-val.cost {
-  color: #10b981;
+  color: var(--ok);
 }
 
 /* 角色明细段落 */
@@ -483,8 +483,8 @@ function initialsFor(name: string): string {
 .cost-badge {
   font-size: 12px;
   font-weight: 700;
-  color: #10b981;
-  background: rgba(16, 185, 129, 0.1);
+  color: var(--ok);
+  background: var(--ok-soft);
   padding: 2px 8px;
   border-radius: 6px;
   white-space: nowrap;
@@ -573,8 +573,8 @@ function initialsFor(name: string): string {
 .stats-error {
   padding: 10px;
   border-radius: 6px;
-  background: rgba(239, 68, 68, 0.1);
-  color: #ef4444;
+  background: var(--danger-soft);
+  color: var(--danger);
   font-size: 12px;
 }
 

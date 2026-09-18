@@ -717,12 +717,12 @@ onUnmounted(() => {
 
 .item-status.ok {
   color: var(--ok);
-  background: rgba(16, 185, 129, 0.1);
+  background: var(--ok-soft);
 }
 
 .item-status.error {
   color: var(--danger);
-  background: rgba(229, 72, 77, 0.1);
+  background: var(--danger-soft);
 }
 
 .timeline-v-resizer {
@@ -768,9 +768,9 @@ onUnmounted(() => {
 
 .summary-error {
   padding: 8px 12px;
-  background: rgba(239, 68, 68, 0.08);
-  border: 1px solid rgba(239, 68, 68, 0.2);
-  color: #ef4444;
+  background: var(--danger-soft);
+  border: 1px solid var(--danger-border);
+  color: var(--danger);
   font-size: 12px;
   border-radius: 6px;
   margin: 10px 14px 0;

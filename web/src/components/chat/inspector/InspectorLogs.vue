@@ -465,17 +465,17 @@ onUnmounted(() => {
 
 .item-status.ok {
   color: var(--ok);
-  background: rgba(16, 185, 129, 0.1);
+  background: var(--ok-soft);
 }
 
 .item-status.error {
   color: var(--danger);
-  background: rgba(229, 72, 77, 0.1);
+  background: var(--danger-soft);
 }
 
 .item-status.cancelled {
   color: var(--warn);
-  background: rgba(245, 158, 11, 0.1);
+  background: var(--warn-soft);
 }
 
 .traces-loading,
@@ -652,7 +652,7 @@ onUnmounted(() => {
 }
 
 .thinking-text {
-  background: #FBFBFE;
+  background: var(--panel-softer);
   border: 1px dashed var(--accent-border);
   color: var(--text-muted);
 }

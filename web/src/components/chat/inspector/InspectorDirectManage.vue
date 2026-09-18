@@ -282,15 +282,15 @@ async function handleDeleteCharacter() {
 }
 
 .alert-bar.success {
-  background: rgba(16, 185, 129, 0.12);
-  color: #10b981;
-  border-bottom: 1px solid rgba(16, 185, 129, 0.25);
+  background: var(--ok-soft);
+  color: var(--ok);
+  border-bottom: 1px solid var(--ok-soft);
 }
 
 .alert-bar.error {
-  background: rgba(239, 68, 68, 0.12);
-  color: #ef4444;
-  border-bottom: 1px solid rgba(239, 68, 68, 0.25);
+  background: var(--danger-soft);
+  color: var(--danger);
+  border-bottom: 1px solid var(--danger-soft);
 }
 
 .manage-body {
@@ -353,8 +353,8 @@ async function handleDeleteCharacter() {
   justify-content: space-between;
   gap: 12px;
   padding: 10px 12px;
-  background: rgba(239, 68, 68, 0.05);
-  border: 1px solid rgba(239, 68, 68, 0.2);
+  background: var(--danger-soft);
+  border: 1px solid var(--danger-border);
   border-radius: 8px;
 }
 
@@ -380,14 +380,14 @@ async function handleDeleteCharacter() {
   font-size: 12px;
   padding: 5px 12px;
   color: var(--danger);
-  border-color: rgba(239, 68, 68, 0.3);
+  border-color: var(--danger-border);
   border-radius: 6px;
   flex-shrink: 0;
   background: var(--panel);
 }
 
 .btn-danger-action:hover {
-  background: rgba(239, 68, 68, 0.12);
+  background: var(--danger-soft);
   color: var(--danger);
   border-color: var(--danger);
 }

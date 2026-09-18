@@ -3,7 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="theme-color" content="#111318">
+  <meta name="theme-color" content="#F4F5F7"><!-- 两态由 useTheme 动态切换 -->
+  <script>
+    /* 深色防闪屏:样式表加载前读 localStorage 设 data-theme(浅色为缺省,无需设置) */
+    try { if (localStorage.getItem('ai-chatroom:theme') === 'dark') document.documentElement.dataset.theme = 'dark'; } catch (e) {}
+  </script>
   <title>AI Chatroom</title><!-- i18n 初始化后按语言动态覆盖(initLang) -->
   <link rel="icon" type="image/png" href="/icon.png">
   <link rel="preconnect" href="https://rsms.me/">

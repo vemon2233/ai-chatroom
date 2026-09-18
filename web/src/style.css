@@ -3,6 +3,7 @@
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
 :root {
+  color-scheme: light;      /* 原生控件(select/option/autofill)整体跟随主题 */
   --bg: #F4F5F7;            /* 页面灰底 */
   --panel: #FFFFFF;         /* 卡片/面板 */
   --panel-soft: #FAFBFC;    /* 聊天流底 */
@@ -25,6 +26,21 @@
   --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.04), 0 1px 3px rgba(16, 24, 40, 0.06);
   --shadow-md: 0 8px 30px rgba(16, 24, 40, 0.12);
 
+  /* hover 底色(深色下黑色半透明失效,token 化随主题翻转) */
+  --hover: rgba(17, 19, 24, 0.05);
+  --hover-strong: rgba(17, 19, 24, 0.08);
+
+  /* 语义色柔底/边({色}-{变体} 惯例,对齐 --accent-soft/--accent-border) */
+  --ok-soft: rgba(16, 185, 129, 0.1);
+  --warn-soft: rgba(245, 158, 11, 0.12);
+  --danger-soft: rgba(239, 68, 68, 0.12);
+  --warn-border: #FDE68A;
+  --danger-border: rgba(229, 72, 77, 0.45);
+
+  /* me 气泡(accent-soft 底)内行内代码 */
+  --code-inline-bg: rgba(255, 255, 255, 0.6);
+  --code-inline-border: rgba(91, 106, 255, 0.2);
+
   /* ---- overlay 体系(全工程唯一覆盖层真源)----
    * z-index 量纲(严禁业务组件自造覆盖层级):
    *   60 模态窗口(Modal) < 90 确认对话框(Dialog,压一切)
@@ -37,6 +53,44 @@
   --scrollbar-thumb: #D6D9E0;         /* 默认 thumb:低对比,比 --border 深一档 */
   --scrollbar-thumb-hover: #A8AEB8;   /* hover 加深 */
   --scrollbar-size: 8px;              /* 统一细条(替代系统默认 17px) */
+}
+
+/* ---- 深色主题(两态手动切换,真源 composables/useTheme.ts;非颜色常量 z-index/尺寸不重复)---- */
+html[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #0F1117;
+  --panel: #171A21;
+  --panel-soft: #13161C;              /* 聊天流底,比 panel 沉(镜像浅色方向) */
+  --panel-softer: #1E222B;            /* 嵌套块比 panel 亮一档(深色 UI 惯例) */
+  --border: #2A2F3A;
+  --border-soft: #22262F;
+  --text: #E6E8EE;
+  --text-muted: #C3C8D2;
+  --muted: #8B93A1;
+  --faint: #626B7A;
+  --accent: #7B8AFF;                  /* 提亮一档保深底文字对比 */
+  --accent-soft: rgba(91, 106, 255, 0.16);
+  --accent-border: rgba(91, 106, 255, 0.35);
+  --accent-deep: #B9C2FF;             /* 语义反转:浅色=深靛字,深色=浅靛字 */
+  --danger: #F26D72;
+  --ok: #34D399;
+  --warn: #FBBF24;
+  --sidebar-bg: #171A21;              /* 镜像浅色关系:sidebar-bg ≡ panel */
+  --sidebar-text: #C3C8D2;            /* ≡ --text-muted */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 8px 30px rgba(0, 0, 0, 0.5);
+  --overlay-dim: rgba(0, 0, 0, 0.6);
+  --scrollbar-thumb: #343A46;
+  --scrollbar-thumb-hover: #4A5162;
+  --hover: rgba(255, 255, 255, 0.06);
+  --hover-strong: rgba(255, 255, 255, 0.10);
+  --ok-soft: rgba(52, 211, 153, 0.14);
+  --warn-soft: rgba(251, 191, 36, 0.14);
+  --danger-soft: rgba(242, 109, 114, 0.16);
+  --warn-border: rgba(251, 191, 36, 0.35);
+  --danger-border: rgba(242, 109, 114, 0.5);
+  --code-inline-bg: rgba(255, 255, 255, 0.12);
+  --code-inline-border: rgba(123, 138, 255, 0.35);
 }
 
 html, body, #app { height: 100%; }
@@ -115,8 +169,8 @@ input:focus, textarea:focus, select:focus {
   background: var(--border-soft);
   color: var(--muted);
 }
-.pill.ok { background: #ECFDF3; color: #047857; }
-.pill.warn { background: #FFFBEB; color: #B45309; }
+.pill.ok { background: var(--ok-soft); color: var(--ok); }
+.pill.warn { background: var(--warn-soft); color: var(--warn); }
 
 /* ---- overlay 公共层(原语 Modal/DialogHost 共用)----
  * .overlay-mask  遮罩:fixed 全屏、统一浓度;层级 token 见 :root
@@ -259,20 +313,21 @@ input:focus, textarea:focus, select:focus {
 }
 
 .row.me .markdown-body :not(pre) > code {
-  background: rgba(255, 255, 255, 0.6);
-  border-color: rgba(91, 106, 255, 0.2);
+  background: var(--code-inline-bg);
+  border-color: var(--code-inline-border);
 }
 
 /* 现代暗调代码块 */
 .code-block-wrap {
   margin: 8px 0;
   border-radius: 8px;
-  background: #181A20;
+  background: #181A20;              /* 代码块双主题同底(暗底);深色下与 --panel 近同色,靠下条边框区分 */
   color: #E2E8F0;
   overflow: hidden;
   font-size: 12px;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
 }
+html[data-theme='dark'] .code-block-wrap { border: 1px solid var(--border); }
 .code-block-header {
   display: flex;
   justify-content: space-between;

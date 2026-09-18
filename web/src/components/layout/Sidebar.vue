@@ -6,6 +6,7 @@ import { api, type RoomListItem } from '@/services/api';
 import { dialog } from '@/composables/useDialog';
 import { downloadFile } from '@/utils/download';
 import { currentLang, setLang } from '@/i18n';
+import { useTheme, setTheme } from '@/composables/useTheme';
 import NewRoomModal from '@/components/modals/NewRoomModal.vue';
 import CharacterModal from '@/components/modals/CharacterModal.vue';
 import SidebarCard from '@/components/ui/SidebarCard.vue';
@@ -13,6 +14,11 @@ import logoUrl from '@/assets/icon.png';
 
 const { t } = useI18n();
 const lang = computed(() => currentLang());
+const { theme } = useTheme();
+
+function toggleTheme() {
+  setTheme(theme.value === 'dark' ? 'light' : 'dark');
+}
 
 const emit = defineEmits<{ (e: 'enter-room', id: string): void }>();
 
@@ -183,6 +189,7 @@ onUnmounted(() => {
       <img class="brand-mark" :src="logoUrl" alt="AI Chatroom logo" />
       <span class="brand-name">{{ t('app.title') }}</span>
       <div class="lang-switch" :title="lang === 'zh' ? 'Switch to English' : '切换为中文'">
+        <button type="button" class="lang-btn" :title="t('sidebar.themeToggle')" @click="toggleTheme">{{ theme === 'dark' ? '☀' : '☾' }}</button>
         <button type="button" class="lang-btn" :class="{ active: lang === 'zh' }" @click="setLang('zh')">{{ t('sidebar.langZh') }}</button>
         <button type="button" class="lang-btn" :class="{ active: lang === 'en' }" @click="setLang('en')">{{ t('sidebar.langEn') }}</button>
       </div>
@@ -273,7 +280,7 @@ onUnmounted(() => {
 
 .lang-btn:hover {
   opacity: 1;
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--hover);
 }
 
 .lang-btn.active {

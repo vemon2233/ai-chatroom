@@ -146,7 +146,7 @@ function onCloseClick(e: MouseEvent, s: Session) {
 }
 
 .tab-item:hover {
-  background: rgba(0, 0, 0, 0.04);
+  background: var(--hover);
   color: var(--text);
 }
 
@@ -220,7 +220,7 @@ function onCloseClick(e: MouseEvent, s: Session) {
 }
 
 .tab-add:hover {
-  background: rgba(0, 0, 0, 0.06);
+  background: var(--hover-strong);
   color: var(--text);
 }
 </style>

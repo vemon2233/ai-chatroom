@@ -31,6 +31,7 @@ export const en: I18nShape<typeof zh> = {
     importFailedBody: 'File "{file}" failed to import: {reason}',
     langZh: '中',
     langEn: 'EN',
+    themeToggle: 'Toggle dark / light theme',
   },
   common: {
     cancel: 'Cancel',

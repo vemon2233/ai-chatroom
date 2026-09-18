@@ -256,9 +256,9 @@ function handleExport() {
 }
 
 .mode-pill.stateful {
-  background: rgba(245, 158, 11, 0.12);
-  color: #f59e0b;
-  border-color: rgba(245, 158, 11, 0.35);
+  background: var(--warn-soft);
+  color: var(--warn);
+  border-color: var(--warn-soft);
 }
 
 .mode-pill.stateful:hover {

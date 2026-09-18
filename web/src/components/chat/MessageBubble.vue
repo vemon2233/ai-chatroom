@@ -552,14 +552,14 @@ function onBubbleClick(e: MouseEvent) {
   border: none;
 }
 .msg-act-btn.copied {
-  color: #10b981;
+  color: var(--ok);
 }
 .row.me .msg-act-btn {
   color: var(--accent-deep);
   opacity: 0.6;
 }
 .row.me .msg-act-btn.copied {
-  color: #10b981;
+  color: var(--ok);
   opacity: 1;
 }
 
@@ -570,10 +570,29 @@ function onBubbleClick(e: MouseEvent) {
   display: block;
 }
 
+/* 协议药丸色彩:组件局部变量(--hp-*),深色经下方 :global 块整体翻转——
+ * 只翻变量不动规则(与全局 token 机制同构)。改名 .row 需同步该块。 */
+.row {
+  --hp-green-t: #059669;   --hp-green-b: rgba(5, 150, 105, 0.1);
+  --hp-red-t: #dc2626;     --hp-red-b: rgba(220, 38, 38, 0.1);
+  --hp-indigo-t: #4f46e5;  --hp-indigo-b: rgba(79, 70, 229, 0.1);
+  --hp-blue-t: #2563eb;    --hp-blue-b: rgba(37, 99, 235, 0.1);
+  --hp-violet-t: #7c3aed;  --hp-violet-b: rgba(124, 58, 237, 0.1);
+  --hp-gray-b: rgba(107, 114, 128, 0.1);
+}
+:global(html[data-theme='dark']) .row {
+  --hp-green-t: #6EE7B7;   --hp-green-b: rgba(110, 231, 183, 0.14);
+  --hp-red-t: #FCA5A5;     --hp-red-b: rgba(252, 165, 165, 0.14);
+  --hp-indigo-t: #A5B4FC;  --hp-indigo-b: rgba(165, 180, 252, 0.14);
+  --hp-blue-t: #93C5FD;    --hp-blue-b: rgba(147, 197, 253, 0.14);
+  --hp-violet-t: #C4B5FD;  --hp-violet-b: rgba(196, 181, 253, 0.14);
+  --hp-gray-b: rgba(156, 163, 175, 0.14);
+}
+
 .private-round-pill {
   font-size: 10.5px;
-  color: #7c3aed;
-  background: rgba(124, 58, 237, 0.1);
+  color: var(--hp-violet-t);
+  background: var(--hp-violet-b);
   padding: 1px 6px;
   border-radius: 6px;
   font-weight: 550;
@@ -588,24 +607,24 @@ function onBubbleClick(e: MouseEvent) {
   line-height: normal;
 }
 .handshake-pill.start {
-  color: #4f46e5;
-  background: rgba(79, 70, 229, 0.1);
+  color: var(--hp-indigo-t);
+  background: var(--hp-indigo-b);
 }
 .handshake-pill.agree {
-  color: #059669;
-  background: rgba(5, 150, 105, 0.1);
+  color: var(--hp-green-t);
+  background: var(--hp-green-b);
 }
 .handshake-pill.reject {
-  color: #dc2626;
-  background: rgba(220, 38, 38, 0.1);
+  color: var(--hp-red-t);
+  background: var(--hp-red-b);
 }
 .handshake-pill.idea {
-  color: #2563eb;
-  background: rgba(37, 99, 235, 0.1);
+  color: var(--hp-blue-t);
+  background: var(--hp-blue-b);
 }
 .handshake-pill.reply {
   color: var(--muted);
-  background: rgba(107, 114, 128, 0.1);
+  background: var(--hp-gray-b);
 }
 
 .baton-pill {
@@ -616,16 +635,16 @@ function onBubbleClick(e: MouseEvent) {
   line-height: normal;
 }
 .baton-pill.baton {
-  color: #2563eb;
-  background: rgba(37, 99, 235, 0.1);
+  color: var(--hp-blue-t);
+  background: var(--hp-blue-b);
 }
 .baton-pill.to-user {
-  color: #059669;
-  background: rgba(5, 150, 105, 0.1);
+  color: var(--hp-green-t);
+  background: var(--hp-green-b);
 }
 .baton-pill.end {
   color: var(--muted);
-  background: rgba(107, 114, 128, 0.1);
+  background: var(--hp-gray-b);
 }
 
 @keyframes caret { 50% { opacity: 0.25; } }

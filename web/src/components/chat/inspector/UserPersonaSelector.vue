@@ -161,9 +161,9 @@ const currentPersona = computed(() => props.modelValue);
 /* 锁定提示条：柔和的暖黄微光，无黑底侵染 */
 .locked-hint {
   font-size: 11.5px;
-  color: #b45309;
-  background: #fef3c7;
-  border: 1px solid #fde68a;
+  color: var(--warn);
+  background: var(--warn-soft);
+  border: 1px solid var(--warn-border);
   border-radius: 6px;
   padding: 6px 10px;
   line-height: 1.4;

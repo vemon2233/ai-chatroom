@@ -307,7 +307,7 @@ async function onStop() {
 }
 .cancel-edit-btn:hover {
   opacity: 1;
-  background: rgba(0, 0, 0, 0.05);
+  background: var(--hover);
 }
 
 /* 语法速记:常驻小灰字 */
