@@ -29,9 +29,14 @@ server/src/
 │                         纯常量叶子,core/store/web 三方共用;匹配=中英并集,prompt 教学=
 │                         按语言单侧经 batonTagFor/dmTagFor/handshakeTagFor 取)
 ├── core/                 领域层
-│   ├── types.ts          领域类型(Character/MemberConfig/ChatMessage/RoomConfig/RoomState)
+│   ├── types.ts          领域类型(Character/MemberConfig/ChatMessage/RoomConfig/RoomState;
+│   │                     RoomKind='chat'|'task'——任务房:projectPath 必填/mode 恒 baton/无
+│   │                     scout/任务 prompt 段族;ADR-0001,引擎共用仅表皮分支)
+│   ├── extraArgs.ts      extraArgs 白名单叶子(仅 --model/--thinking-budget;全部入口收口)
+│   ├── skills.ts         skills 目录扫描叶子(~/.claude/skills + 项目 .claude/skills)
 │   ├── i18n/             语言层:lang.ts(Lang/LangGetter/DEFAULT_LANG)+ messages.ts
-│   │                     (A 类消息词典+t)+ promptTexts.ts(B 类 prompt 段落词典+pt);
+│   │                     (A 类消息词典+t)+ promptTexts.ts(B 类 prompt 段落词典+pt;
+│   │                     含任务段族 t.workspace/t.contract);
 │   │                     语言经 getLang 构造注入(未注入恒 zh——现状不变量),纯函数组装器
 │   │                     显式 lang 参数;系统消息/prompt 发射时刻按语言烘焙,ChatMessage
 │   │                     契约零改动,历史消息保持落库时语言
@@ -143,5 +148,19 @@ web/src/
 ## 已知边界(v2 接受)
 
 - gemini 适配器的群聊实测受免费配额限制(e2e 验证到 sessionId 捕获与 API 错误解析,qwen 复用同 auth 已全通)
+- **权限三档已真实化**(ADR-0002):claude 三档带 `--disallowedTools` 硬闸(readonly 拒写/命令/网络;readwrite 拒命令/网络/子代理;full 不限);**三档管工具种类不管路径**(Read/Write 不按 cwd 限制,任务房越界靠 prompt"工作仅限此项目目录"软约束);qwen `--approval-mode` 三档实测、gemini 同形按文档、codex `--sandbox` 零实测
+- extraArgs 白名单:全入口(角色创建/角色卡导入/建房/房间导入/拉角色)只放行 `--model` 与 `--thinking-budget`(单一校验函数 core/extraArgs.ts)
 - 房间删除后 JSONL 历史文件保留(不 GC)
 - 编排运行态不持久化(重启后接棒链/轮次/待命接棒者不自动恢复,发消息重新驱动)
+- 任务模式(ADR-0001):无并发上限、无断点续跑(重启杀任务,发"继续"即 resume 续跑)、无路径硬边界——三项记入 CONTEXT.md 已知边界
+
+## Agent skills
+
+### Issue tracker
+
+Issues and specs live as local markdown under `.scratch/<feature-slug>/`. See `docs/agents/issue-tracker.md`.
+
+### Domain docs
+
+Single-context: `CONTEXT.md` + `docs/adr/` at repo root. See `docs/agents/domain.md`.
+

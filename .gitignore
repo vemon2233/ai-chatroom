@@ -10,8 +10,16 @@ data/
 .env
 .env.*
 
-# 设计笔记与本地文档(不公开)
-docs/
+# 设计笔记与本地文档(不公开;adr 与 agents 例外——架构决策与 agent 工具配置入库)
+# 写法注意:不能忽略 docs/ 目录本身(目录被忽略后 git 不进入,子级 ! 例外无效),
+# 只忽略 docs/* 内容再白名单子目录
+docs/*
+!docs/adr/
+!docs/agents/
+docs/adr/*
+!docs/adr/*.md
+docs/agents/*
+!docs/agents/*.md
 
 # 本地工具与编辑器
 .claude/
