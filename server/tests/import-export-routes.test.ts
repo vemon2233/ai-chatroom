@@ -1,10 +1,31 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+// 单测:导入导出 REST 路由(角色卡导入消歧/导出 Header/房间导入导出往返/通用网关分流/交叉防护)。
+// 隔离:routes 依赖的全部 store(rooms/characters/transcript/directChats/trace/summary/settings)
+// 经模块级常量绑定 REPO_ROOT——常规手段改不了路径。
+// 用 vi.resetModules + vi.doMock('../src/paths') 在每例前以独立 REPO_ROOT 重新加载模块,
+// 测试目录完全隔离,绝不触碰真实 data/(复刻 rooms-store.test.ts 的隔离模式,
+// 曾因直接 import createRoutes 导致真实 rooms.json 被写入幽灵房间「原开发组2/通用智能房间」)。
+
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { EventEmitter } from 'node:events';
 import { Readable } from 'node:stream';
-import { createRoutes } from '../src/server/routes';
-import { MessageBus } from '../src/core/bus';
-import { ChatRoom, makeRoomConfig } from '../src/core/room';
+import { rm } from 'node:fs/promises';
+import path from 'node:path';
+import { tmpdir } from 'node:os';
 import type { AppConfig } from '../src/server/config';
+import type { ChatRoom } from '../src/core/room';
+import { MessageBus } from '../src/core/bus';
+
+const ISOLATION_ROOT = path.join(tmpdir(), `ai-chatroom-import-export-test-${process.pid}`);
+
+/** 以隔离 REPO_ROOT 重新加载路由工厂(拿到绑定隔离路径的 store 实例)。 */
+async function loadIsolatedRoutes() {
+  vi.resetModules();
+  vi.doMock('../src/paths', () => ({ REPO_ROOT: ISOLATION_ROOT }));
+  const { createRoutes } = await import('../src/server/routes');
+  return createRoutes;
+}
+
+type CreateRoutes = Awaited<ReturnType<typeof loadIsolatedRoutes>>;
 
 function mockReq(method: string, url: string, body?: Buffer | string): any {
   const stream = new Readable() as any;
@@ -84,22 +105,19 @@ const mockConfig: AppConfig = {
 describe('Import & Export REST Routes', () => {
   let bus: MessageBus;
   let rooms: Map<string, ChatRoom>;
-  let routes: ReturnType<typeof createRoutes>;
-  const createdCharIds: string[] = [];
+  let routes: ReturnType<CreateRoutes>;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     bus = new MessageBus();
     rooms = new Map();
+    const createRoutes = await loadIsolatedRoutes();
     routes = createRoutes(bus, mockConfig, rooms);
   });
 
   afterEach(async () => {
-    const { CharacterStore } = await import('../src/store/characters');
-    const store = new CharacterStore();
-    for (const id of createdCharIds) {
-      await store.remove(id).catch(() => {});
-    }
-    createdCharIds.length = 0;
+    vi.doUnmock('../src/paths');
+    vi.resetModules();
+    await rm(ISOLATION_ROOT, { recursive: true, force: true });
   });
 
   it('POST /api/characters/import 能够成功导入原生 Character JSON 并支持重名消歧', async () => {
@@ -118,7 +136,6 @@ describe('Import & Export REST Routes', () => {
 
     expect(res1.getStatusCode()).toBe(201);
     const created1 = res1.getJson();
-    if (created1?.id) createdCharIds.push(created1.id);
     expect(created1.name).toBe(baseName);
     expect(created1.persona).toBe('精通架构设计。');
 
@@ -129,7 +146,6 @@ describe('Import & Export REST Routes', () => {
 
     expect(res2.getStatusCode()).toBe(201);
     const created2 = res2.getJson();
-    if (created2?.id) createdCharIds.push(created2.id);
     expect(created2.name).toBe(`${baseName}2`);
   });
 
@@ -143,7 +159,6 @@ describe('Import & Export REST Routes', () => {
     const createRes = mockRes();
     await routes.handle(createReq, createRes.res);
     const created = createRes.getJson();
-    if (created?.id) createdCharIds.push(created.id);
 
     // 导出
     const exportReq = mockReq('GET', `/api/characters/${created.id}/export`);
@@ -161,6 +176,8 @@ describe('Import & Export REST Routes', () => {
   });
 
   it('房间导入导出往返: 导出剥离旧 sessionIds，导入重新分配独立新 ID 与消歧', async () => {
+    const { ChatRoom, makeRoomConfig } = await import('../src/core/room');
+
     // 准备一个已有房间
     const rcfg = makeRoomConfig({
       name: '原开发组',
@@ -238,7 +255,6 @@ describe('Import & Export REST Routes', () => {
     const result = res.getJson();
     expect(result.type).toBe('character');
     expect(result.character).toBeDefined();
-    if (result.id) createdCharIds.push(result.id);
   });
 
   it('POST /api/import 通用网关能够智能识别房间配置并分流', async () => {
@@ -285,5 +301,24 @@ describe('Import & Export REST Routes', () => {
     await routes.handle(crossReq2, crossRes2.res);
     expect(crossRes2.getStatusCode()).toBe(400);
     expect(crossRes2.getJson().error).toContain('角色');
+  });
+
+  it('隔离防线: 导入路由写穿的数据落在隔离 REPO_ROOT,真实 data/rooms.json 不被触碰', async () => {
+    const { readFile } = await import('node:fs/promises');
+
+    const roomPayload = JSON.stringify({
+      schema: 'ai-chatroom.room.v1',
+      name: '隔离验证房间',
+      members: [],
+    });
+    const req = mockReq('POST', '/api/rooms/import', roomPayload);
+    const res = mockRes();
+    await routes.handle(req, res.res);
+    expect(res.getStatusCode()).toBe(201);
+
+    // 隔离根下必须落库(证明路由的写穿路径真实执行,而非被 mock 掩盖)
+    const isolatedRaw = await readFile(path.join(ISOLATION_ROOT, 'data', 'rooms.json'), 'utf8');
+    const isolated = JSON.parse(isolatedRaw);
+    expect(Object.values(isolated).some((r: any) => r.name === '隔离验证房间')).toBe(true);
   });
 });
