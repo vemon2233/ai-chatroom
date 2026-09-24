@@ -143,6 +143,8 @@ export const api = {
 
   // 会话用量与开销度量统计
   roomStats: (roomId: string) => req<import('@server/core/types').SessionStats>(`/api/rooms/${roomId}/stats`),
+  roomGit: (roomId: string) =>
+    req<{ git: { branch: string; dirty: boolean } | null }>(`/api/rooms/${roomId}/git`),
   directStats: (characterId: string) => req<import('@server/core/types').SessionStats>(`/api/characters/${characterId}/stats`),
 
   // 导入导出 API

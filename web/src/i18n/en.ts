@@ -88,6 +88,17 @@ export const en: I18nShape<typeof zh> = {
     foldDown: '… +{n} lines (click to expand)',
     foldUp: 'Collapse',
   },
+  hud: {
+    title: 'Task HUD',
+    total: 'Total',
+    current: 'Current',
+    modelDefault: 'default model',
+    permReadonly: 'Read-only',
+    permReadwrite: 'Read-write',
+    permFull: 'Full access',
+    turns: 'Turn {n}',
+    todos: '{done}/{total} done',
+  },
   form: {
     // AddMemberPanel
     addMemberTitle: 'Add Members',

@@ -85,6 +85,17 @@ export const zh = {
     foldDown: '… +{n} 行(点击展开)',
     foldUp: '收起',
   },
+  hud: {
+    title: '任务仪表',
+    total: '累计',
+    current: '本次',
+    modelDefault: '默认模型',
+    permReadonly: '只读',
+    permReadwrite: '读写',
+    permFull: '完全权限',
+    turns: '第 {n} 轮发言',
+    todos: '{done}/{total} 已完成',
+  },
   form: {
     // AddMemberPanel
     addMemberTitle: '添加成员',

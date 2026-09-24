@@ -105,6 +105,7 @@ export const claudeAdapter: AgentAdapter = {
                 inputTokens: obj.usage.input_tokens,
                 outputTokens: obj.usage.output_tokens,
                 costUsd: obj.total_cost_usd,
+                cacheReadTokens: obj.usage.cache_read_input_tokens, // context 占比估算:(input+cacheRead)/窗口
               }
             : undefined;
           onEvent({

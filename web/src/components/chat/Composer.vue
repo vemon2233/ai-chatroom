@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n';
 import { setEditingMessage, sessionActions, store, sayDirect, stopDirect } from '@/store';
 import { api } from '@/services/api';
 import { detectMention, detectSlashCommand, type TextSegment } from '@/utils/mentions';
+import HudPanel from './HudPanel.vue';
 
 const { t } = useI18n();
 
@@ -339,14 +340,15 @@ async function onStop() {
       <button class="cancel-edit-btn" type="button" @click="cancelEdit">{{ t('chat.cancelEdit') }}</button>
     </div>
 
-    <!-- 语法提示:常驻可见 -->
-    <div v-else class="syntax-hint">
+    <!-- 语法提示(左) + HUD 迷你条(右,工单14:输入框上方右缘,点击上弹仪表) -->
+    <div v-else class="syntax-hint hud-row-flex">
       <template v-if="mode === 'direct'">
-        {{ t('chat.hintDirect', { name: store.currentDirectChar?.name || t('chat.charFallback') }) }}
+        <span>{{ t('chat.hintDirect', { name: store.currentDirectChar?.name || t('chat.charFallback') }) }}</span>
       </template>
       <template v-else>
-        {{ t('chat.hintRoom') }}
+        <span>{{ t('chat.hintRoom') }}</span>
       </template>
+      <HudPanel :mode="mode" />
     </div>
 
     <div class="input-row">
@@ -465,7 +467,7 @@ async function onStop() {
   background: var(--hover);
 }
 
-/* 语法速记:常驻小灰字 */
+/* 语法速记:常驻小灰字(左) + HUD 迷你条(右)同行 */
 .syntax-hint {
   font-size: 11px;
   color: var(--faint);
@@ -473,6 +475,20 @@ async function onStop() {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.hud-row-flex {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  overflow: visible; /* HUD 上弹面板不能被裁 */
+}
+
+.hud-row-flex > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* 微信三段:附件钮 | 输入框 | 发送/停止 */

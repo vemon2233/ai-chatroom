@@ -29,7 +29,7 @@ export interface AgentEvent {
   /** 工具结果事件:工具名 + 输出原文(id 为对应 tool_use id,配对渲染三态) */
   toolResult?: { name: string; output: string; id?: string };
   /** token 用量(尽力解析,字段缺失则略) */
-  usage?: { inputTokens?: number; outputTokens?: number; costUsd?: number };
+  usage?: { inputTokens?: number; outputTokens?: number; costUsd?: number; cacheReadTokens?: number };
   /** 本次发言的 CLI session id(发现即上报,供下次 resume) */
   sessionId?: string;
 }

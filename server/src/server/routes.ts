@@ -10,6 +10,26 @@ import { getAdapter as getAdapterByKind } from '../adapters/index';
 import { Admin } from '../core/admin';
 import { filterExtraArgs } from '../core/extraArgs';
 import { listSkills } from '../core/skills';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+
+const execFileP = promisify(execFile);
+
+/** git 状态探测(HUD 工单15):分支 + 脏标记。非 git 目录/无 git → null */
+async function probeGit(projectPath: string): Promise<{ git: { branch: string; dirty: boolean } | null }> {
+  try {
+    const opts = { cwd: projectPath, timeout: 3000, windowsHide: true } as const;
+    const { stdout: branchOut } = await execFileP('git', ['branch', '--show-current'], opts);
+    const branch = branchOut.trim();
+    if (!branch) return { git: null }; // detached/非 git
+    const { stdout: statusOut } = await execFileP('git', ['status', '--porcelain'], opts);
+    return { git: { branch, dirty: statusOut.trim().length > 0 } };
+  } catch {
+    return { git: null };
+  }
+}
+
+const gitStatusCache = new Map<string, { at: number; data: { git: { branch: string; dirty: boolean } | null } }>();
 import { getTrace, listTraces, computeSessionStats, saveTrace } from '../store/trace';
 import { listSummarySnapshots, getSummarySnapshot, getSummary, saveSummarySnapshot } from '../store/summary';
 import { parseCharacterCard, detectImportType } from '../core/characterCard';
@@ -777,6 +797,17 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
           } catch (e: any) {
             return json(res, 404, { error: e?.message || String(e) });
           }
+        }
+
+        // git 状态(HUD 工单15):绑定项目的分支+脏状态,10s 缓存(高频轮询防抖)
+        if (sub === 'git' && method === 'GET') {
+          const p = room?.config.projectPath;
+          if (!p) return json(res, 200, { git: null });
+          const hit = gitStatusCache.get(p);
+          if (hit && Date.now() - hit.at < 10_000) return json(res, 200, hit.data);
+          const data = await probeGit(p);
+          gitStatusCache.set(p, { at: Date.now(), data });
+          return json(res, 200, data);
         }
 
         // 添加成员(批量)

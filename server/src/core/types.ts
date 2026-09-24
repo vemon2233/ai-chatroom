@@ -79,7 +79,7 @@ export interface ChatMessage {
     thinking?: string;
     /** 工作过程时间线:思考/工具调用/结果按发生顺序 */
     trace?: TraceEntry[];
-    usage?: { inputTokens?: number; outputTokens?: number; costUsd?: number };
+    usage?: { inputTokens?: number; outputTokens?: number; costUsd?: number; cacheReadTokens?: number };
     /** 真实耗时 ms(由 harness 计时,适配器不得硬编码) */
     durationMs?: number;
     adapter: string;
@@ -114,7 +114,7 @@ export interface PrivateDigest {
   coveredMessageId: string;   // 锚点:最后一条被纪要覆盖的私聊消息 id
   updatedAt: number;
   durationMs?: number;
-  usage?: { inputTokens?: number; outputTokens?: number; costUsd?: number };
+  usage?: { inputTokens?: number; outputTokens?: number; costUsd?: number; cacheReadTokens?: number };
 }
 
 /** 讨论摘要数据模型 */
@@ -130,7 +130,7 @@ export interface DiscussionSummary {
   privateDigests?: Record<string, PrivateDigest>;
   /** 本次大模型生成的耗时与用量(用于 Trace 与账单统计归集) */
   durationMs?: number;
-  usage?: { inputTokens?: number; outputTokens?: number; costUsd?: number };
+  usage?: { inputTokens?: number; outputTokens?: number; costUsd?: number; cacheReadTokens?: number };
 }
 
 /** 摘要历史快照(单个独立文件存储) */
@@ -188,7 +188,7 @@ export interface AgentTraceLog {
     result: string;
     thinking?: string;
     trace?: TraceEntry[];
-    usage?: { inputTokens?: number; outputTokens?: number; costUsd?: number };
+    usage?: { inputTokens?: number; outputTokens?: number; costUsd?: number; cacheReadTokens?: number };
   };
 }
 
