@@ -35,3 +35,17 @@ export function detectMention(before: string): { start: number; query: string } 
   const query = m[1] ?? '';
   return { start: before.length - query.length - 1, query };
 }
+
+// ---------- 斜杠命令检测(工单08:与 @ 弹层同范式) ----------
+
+/**
+ * 检测光标前是否处于"激活的 / 命令"中。
+ * 仅当 `/` 是输入的**第一个字符**(行首)时触发——命令是行级指令,不是行内 token;
+ * 与 @ 的差异:@ 是提及可出现在句中,/ 是命令必须在开头。
+ */
+export function detectSlashCommand(before: string): { start: number; query: string } | null {
+  const m = before.match(/^\/([a-zA-Z0-9_-]*)$/);
+  if (!m) return null;
+  const query = m[1] ?? '';
+  return { start: 0, query };
+}

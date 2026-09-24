@@ -26,6 +26,7 @@ export interface RoomListItem {
 }
 export interface CreateRoomBody {
   name: string;
+  kind?: 'chat' | 'task';
   color?: string;
   topic: string;
   speechLength?: 'short' | 'normal' | 'long';
@@ -78,6 +79,12 @@ export const api = {
     }),
 
   rooms: () => req<RoomListItem[]>('/api/rooms'),
+  roomSkills: (id: string) =>
+    req<{ skills: Array<{ name: string; from: 'user' | 'project' }> }>(`/api/rooms/${id}/skills`),
+  roomModel: (id: string, memberId: string, model: string) =>
+    req<RoomState>(`/api/rooms/${id}/model`, { method: 'POST', body: JSON.stringify({ memberId, model }) }),
+  roomCompact: (id: string, memberId?: string) =>
+    req<{ ok: boolean; reason?: string }>(`/api/rooms/${id}/compact`, { method: 'POST', body: JSON.stringify({ memberId }) }),
   createRoom: (body: CreateRoomBody) =>
     req<{ id: string; state: RoomState }>('/api/rooms', { method: 'POST', body: JSON.stringify(body) }),
   deleteRoom: (id: string) => req<{ ok: true }>(`/api/rooms/${id}`, { method: 'DELETE' }),

@@ -8,6 +8,7 @@ import { downloadFile } from '@/utils/download';
 import { currentLang, setLang } from '@/i18n';
 import { useTheme, setTheme } from '@/composables/useTheme';
 import NewRoomModal from '@/components/modals/NewRoomModal.vue';
+import NewTaskModal from '@/components/modals/NewTaskModal.vue';
 import CharacterModal from '@/components/modals/CharacterModal.vue';
 import SidebarCard from '@/components/ui/SidebarCard.vue';
 import logoUrl from '@/assets/icon.png';
@@ -24,10 +25,51 @@ const emit = defineEmits<{ (e: 'enter-room', id: string): void }>();
 
 const showNewRoom = ref(false);
 const showCharModal = ref(false);
+const showNewTask = ref(false);
 const fileInputRef = ref<HTMLInputElement | null>(null);
 
-function switchTab(tab: 'rooms' | 'chars') {
+function switchTab(tab: 'rooms' | 'chars' | 'tasks') {
   store.sidebarTab = tab;
+}
+
+// ---------- 任务 tab(工单06):kind=task 房间分流,三态灯 + 活跃倒序 ----------
+
+/** 任务房列表(kind=task),按最后活跃倒序 */
+const taskRooms = computed(() =>
+  store.rooms
+    .filter((r) => (r.config as any).kind === 'task')
+    .slice()
+    .sort((a, b) => (b.lastMessage?.ts ?? b.config.createdAt) - (a.lastMessage?.ts ?? a.config.createdAt)),
+);
+
+/** 聊天房列表(kind 非 task),保持后端返回序 */
+const chatRooms = computed(() => store.rooms.filter((r) => (r.config as any).kind !== 'task'));
+
+/** 任务三态:空闲/进行中/出错——成员状态直通映射(任一进行中即进行中;全 error 才出错) */
+function taskStatus(r: RoomListItem): 'idle' | 'running' | 'error' {
+  const st = Object.values(r.statuses ?? {});
+  if (st.some((s) => s === 'thinking' || s === 'streaming')) return 'running';
+  if (st.length > 0 && st.every((s) => s === 'error')) return 'error';
+  return 'idle';
+}
+
+/** 项目名(路径尾段) */
+function taskProject(r: RoomListItem): string {
+  const p = r.config.projectPath ?? '';
+  const tail = p.split(/[\\/]/).filter(Boolean).pop();
+  return tail ?? '';
+}
+
+/** 最后动态时间(相对) */
+function taskLastActive(r: RoomListItem): string {
+  const ts = r.lastMessage?.ts ?? r.config.createdAt;
+  const diff = Date.now() - ts;
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return '·';
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h`;
+  return `${Math.floor(h / 24)}d`;
 }
 
 function onExportRoom(r: RoomListItem) {
@@ -197,6 +239,7 @@ onUnmounted(() => {
 
     <header class="tabs">
       <button class="tab" :class="{ active: store.sidebarTab === 'rooms' }" @click="switchTab('rooms')">{{ t('sidebar.rooms') }}</button>
+      <button class="tab" :class="{ active: store.sidebarTab === 'tasks' }" @click="switchTab('tasks')">{{ t('sidebar.tasks') }}</button>
       <button class="tab" :class="{ active: store.sidebarTab === 'chars' }" @click="switchTab('chars')">{{ t('sidebar.chars') }}</button>
     </header>
 
@@ -206,11 +249,38 @@ onUnmounted(() => {
         <button class="import-btn" @click="triggerImport">{{ t('sidebar.import') }}</button>
       </div>
       <div class="list">
-        <SidebarCard v-for="r in store.rooms" :key="r.config.id" :title="r.config.name" :badge="`${r.config.members.length}${t('sidebar.memberUnit')}`"
+        <SidebarCard v-for="r in chatRooms" :key="r.config.id" :title="r.config.name" :badge="`${r.config.members.length}${t('sidebar.memberUnit')}`"
           :sub="roomSub(r)" :color="r.config.color" :active="store.activeSession?.type === 'room' && store.activeSession.id === r.config.id"
           :can-export="true" :export-title="t('sidebar.exportCfg')" @click="openRoom(r.config.id)" @export="onExportRoom(r)"
           @remove="onDeleteRoom(r.config.id, r.config.name)" />
-        <div v-if="store.rooms.length === 0" class="list-empty">{{ t('sidebar.noRooms') }}</div>
+        <div v-if="chatRooms.length === 0" class="list-empty">{{ t('sidebar.noRooms') }}</div>
+      </div>
+    </div>
+
+    <div v-show="store.sidebarTab === 'tasks'" class="panel">
+      <div class="actions">
+        <button class="new-btn" @click="showNewTask = true">{{ t('sidebar.newTask') }}</button>
+        <button class="import-btn" @click="triggerImport">{{ t('sidebar.import') }}</button>
+      </div>
+      <div class="list">
+        <div
+          v-for="r in taskRooms"
+          :key="r.config.id"
+          class="task-card"
+          :class="{ active: store.activeSession?.type === 'room' && store.activeSession.id === r.config.id }"
+          @click="openRoom(r.config.id)"
+        >
+          <span class="task-dot" :class="taskStatus(r)"></span>
+          <div class="task-info">
+            <div class="task-name">{{ r.config.name }}</div>
+            <div class="task-sub">
+              <span v-if="taskProject(r)" class="task-proj">{{ taskProject(r) }}</span>
+              <span class="task-time">{{ taskLastActive(r) }}</span>
+            </div>
+          </div>
+          <button class="task-del" :title="t('sidebar.delete')" @click.stop="onDeleteRoom(r.config.id, r.config.name)">×</button>
+        </div>
+        <div v-if="taskRooms.length === 0" class="list-empty">{{ t('sidebar.noTasks') }}</div>
       </div>
     </div>
 
@@ -228,6 +298,7 @@ onUnmounted(() => {
     </div>
 
     <NewRoomModal v-model="showNewRoom" />
+    <NewTaskModal v-model="showNewTask" />
     <CharacterModal v-model="showCharModal" />
 
     <!-- 隐藏的通用文件导入 input (自动嗅探角色卡或房间配置) -->
@@ -400,6 +471,103 @@ onUnmounted(() => {
 
 .new-btn:hover {
   opacity: 0.88;
+}
+
+.new-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* ---------- 任务卡(工单06) ---------- */
+.task-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.task-card:hover {
+  background: var(--hover);
+}
+
+.task-card.active {
+  background: var(--accent-soft);
+}
+
+.task-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--faint);
+}
+
+.task-dot.running {
+  background: #4caf7d;
+  box-shadow: 0 0 0 3px rgba(76, 175, 125, 0.18);
+}
+
+.task-dot.error {
+  background: #d45a5a;
+}
+
+.task-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.task-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-sub {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.task-proj {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-time {
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.task-del {
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  color: var(--faint);
+  font-size: 15px;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 4px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.task-card:hover .task-del {
+  opacity: 0.8;
+}
+
+.task-del:hover {
+  color: #d45a5a;
 }
 
 .import-btn {

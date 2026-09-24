@@ -48,6 +48,9 @@ const contextMode = ref<'stateless' | 'stateful'>('stateless');
 const userPersona = ref<UserPersonaSnapshot | null>(null);
 
 const isCreate = () => props.mode === 'create';
+/** 任务房:隐藏聊天概念字段(讨论模式/发言长度/发言上限/上下文模式;工单09)
+ *  task 的 mode 恒 baton、上下文默认 stateful,均非用户决策项 */
+const isTask = () => props.room?.kind === 'task';
 
 watch(
   () => props.room,
@@ -154,7 +157,7 @@ defineExpose({ submit, reset });
       <UserPersonaSelector v-model="userPersona" :is-locked="isLocked" />
     </div>
 
-    <div class="grid2-eq">
+    <div v-if="!isTask()" class="grid2-eq">
       <div class="form-row">
         <label class="nowrap-label">{{ t('form.speechLength') }}<span v-if="isCreate()" class="field-hint">{{ t('form.editableHint') }}</span></label>
         <select v-model="speechLength">
@@ -169,8 +172,8 @@ defineExpose({ submit, reset });
       </div>
     </div>
 
-    <!-- 建时锁定区:settings 模式禁用 -->
-    <div class="form-row" :class="{ 'row-locked': !isCreate() }">
+    <!-- 建时锁定区:settings 模式禁用;任务房不渲染(讨论模式恒 baton 非用户项) -->
+    <div v-if="!isTask()" class="form-row" :class="{ 'row-locked': !isCreate() }">
       <label>{{ t('form.modeLabel') }}<span v-if="!isCreate()" class="lock-pill">{{ t('form.lockedAfterCreate') }}</span></label>
       <div class="perm-row">
         <label class="perm" :class="{ sel: mode === 'baton', dis: !isCreate() }">
@@ -184,7 +187,7 @@ defineExpose({ submit, reset });
       </div>
     </div>
 
-    <div class="form-row" :class="{ 'row-locked': !isCreate() }">
+    <div v-if="!isTask()" class="form-row" :class="{ 'row-locked': !isCreate() }">
       <label>{{ t('form.contextModeLabel') }}<span v-if="!isCreate()" class="lock-pill">{{ t('form.lockedAfterCreate') }}</span></label>
       <div class="perm-row">
         <label class="perm" :class="{ sel: contextMode === 'stateless', dis: !isCreate() }">

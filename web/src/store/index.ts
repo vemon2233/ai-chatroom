@@ -56,7 +56,7 @@ export const store = reactive({
   directStream: null as StreamBuf | null,
   directStatus: 'idle' as 'idle' | 'thinking' | 'streaming' | 'error',
 
-  sidebarTab: 'rooms' as 'rooms' | 'chars',
+  sidebarTab: 'rooms' as 'rooms' | 'chars' | 'tasks',
   openSessions: [] as Session[],
 
   // 右侧边栏 Inspector 统一激活 Tab ('summary' | 'stats' | 'logs' | 'manage' | null)

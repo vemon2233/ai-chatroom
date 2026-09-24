@@ -3,7 +3,7 @@ import { computed, nextTick, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { setEditingMessage, sessionActions, store, sayDirect, stopDirect } from '@/store';
 import { api } from '@/services/api';
-import { detectMention, type TextSegment } from '@/utils/mentions';
+import { detectMention, detectSlashCommand, type TextSegment } from '@/utils/mentions';
 
 const { t } = useI18n();
 
@@ -51,13 +51,17 @@ function cancelEdit() {
   nextTick(() => autoGrow());
 }
 
-// ---------- 微信式 @ 弹选 ----------
+// ---------- 微信式 @ 弹选 + 行首 / 命令弹层(工单08) ----------
 
 /** 弹层候选:成员名 + 全员指令(@all)。按 query 前缀过滤。 */
 interface Candidate { label: string; sub: string; insert: string }
 
 const popup = ref<{ start: number; query: string } | null>(null);
 const activeIdx = ref(0);
+/** 斜杠命令弹层(与 @ 弹层互斥:行首 / 优先) */
+const slashPopup = ref<{ query: string } | null>(null);
+/** 房间可用 skills(server 扫描;房间切换/弹层打开时刷新) */
+const roomSkills = ref<Array<{ name: string; from: 'user' | 'project' }>>([]);
 
 const candidates = computed<Candidate[]>(() => {
   if (props.mode !== 'room' || !popup.value) return [];
@@ -74,7 +78,31 @@ const candidates = computed<Candidate[]>(() => {
   return list;
 });
 
+/** 命令候选:内置(/compact /model) + 动态 skills,按 query 前缀过滤 */
+const slashCandidates = computed<Candidate[]>(() => {
+  if (!slashPopup.value) return [];
+  const q = slashPopup.value.query.toLowerCase();
+  const list: Candidate[] = [
+    { label: '/compact', sub: t('slash.compactSub'), insert: '/compact' },
+    { label: '/model', sub: t('slash.modelSub'), insert: '/model' },
+  ];
+  for (const s of roomSkills.value) {
+    const name = s.name.toLowerCase();
+    if (q === '' || name.startsWith(q)) {
+      list.push({
+        label: `/${s.name}`,
+        sub: s.from === 'project' ? t('slash.skillProject') : t('slash.skillUser'),
+        insert: `/${s.name}`,
+      });
+    }
+  }
+  return q === '' ? list : list.filter((c) => c.label.toLowerCase().startsWith(q));
+});
+
 watch(candidates, (list) => {
+  if (activeIdx.value >= list.length) activeIdx.value = 0;
+});
+watch(slashCandidates, (list) => {
   if (activeIdx.value >= list.length) activeIdx.value = 0;
 });
 
@@ -83,7 +111,33 @@ function refreshPopup() {
   const el = inputEl.value;
   if (!el) return;
   const pos = el.selectionStart ?? text.value.length;
-  popup.value = detectMention(text.value.slice(0, pos));
+  const before = text.value.slice(0, pos);
+  // 行首 / 命令弹层优先(与 @ 弹层互斥:命令是行级指令)
+  if (before.startsWith('/')) {
+    const slash = detectSlashCommand(before);
+    if (slash) {
+      if (!slashPopup.value) void loadRoomSkills(); // 首次进入命令模式拉一次候选
+      slashPopup.value = { query: slash.query };
+      popup.value = null;
+      return;
+    }
+    // / 后含空格(如 skill 补充说明中)→ 不再弹
+    slashPopup.value = null;
+    popup.value = null;
+    return;
+  }
+  slashPopup.value = null;
+  popup.value = detectMention(before);
+}
+
+async function loadRoomSkills() {
+  if (props.mode !== 'room' || !store.currentRoom) return;
+  try {
+    const r = await api.roomSkills(store.currentRoom.config.id);
+    roomSkills.value = r.skills ?? [];
+  } catch {
+    roomSkills.value = [];
+  }
 }
 
 /** 弹性增高:内容超出时按 scrollHeight 长高(上限 CSS max-height),删减回缩。 */
@@ -99,27 +153,34 @@ function onInput() {
   refreshPopup();
 }
 
+/** 当前激活的弹层候选(@ 或 /;渲染与键盘导航统一走它) */
+const activeCandidates = computed<Candidate[]>(() =>
+  slashPopup.value ? slashCandidates.value : candidates.value,
+);
+
 function onKeydown(e: KeyboardEvent) {
-  // 弹层激活时接管导航键
-  if (popup.value && candidates.value.length > 0) {
+  // 弹层激活时接管导航键(@ 与 / 共用)
+  if ((popup.value || slashPopup.value) && activeCandidates.value.length > 0) {
     if (e.key === 'ArrowDown') {
       e.preventDefault();
-      activeIdx.value = (activeIdx.value + 1) % candidates.value.length;
+      activeIdx.value = (activeIdx.value + 1) % activeCandidates.value.length;
       return;
     }
     if (e.key === 'ArrowUp') {
       e.preventDefault();
-      activeIdx.value = (activeIdx.value - 1 + candidates.value.length) % candidates.value.length;
+      activeIdx.value = (activeIdx.value - 1 + activeCandidates.value.length) % activeCandidates.value.length;
       return;
     }
     if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
       e.preventDefault();
-      pickCandidate(activeIdx.value);
+      if (slashPopup.value) pickSlashCandidate(activeIdx.value);
+      else pickCandidate(activeIdx.value);
       return;
     }
     if (e.key === 'Escape') {
       e.preventDefault();
       popup.value = null;
+      slashPopup.value = null;
       return;
     }
   }
@@ -146,15 +207,93 @@ function pickCandidate(idx: number) {
   });
 }
 
+/** 选中命令候选:整行替换为命令 + 尾随空格,继续输入参数或补充说明。 */
+function pickSlashCandidate(idx: number) {
+  const c = slashCandidates.value[idx];
+  const el = inputEl.value;
+  if (!c || !el) return;
+  text.value = `${c.insert} `;
+  slashPopup.value = null;
+  nextTick(() => {
+    el.focus();
+    const pos = text.value.length;
+    el.setSelectionRange(pos, pos);
+  });
+}
+
+// ---------- 斜杠命令执行(工单08:行首 / 开头才拦截) ----------
+
+/** 首个成员 id(单成员任务房即唯一执行者;多成员房命令作用于首位) */
+function firstMemberId(): string | undefined {
+  return store.currentRoom?.config.members[0]?.id;
+}
+
+/** 解析行首命令:返回 {name, rest} 或 null(非命令文本) */
+function parseCommand(input: string): { name: string; rest: string } | null {
+  const m = input.match(/^\/([a-zA-Z0-9_-]+)\s*([\s\S]*)$/);
+  if (!m) return null;
+  return { name: m[1]!, rest: (m[2] ?? '').trim() };
+}
+
+/** 执行内置命令;返回 true 表示已拦截(不发消息)。skill 命令返回 false 走消息组装。 */
+async function execBuiltinCommand(cmd: { name: string; rest: string }): Promise<boolean> {
+  if (!store.currentRoom) return false;
+  const roomId = store.currentRoom.config.id;
+  if (cmd.name === 'compact') {
+    await api.roomCompact(roomId, firstMemberId()).catch((e) => console.error('/compact 失败:', e));
+    return true;
+  }
+  if (cmd.name === 'model') {
+    const model = cmd.rest.split(/\s+/)[0] ?? '';
+    const mid = firstMemberId();
+    if (model && mid) {
+      await api.roomModel(roomId, mid, model).catch((e) => console.error('/model 失败:', e));
+    }
+    return true;
+  }
+  return false; // 未知/内置以外 → skill 候选匹配或普通文本
+}
+
+/** skill 触发组装:命令名命中 skills 候选 → "使用 X skill 执行:<补充说明>"自然语言消息。 */
+function buildSkillPrompt(cmd: { name: string; rest: string }): string | null {
+  const hit = roomSkills.value.find((s) => s.name.toLowerCase() === cmd.name.toLowerCase());
+  if (!hit) return null;
+  const extra = cmd.rest ? `:${cmd.rest}` : '';
+  return `使用 ${hit.name} skill 执行${extra}`;
+}
+
 // ---------- 发送 ----------
 
 async function send() {
   const t = text.value.trim();
   if (!t) return;
 
+  // 行首 / 命令拦截(工单08):内置命令本地执行;skill 命令组装自然语言;未知 /xxx 当普通文本
+  const cmd = parseCommand(t);
+  if (cmd && props.mode === 'room' && store.currentRoom) {
+    if (await execBuiltinCommand(cmd)) {
+      text.value = '';
+      nextTick(() => autoGrow());
+      slashPopup.value = null;
+      popup.value = null;
+      return;
+    }
+    const skillPrompt = buildSkillPrompt(cmd);
+    if (skillPrompt) {
+      text.value = '';
+      nextTick(() => autoGrow());
+      slashPopup.value = null;
+      popup.value = null;
+      await api.say(store.currentRoom.config.id, skillPrompt);
+      return;
+    }
+    // 未知命令:不拦截,按用户语义当普通聊天文本发出
+  }
+
   text.value = '';
   nextTick(() => autoGrow()); // 清空后回缩到单行高
   popup.value = null;
+  slashPopup.value = null;
 
   const editCtx = store.editingContext;
   if (editCtx) {
@@ -243,6 +382,22 @@ async function onStop() {
             <span class="mention-sub">{{ c.sub }}</span>
           </div>
           <div class="mention-footer">{{ t('chat.mentionFooter') }}</div>
+        </div>
+
+        <!-- 斜杠命令弹层(工单08:内置命令 + skills;与 @ 弹层同款式) -->
+        <div v-if="slashPopup && slashCandidates.length" class="mention-popup">
+          <div
+            v-for="(c, i) in slashCandidates"
+            :key="c.insert"
+            class="mention-item"
+            :class="{ active: i === activeIdx }"
+            @mousedown.prevent="pickSlashCandidate(i)"
+            @mousemove="activeIdx = i"
+          >
+            <span class="mention-label">{{ c.label }}</span>
+            <span class="mention-sub">{{ c.sub }}</span>
+          </div>
+          <div class="mention-footer">{{ t('slash.footer') }}</div>
         </div>
       </div>
 
