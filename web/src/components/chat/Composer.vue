@@ -5,6 +5,8 @@ import { setEditingMessage, sessionActions, store, sayDirect, stopDirect } from 
 import { api } from '@/services/api';
 import { detectMention, detectSlashCommand, type TextSegment } from '@/utils/mentions';
 import HudPanel from './HudPanel.vue';
+import TodoPanel from './TodoPanel.vue';
+import CornerWidgets from './CornerWidgets.vue';
 
 const { t } = useI18n();
 
@@ -340,7 +342,7 @@ async function onStop() {
       <button class="cancel-edit-btn" type="button" @click="cancelEdit">{{ t('chat.cancelEdit') }}</button>
     </div>
 
-    <!-- 语法提示(左) + HUD 迷你条(右,工单14:输入框上方右缘,点击上弹仪表) -->
+    <!-- 语法提示(左) + 右下角仪表区(工单17:Todo/HUD 小条同一行,面板共享弹层列) -->
     <div v-else class="syntax-hint hud-row-flex">
       <template v-if="mode === 'direct'">
         <span>{{ t('chat.hintDirect', { name: store.currentDirectChar?.name || t('chat.charFallback') }) }}</span>
@@ -348,7 +350,7 @@ async function onStop() {
       <template v-else>
         <span>{{ t('chat.hintRoom') }}</span>
       </template>
-      <HudPanel :mode="mode" />
+      <CornerWidgets :mode="mode" />
     </div>
 
     <div class="input-row">

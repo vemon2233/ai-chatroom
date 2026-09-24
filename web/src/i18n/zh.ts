@@ -96,6 +96,10 @@ export const zh = {
     turns: '第 {n} 轮发言',
     todos: '{done}/{total} 已完成',
   },
+  todoPanel: {
+    empty: '暂无任务清单',
+    emptyHint: 'agent 使用 TodoWrite 建立任务计划后,清单会出现在这里。',
+  },
   form: {
     // AddMemberPanel
     addMemberTitle: '添加成员',

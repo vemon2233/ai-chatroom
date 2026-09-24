@@ -12,9 +12,13 @@ import type { SessionStats } from '@server/core/types';
 
 const { t } = useI18n();
 
-const props = defineProps<{ mode: 'room' | 'direct' }>();
+const props = defineProps<{
+  mode: 'room' | 'direct';
+  /** 渲染部件:bar=小条(容器横排一行)/ panel=弹层面板(容器共享弹层列堆叠) */
+  part?: 'bar' | 'panel';
+}>();
 
-const open = ref(false);
+const open = defineModel<boolean>('open', { default: false });
 const stats = ref<SessionStats | null>(null);
 
 // ---------- 数据拉取(进房/落库消息数变化时刷新) ----------
@@ -169,32 +173,6 @@ const projName = computed(() => {
   return p ? p.split(/[\\/]/).filter(Boolean).pop() ?? '' : '';
 });
 
-// ---------- Todo 面板行(工单15:落库 trace 里最新 TodoWrite 的清单) ----------
-interface TodoItemVM { content: string; status: string }
-
-const todos = ref<TodoItemVM[] | null>(null);
-
-watch(msgCount, async () => {
-  const msgs = props.mode === 'room' ? store.messages : store.directMessages;
-  // 从尾往前找最新 TodoWrite 调用
-  for (let i = msgs.length - 1; i >= 0; i--) {
-    const trace = msgs[i]?.detail?.trace ?? [];
-    for (let j = trace.length - 1; j >= 0; j--) {
-      const e = trace[j]!;
-      if (e.kind !== 'tool_use' || e.label !== 'TodoWrite') continue;
-      try {
-        const parsed = JSON.parse(e.content);
-        const list = Array.isArray(parsed.todos) ? parsed.todos : null;
-        if (list) todos.value = list.map((td: any) => ({ content: String(td.content ?? ''), status: String(td.status ?? 'pending') }));
-        return;
-      } catch { /* 解析失败跳过 */ }
-    }
-  }
-  todos.value = null;
-}, { immediate: true });
-
-const todoDone = computed(() => todos.value ? todos.value.filter((td) => td.status === 'completed').length : 0);
-
 function fmtDuration(ms: number): string {
   const s = Math.round(ms / 1000);
   if (s < 60) return `${s}s`;
@@ -210,10 +188,16 @@ function fmtTokens(n: number): string {
 </script>
 
 <template>
-  <div class="hud">
-    <!-- 上弹面板 -->
-    <transition name="hud-pop">
-      <div v-if="open" class="hud-panel">
+  <!-- 部件式渲染(工单17:容器统一布局——条横排一行,面板共享弹层列) -->
+  <template v-if="part === 'bar'">
+    <button class="hud-mini" :class="{ on: open }" @click="open = !open" :title="t('hud.title')">
+      <span v-if="liveElapsed" class="mini-live">▶ {{ liveElapsed }}</span>
+      <span class="mini-cost">${{ totalCost.toFixed(2) }}</span>
+      <span class="mini-dur">{{ fmtDuration(totalDurationMs) }}</span>
+    </button>
+  </template>
+
+  <div v-else class="hud-panel">
         <div class="hud-head">
           <span class="hud-title">{{ t('hud.title') }}</span>
           <button class="hud-close" @click="open = false">✕</button>
@@ -261,39 +245,11 @@ function fmtTokens(n: number): string {
           <span class="hud-k">📜</span>
           <span class="hud-v">{{ t('hud.turns', { n: sessionTurns }) }}</span>
         </div>
-
-        <!-- Todo 进度(最新 TodoWrite 清单,工单15) -->
-        <div v-if="todos && todos.length" class="todo-sec">
-          <div class="todo-head">▸ {{ t('hud.todos', { done: todoDone, total: todos.length }) }}</div>
-          <div class="todo-list">
-            <div v-for="(td, i) in todos" :key="i" class="todo-item" :class="td.status">
-              <span class="todo-mark">{{ td.status === 'completed' ? '✓' : td.status === 'in_progress' ? '▶' : '·' }}</span>
-              <span>{{ td.content }}</span>
-            </div>
-          </div>
-        </div>
       </div>
-    </transition>
-
-    <!-- 迷你条(常显:费用/耗时/本次) -->
-    <button class="hud-mini" :class="{ on: open }" @click="open = !open" :title="t('hud.title')">
-      <span v-if="liveElapsed" class="mini-live">▶ {{ liveElapsed }}</span>
-      <span class="mini-cost">${{ totalCost.toFixed(2) }}</span>
-      <span class="mini-dur">{{ fmtDuration(totalDurationMs) }}</span>
-    </button>
-  </div>
 </template>
 
 <style scoped>
-.hud {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 4px;
-  position: relative;
-}
-
-/* 迷你条:贴右缘,一行两三个数字 */
+/* 迷你条:容器横排一行中的一员(工单17 统一样式协议) */
 .hud-mini {
   display: flex;
   align-items: center;
@@ -308,6 +264,7 @@ function fmtTokens(n: number): string {
   cursor: pointer;
   user-select: none;
   transition: border-color 0.15s, color 0.15s;
+  white-space: nowrap;
 }
 
 .hud-mini:hover, .hud-mini.on {
@@ -324,12 +281,9 @@ function fmtTokens(n: number): string {
   50% { opacity: 0.45; }
 }
 
-/* 上弹面板 */
+/* 面板:宽度/圆角/阴影统一协议(定位由容器弹层列负责) */
 .hud-panel {
-  position: absolute;
-  bottom: calc(100% + 6px);
-  right: 0;
-  width: 280px;
+  width: 300px;
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -338,7 +292,6 @@ function fmtTokens(n: number): string {
   display: flex;
   flex-direction: column;
   gap: 7px;
-  z-index: 20;
 }
 
 .hud-head {
@@ -406,23 +359,5 @@ function fmtTokens(n: number): string {
 .git-branch { color: var(--accent); }
 .git-dirty { color: #d4903c; font-weight: 700; }
 
-/* Todo 区 */
-.todo-sec {
-  border-top: 1px solid var(--border-soft);
-  padding-top: 6px;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-.todo-head { font-size: 11.5px; font-weight: 600; color: var(--text); }
-.todo-list { display: flex; flex-direction: column; gap: 2px; max-height: 120px; overflow-y: auto; }
-.todo-item { font-size: 11px; color: var(--muted); display: flex; gap: 6px; align-items: baseline; }
-.todo-item.completed { opacity: 0.55; text-decoration: line-through; }
-.todo-item.in_progress { color: var(--text); font-weight: 600; }
-.todo-mark { flex-shrink: 0; width: 12px; color: #4caf7d; }
-.todo-item.in_progress .todo-mark { color: #8b5cf6; }
-
 /* 弹出动画 */
-.hud-pop-enter-active, .hud-pop-leave-active { transition: opacity 0.15s ease, transform 0.15s ease; }
-.hud-pop-enter-from, .hud-pop-leave-to { opacity: 0; transform: translateY(6px); }
 </style>

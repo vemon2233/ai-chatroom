@@ -99,6 +99,10 @@ export const en: I18nShape<typeof zh> = {
     turns: 'Turn {n}',
     todos: '{done}/{total} done',
   },
+  todoPanel: {
+    empty: 'No task list',
+    emptyHint: 'When the agent creates a plan with TodoWrite, the list will appear here.',
+  },
   form: {
     // AddMemberPanel
     addMemberTitle: 'Add Members',
