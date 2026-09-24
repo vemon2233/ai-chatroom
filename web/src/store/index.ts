@@ -9,7 +9,29 @@ import type { AdapterInfo, RoomListItem } from '@/services/api';
 import { api } from '@/services/api';
 import { connectWs } from '@/services/ws';
 import { t } from '@/i18n';
-export interface StreamBuf { text: string; thinking: string }
+export interface StreamBuf { text: string; thinking: string; events?: ActivityItem[]; startedAt?: number }
+
+/** 活动卡片条目(工单10:过程流实时呈现——claude CLI 灰色小字体验的等价物) */
+export interface ActivityItem {
+  kind: 'thinking' | 'tool_use' | 'tool_result';
+  /** 工具名(Read/Bash/Edit...);thinking 段为空 */
+  label: string;
+  /** 思考段全文(tool_use)或参数摘要/输出 */
+  content: string;
+  ts: number;
+}
+
+/** 工具参数呈现:JSON 输入转一行可读(Bash 取 command、Read 取 file_path…;全量不截断——与原始流一致) */
+function summarizeToolInput(input: string): string {
+  try {
+    const obj = JSON.parse(input);
+    const pick = obj.command ?? obj.file_path ?? obj.pattern ?? obj.path ?? obj.url ?? obj.skill ?? obj.prompt;
+    if (typeof pick === 'string') return pick;
+    return JSON.stringify(obj);
+  } catch {
+    return input;
+  }
+}
 
 export interface EditingContext {
   messageId: string;
@@ -59,11 +81,14 @@ export const store = reactive({
   sidebarTab: 'rooms' as 'rooms' | 'chars' | 'tasks',
   openSessions: [] as Session[],
 
-  // 右侧边栏 Inspector 统一激活 Tab ('summary' | 'stats' | 'logs' | 'manage' | null)
-  activeInspectorTab: null as 'summary' | 'stats' | 'logs' | 'manage' | null,
+  // 右侧边栏 Inspector 统一激活 Tab ('summary' | 'stats' | 'logs' | 'raw' | 'manage' | null)
+  activeInspectorTab: null as 'summary' | 'stats' | 'logs' | 'raw' | 'manage' | null,
+
+  /** 原始流面板(工单11):agentEvent 不加工全量环形缓冲——与活动卡片同屏对比用 */
+  rawEvents: [] as Array<{ ts: number; roomId: string; event: AgentEvent }>,
 });
 
-export type InspectorTab = 'summary' | 'stats' | 'logs' | 'manage';
+export type InspectorTab = 'summary' | 'stats' | 'logs' | 'raw' | 'manage';
 
 export function toggleInspector(tab: InspectorTab): void {
   if (store.activeInspectorTab === tab) {
@@ -349,17 +374,36 @@ function onWsEvent(ev: import('@server/core/bus').WsEvent): void {
       return;
     }
     case 'agentEvent': {
+      // 原始流面板(工单11):全量不加工入环形缓冲(500 条上限,旧的滚出)
+      store.rawEvents.push({ ts: Date.now(), roomId: ev.roomId, event: ev.event });
+      if (store.rawEvents.length > 500) store.rawEvents.splice(0, store.rawEvents.length - 500);
+
       // 核心：无条件写入该房间对应成员的流式缓冲，切去其他房间也绝不丢弃
       store.roomStreams[ev.roomId] ??= {};
       const roomBufs = store.roomStreams[ev.roomId]!;
       const mid = ev.event.member;
       if (mid) {
         if (ev.event.phase === 'thinking') {
-          roomBufs[mid] ??= { text: '', thinking: '' };
-          if (ev.event.thinkingDelta) roomBufs[mid]!.thinking += ev.event.thinkingDelta;
+          const buf = (roomBufs[mid] ??= { text: '', thinking: '' });
+          if (!buf.startedAt) buf.startedAt = Date.now();
+          if (ev.event.thinkingDelta) buf.thinking += ev.event.thinkingDelta;
+          // 工具事件实时入缓冲(工单10:活动卡片数据源——后端本就透传,此处不再丢弃)
+          if (ev.event.toolUse) {
+            buf.events ??= [];
+            // 思考段落盘为 event(全量呈现:工具启动=分段标记,旧段保留不清空)
+            if (buf.thinking.trim()) {
+              buf.events.push({ kind: 'thinking', label: '', content: buf.thinking.trim(), ts: Date.now() });
+              buf.thinking = '';
+            }
+            buf.events.push({ kind: 'tool_use', label: ev.event.toolUse.name, content: summarizeToolInput(ev.event.toolUse.input), ts: Date.now() });
+          }
+          if (ev.event.toolResult) {
+            buf.events ??= [];
+            buf.events.push({ kind: 'tool_result', label: ev.event.toolResult.name, content: ev.event.toolResult.output, ts: Date.now() });
+          }
         } else if (ev.event.phase === 'streaming' && ev.event.textDelta) {
-          roomBufs[mid] ??= { text: '', thinking: '' };
-          roomBufs[mid]!.text += ev.event.textDelta;
+          const buf = (roomBufs[mid] ??= { text: '', thinking: '' });
+          buf.text += ev.event.textDelta;
         }
       }
 
@@ -426,7 +470,21 @@ function onWsEvent(ev: import('@server/core/bus').WsEvent): void {
       const dBuf = store.directStreams[ev.characterId]!;
       if (ev.event.phase === 'thinking') {
         store.directStatuses[ev.characterId] = 'thinking';
+        if (!dBuf.startedAt) dBuf.startedAt = Date.now();
         if (ev.event.thinkingDelta) dBuf.thinking += ev.event.thinkingDelta;
+        // 工具事件实时入缓冲(工单10:与房间路径同范式;思考段落盘保留)
+        if (ev.event.toolUse) {
+          dBuf.events ??= [];
+          if (dBuf.thinking.trim()) {
+            dBuf.events.push({ kind: 'thinking', label: '', content: dBuf.thinking.trim(), ts: Date.now() });
+            dBuf.thinking = '';
+          }
+          dBuf.events.push({ kind: 'tool_use', label: ev.event.toolUse.name, content: summarizeToolInput(ev.event.toolUse.input), ts: Date.now() });
+        }
+        if (ev.event.toolResult) {
+          dBuf.events ??= [];
+          dBuf.events.push({ kind: 'tool_result', label: ev.event.toolResult.name, content: ev.event.toolResult.output, ts: Date.now() });
+        }
       } else if (ev.event.phase === 'streaming') {
         store.directStatuses[ev.characterId] = 'streaming';
         if (ev.event.textDelta) dBuf.text += ev.event.textDelta;
@@ -470,8 +528,21 @@ function onAgentEvent(ev: AgentEvent): void {
   if (!member && ev.member !== 'scout') return; // 允许 scout 侦察员呈现流式/思考态
 
   if (ev.phase === 'thinking') {
-    store.memberStream[ev.member] ??= { text: '', thinking: '' };
-    if (ev.thinkingDelta) store.memberStream[ev.member]!.thinking += ev.thinkingDelta;
+    const buf = (store.memberStream[ev.member] ??= { text: '', thinking: '' });
+    if (!buf.startedAt) buf.startedAt = Date.now();
+    if (ev.thinkingDelta) buf.thinking += ev.thinkingDelta;
+    if (ev.toolUse) {
+      buf.events ??= [];
+      if (buf.thinking.trim()) {
+        buf.events.push({ kind: 'thinking', label: '', content: buf.thinking.trim(), ts: Date.now() });
+        buf.thinking = '';
+      }
+      buf.events.push({ kind: 'tool_use', label: ev.toolUse.name, content: summarizeToolInput(ev.toolUse.input), ts: Date.now() });
+    }
+    if (ev.toolResult) {
+      buf.events ??= [];
+      buf.events.push({ kind: 'tool_result', label: ev.toolResult.name, content: ev.toolResult.output, ts: Date.now() });
+    }
     room.statuses[ev.member] = 'thinking';
   } else if (ev.phase === 'streaming' && ev.textDelta) {
     const buf = (store.memberStream[ev.member] ??= { text: '', thinking: '' });

@@ -1,10 +1,9 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { store, clearRoomMessages, toggleInspector } from '@/store';
+import { store, clearRoomMessages, toggleInspector, type StreamBuf } from '@/store';
 import { api } from '@/services/api';
 import { initialsFor } from '@/utils/avatar';
-import { streamPlaceholder } from '@/utils/chat';
 import { dialog } from '@/composables/useDialog';
 import { exportChatHistoryMarkdown } from '@/utils/exportMarkdown';
 import ChatHeader from './ChatHeader.vue';
@@ -44,8 +43,8 @@ const stackMembers = computed(() => room.value.config.members.slice(0, 5));
 const stackOverflow = computed(() => room.value.config.members.length - 5);
 const memberCount = computed(() => room.value.config.members.length);
 
-const renderList = computed<Array<ChatMessage | (ChatMessage & { streaming: true })>>(() => {
-  const list: Array<ChatMessage | (ChatMessage & { streaming: true })> = [
+const renderList = computed<Array<ChatMessage | (ChatMessage & { streaming: true; liveBuf?: StreamBuf; liveStatus?: string })>>(() => {
+  const list: Array<ChatMessage | (ChatMessage & { streaming: true; liveBuf?: StreamBuf; liveStatus?: string })> = [
     ...(store.messages as ChatMessage[]),
   ];
   if (room.value) {
@@ -60,9 +59,11 @@ const renderList = computed<Array<ChatMessage | (ChatMessage & { streaming: true
         roomId: room.value.config.id,
         from: m.id,
         fromName: m.name,
-        text: streamPlaceholder(buf || { text: '', thinking: status === 'thinking' ? t('chat.thinkingText') : '' }),
-        ts: Date.now(),
+        text: buf?.text ?? '',
+        ts: buf?.startedAt ?? Date.now(),
         streaming: true,
+        liveBuf: buf ?? { text: '', thinking: status === 'thinking' ? t('chat.thinkingText') : '' },
+        liveStatus: status,
       });
     }
 
@@ -77,9 +78,11 @@ const renderList = computed<Array<ChatMessage | (ChatMessage & { streaming: true
         roomId: room.value.config.id,
         from: 'scout',
         fromName: t('chat.scoutName'),
-        text: streamPlaceholder(scoutBuf || { text: '', thinking: t('chat.thinkingText') }),
-        ts: Date.now(),
+        text: scoutBuf?.text ?? '',
+        ts: scoutBuf?.startedAt ?? Date.now(),
         streaming: true,
+        liveBuf: scoutBuf ?? { text: '', thinking: t('chat.thinkingText') },
+        liveStatus: scoutStatus,
       });
     }
   }
@@ -134,6 +137,10 @@ function handleExport() {
           <button class="btn btn-ghost btn-panel-toggle" :class="{ active: store.activeInspectorTab === 'logs' }"
             type="button" :title="t('chat.titleLogs')" @click="toggleInspector('logs')">
             {{ t('chat.tabLogs') }}
+          </button>
+          <button class="btn btn-ghost btn-panel-toggle" :class="{ active: store.activeInspectorTab === 'raw' }"
+            type="button" :title="t('chat.titleRaw')" @click="toggleInspector('raw')">
+            {{ t('chat.tabRaw') }}
           </button>
           <button class="btn btn-ghost btn-panel-toggle" :class="{ active: store.activeInspectorTab === 'manage' }"
             type="button" :title="t('chat.titleManageRoom')" @click="toggleInspector('manage')">

@@ -4,19 +4,20 @@ import { useI18n } from 'vue-i18n';
 import InspectorSummary from './inspector/InspectorSummary.vue';
 import InspectorLogs from './inspector/InspectorLogs.vue';
 import InspectorStats from './inspector/InspectorStats.vue';
+import InspectorRaw from './inspector/InspectorRaw.vue';
 import InspectorRoomManage from './inspector/InspectorRoomManage.vue';
 import InspectorDirectManage from './inspector/InspectorDirectManage.vue';
 
 const { t } = useI18n();
 
 const props = defineProps<{
-  activeTab: 'summary' | 'stats' | 'logs' | 'manage';
+  activeTab: 'summary' | 'stats' | 'logs' | 'raw' | 'manage';
   sessionType: 'room' | 'direct';
   sessionId: string;
 }>();
 
 const emit = defineEmits<{
-  (e: 'update:activeTab', tab: 'summary' | 'stats' | 'logs' | 'manage'): void;
+  (e: 'update:activeTab', tab: 'summary' | 'stats' | 'logs' | 'raw' | 'manage'): void;
   (e: 'close'): void;
 }>();
 
@@ -106,6 +107,13 @@ onUnmounted(() => {
     <!-- Tab 2: 调用日志视图 -->
     <InspectorLogs
       v-else-if="activeTab === 'logs'"
+      :session-type="sessionType"
+      :session-id="sessionId"
+    />
+
+    <!-- Tab 2.5: 原始流实时面板(工单11:与活动卡片同屏对比) -->
+    <InspectorRaw
+      v-else-if="activeTab === 'raw'"
       :session-type="sessionType"
       :session-id="sessionId"
     />

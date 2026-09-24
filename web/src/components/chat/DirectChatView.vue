@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { store, resetDirect, toggleInspector } from '@/store';
-import { streamPlaceholder } from '@/utils/chat';
+import { store, resetDirect, toggleInspector, type StreamBuf } from '@/store';
 import { dialog } from '@/composables/useDialog';
 import { exportChatHistoryMarkdown } from '@/utils/exportMarkdown';
 import ChatHeader from './ChatHeader.vue';
@@ -22,17 +21,20 @@ const isGenerating = computed(() =>
   store.directStatus === 'thinking' || store.directStatus === 'streaming',
 );
 
-const renderList = computed<Array<ChatMessage | (ChatMessage & { streaming: true })>>(() => {
-  const list: Array<ChatMessage | (ChatMessage & { streaming: true })> = [...store.directMessages];
+const renderList = computed<Array<ChatMessage | (ChatMessage & { streaming: true; liveBuf?: StreamBuf; liveStatus?: string })>>(() => {
+  const list: Array<ChatMessage | (ChatMessage & { streaming: true; liveBuf?: StreamBuf; liveStatus?: string })> = [...store.directMessages];
   if ((store.directStream || isGenerating.value) && char.value) {
+    const buf = store.directStream ?? { text: '', thinking: t('chat.replyingText') };
     list.push({
       id: 'direct_streaming_placeholder',
       roomId: `direct_${char.value.id}`,
       from: char.value.id,
       fromName: char.value.name,
-      text: streamPlaceholder(store.directStream ?? { text: '', thinking: t('chat.replyingText') }),
+      text: buf.text,
       ts: Date.now(),
       streaming: true,
+      liveBuf: buf,
+      liveStatus: store.directStatus,
     });
   }
   return list;

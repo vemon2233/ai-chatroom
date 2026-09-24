@@ -11,10 +11,11 @@ import {
   stripBaton, extractBatonTarget, extractImportance,
 } from '@server/protocolKeywords';
 import TraceDetail from './TraceDetail.vue';
+import ActivityCard from './ActivityCard.vue';
 
 const { t } = useI18n();
 
-const props = defineProps<{ msg: ChatMessage & { streaming?: true } }>();
+const props = defineProps<{ msg: ChatMessage & { streaming?: true; liveBuf?: import('@/store').StreamBuf; liveStatus?: string } }>();
 const showDetail = ref(false);
 const textEl = ref<HTMLElement | null>(null);
 const isMultiLine = ref(false);
@@ -382,7 +383,13 @@ function onBubbleClick(e: MouseEvent) {
         @click="onBubbleClick"
         :title="clickable ? t('chat.bubbleTitle') : undefined"
       >
-        <div ref="textEl" class="text markdown-body" v-html="renderedHtml"></div>
+        <!-- 流式期:活动卡片(工单10 实时过程流);落库后走正常 markdown 渲染 -->
+        <ActivityCard
+          v-if="msg.streaming && msg.liveBuf"
+          :buf="msg.liveBuf"
+          :status="(msg.liveStatus as any) ?? 'thinking'"
+        />
+        <div v-else ref="textEl" class="text markdown-body" v-html="renderedHtml"></div>
         <div class="bubble-footer">
           <div class="meta-left">{{ meta }}</div>
           <div v-if="!msg.streaming" class="meta-actions">
