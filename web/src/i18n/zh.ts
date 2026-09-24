@@ -81,6 +81,9 @@ export const zh = {
   activity: {
     thinking: '思考中',
     streaming: '输出中',
+    stalled: '无新输出…',
+    foldDown: '… +{n} 行(点击展开)',
+    foldUp: '收起',
   },
   form: {
     // AddMemberPanel

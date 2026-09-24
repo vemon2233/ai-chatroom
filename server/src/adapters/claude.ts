@@ -63,6 +63,7 @@ export const claudeAdapter: AgentAdapter = {
                 toolUse: {
                   name: block.name ?? 'unknown_tool',
                   input: typeof block.input === 'string' ? block.input : JSON.stringify(block.input),
+                  id: typeof block.id === 'string' ? block.id : undefined,
                 },
               });
             }
@@ -83,6 +84,7 @@ export const claudeAdapter: AgentAdapter = {
                 toolResult: {
                   name: block.tool_use_id ? `tool:${String(block.tool_use_id).slice(-8)}` : 'tool',
                   output: text.slice(0, 2000), // 截断防爆 detail
+                  id: typeof block.tool_use_id === 'string' ? block.tool_use_id : undefined,
                 },
               });
             }

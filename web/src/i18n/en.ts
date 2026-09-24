@@ -84,6 +84,9 @@ export const en: I18nShape<typeof zh> = {
   activity: {
     thinking: 'Thinking',
     streaming: 'Streaming',
+    stalled: 'No new output…',
+    foldDown: '… +{n} lines (click to expand)',
+    foldUp: 'Collapse',
   },
   form: {
     // AddMemberPanel

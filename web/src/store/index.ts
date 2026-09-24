@@ -11,13 +11,17 @@ import { connectWs } from '@/services/ws';
 import { t } from '@/i18n';
 export interface StreamBuf { text: string; thinking: string; events?: ActivityItem[]; startedAt?: number }
 
-/** 活动卡片条目(工单10:过程流实时呈现——claude CLI 灰色小字体验的等价物) */
+/** 活动卡片条目(工单10/12:过程流呈现——对齐 claude CLI 视觉) */
 export interface ActivityItem {
   kind: 'thinking' | 'tool_use' | 'tool_result';
   /** 工具名(Read/Bash/Edit...);thinking 段为空 */
   label: string;
-  /** 思考段全文(tool_use)或参数摘要/输出 */
+  /** 思考段全文(tool_use)或参数/输出 */
   content: string;
+  /** tool_use/tool_result 的配对 id(claude 适配器透传;三态渲染用) */
+  id?: string;
+  /** 原始 JSON 参数(tool_use;Edit 红绿 diff 解析用) */
+  raw?: string;
   ts: number;
 }
 
@@ -395,11 +399,11 @@ function onWsEvent(ev: import('@server/core/bus').WsEvent): void {
               buf.events.push({ kind: 'thinking', label: '', content: buf.thinking.trim(), ts: Date.now() });
               buf.thinking = '';
             }
-            buf.events.push({ kind: 'tool_use', label: ev.event.toolUse.name, content: summarizeToolInput(ev.event.toolUse.input), ts: Date.now() });
+            buf.events.push({ kind: 'tool_use', label: ev.event.toolUse.name, content: summarizeToolInput(ev.event.toolUse.input), raw: ev.event.toolUse.input, id: ev.event.toolUse.id, ts: Date.now() });
           }
           if (ev.event.toolResult) {
             buf.events ??= [];
-            buf.events.push({ kind: 'tool_result', label: ev.event.toolResult.name, content: ev.event.toolResult.output, ts: Date.now() });
+            buf.events.push({ kind: 'tool_result', label: ev.event.toolResult.name, content: ev.event.toolResult.output, id: ev.event.toolResult.id, ts: Date.now() });
           }
         } else if (ev.event.phase === 'streaming' && ev.event.textDelta) {
           const buf = (roomBufs[mid] ??= { text: '', thinking: '' });
@@ -479,11 +483,11 @@ function onWsEvent(ev: import('@server/core/bus').WsEvent): void {
             dBuf.events.push({ kind: 'thinking', label: '', content: dBuf.thinking.trim(), ts: Date.now() });
             dBuf.thinking = '';
           }
-          dBuf.events.push({ kind: 'tool_use', label: ev.event.toolUse.name, content: summarizeToolInput(ev.event.toolUse.input), ts: Date.now() });
+          dBuf.events.push({ kind: 'tool_use', label: ev.event.toolUse.name, content: summarizeToolInput(ev.event.toolUse.input), raw: ev.event.toolUse.input, id: ev.event.toolUse.id, ts: Date.now() });
         }
         if (ev.event.toolResult) {
           dBuf.events ??= [];
-          dBuf.events.push({ kind: 'tool_result', label: ev.event.toolResult.name, content: ev.event.toolResult.output, ts: Date.now() });
+          dBuf.events.push({ kind: 'tool_result', label: ev.event.toolResult.name, content: ev.event.toolResult.output, id: ev.event.toolResult.id, ts: Date.now() });
         }
       } else if (ev.event.phase === 'streaming') {
         store.directStatuses[ev.characterId] = 'streaming';
@@ -537,11 +541,11 @@ function onAgentEvent(ev: AgentEvent): void {
         buf.events.push({ kind: 'thinking', label: '', content: buf.thinking.trim(), ts: Date.now() });
         buf.thinking = '';
       }
-      buf.events.push({ kind: 'tool_use', label: ev.toolUse.name, content: summarizeToolInput(ev.toolUse.input), ts: Date.now() });
+      buf.events.push({ kind: 'tool_use', label: ev.toolUse.name, content: summarizeToolInput(ev.toolUse.input), raw: ev.toolUse.input, id: ev.toolUse.id, ts: Date.now() });
     }
     if (ev.toolResult) {
       buf.events ??= [];
-      buf.events.push({ kind: 'tool_result', label: ev.toolResult.name, content: ev.toolResult.output, ts: Date.now() });
+      buf.events.push({ kind: 'tool_result', label: ev.toolResult.name, content: ev.toolResult.output, id: ev.toolResult.id, ts: Date.now() });
     }
     room.statuses[ev.member] = 'thinking';
   } else if (ev.phase === 'streaming' && ev.textDelta) {
