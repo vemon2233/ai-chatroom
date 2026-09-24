@@ -92,6 +92,7 @@ const isScout = computed(() => props.msg.from === 'scout');
 const isSystem = computed(() => props.msg.system === true);
 
 const canCopy = computed(() => !isSystem.value && !props.msg.streaming && !!cleanText.value.trim());
+
 const canReroll = computed(() =>
   !isMe.value && !isSystem.value && !isScout.value && !props.msg.streaming,
 );

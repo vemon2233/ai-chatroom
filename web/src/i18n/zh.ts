@@ -271,15 +271,11 @@ export const zh = {
     stopBtn: '停止',
     // ChatInspector
     resizeHint: '按住左右拖动调节面板宽度',
-    // TraceDetail
-    kindThinking: '思考',
-    kindToolUse: '工具调用',
-    kindToolResult: '结果',
-    kindText: '正文',
+    // TraceDetail(工单13 改版:过程 tab = ActivityCard 回放)
     tabTrace: '工作过程',
     tabThinking: '思考全文',
     tabUsage: '用量',
-    expandAll: '⋯ 展开全部 {count} 步(当前显示最后 8 步)',
+    procSteps: '共 {steps} 步工具调用',
     // DirectChatView
     directClearTitle: '清空私聊记录',
     directClearBody: '确认清空与角色「{name}」的全部私聊记录吗？此操作无法撤销。',

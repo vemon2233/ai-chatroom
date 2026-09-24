@@ -274,15 +274,11 @@ export const en: I18nShape<typeof zh> = {
     stopBtn: 'Stop',
     // ChatInspector
     resizeHint: 'Drag left/right to resize the panel',
-    // TraceDetail
-    kindThinking: 'Thinking',
-    kindToolUse: 'Tool call',
-    kindToolResult: 'Result',
-    kindText: 'Text',
+    // TraceDetail (work-process tab = ActivityCard replay)
     tabTrace: 'Work process',
     tabThinking: 'Full thinking',
     tabUsage: 'Usage',
-    expandAll: '⋯ Expand all {count} steps (showing last 8)',
+    procSteps: '{steps} tool steps in total',
     // DirectChatView
     directClearTitle: 'Clear DM History',
     directClearBody: 'Clear all DM history with "{name}"? This cannot be undone.',
