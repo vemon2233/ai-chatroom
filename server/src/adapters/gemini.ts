@@ -7,16 +7,34 @@
 //   {"type":"result","status":"success","stats":{"input_tokens",..}}            — 终局
 //   {"type":"result","status":"error","error":{"message":..}}                    — 失败
 // 注意:result.success 不带 response 字段,最终全文 = assistant message 增量累积。
+// 权限三档经 --approval-mode 硬闸:plan(只读)/auto_edit(可写)/yolo(全开)。
+// ⚠️ 本机 gemini 认证/配额受限(已知边界),plan 拦写未 e2e 实测,档位语义按 CLI 文档。
 
+import type { ToolPermission } from '../core/types';
 import type { AgentAdapter, AgentEvent, SpeakRequest } from './base';
 import { runCliHarness, tryParseJson } from './proc';
+
+/** 工具权限档位 → gemini CLI 参数(翻译职责在本层) */
+export function geminiPermissionArgs(p: ToolPermission | undefined): string[] {
+  switch (p) {
+    case 'readwrite': return ['--approval-mode', 'auto_edit'];
+    case 'full': return ['--approval-mode', 'yolo'];
+    case 'readonly':
+    default: return ['--approval-mode', 'plan'];
+  }
+}
 
 export const geminiAdapter: AgentAdapter = {
   speak(req: SpeakRequest, onEvent: (ev: AgentEvent) => void) {
     // resume:gemini 用 --resume <id|latest>(见 agents.yaml 的 args 不含 resume;由本层拼接)
     const resumeArgs = req.resumeSessionId ? ['--resume', req.resumeSessionId] : [];
     // headless 必须显式信任工作目录(隔离 cwd 天然不在用户信任列表;实测不加则 code=55 秒退)
-    const trustedReq = { ...req, env: { GEMINI_CLI_TRUST_WORKSPACE: 'true', ...req.env } };
+    // ——且实测工作区不受信时 CLI 会把 --approval-mode 强制降级为 default,信任是权限档位生效前提
+    const trustedReq = {
+      ...req,
+      args: [...req.args, ...geminiPermissionArgs(req.permission)],
+      env: { GEMINI_CLI_TRUST_WORKSPACE: 'true', ...req.env },
+    };
     onEvent({ member: req.member, phase: 'thinking' });
     let result = '';
 

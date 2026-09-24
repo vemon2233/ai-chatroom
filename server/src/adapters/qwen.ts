@@ -5,17 +5,30 @@
 //   {"type":"result","subtype":"success","result":"全文","usage":{...}}          — 终局(含全文与用量)
 //   {"type":"result","subtype":"error_during_execution","error":{"message":..}}  — 失败
 // resume:`qwen -r <session_id>`;非交互认证:--auth-type gemini + GEMINI_API_KEY(或 qwen-oauth 登录态)。
+// 权限三档经 --approval-mode 硬闸(v0.15.10 实测:plan 拦写/auto-edit 与 yolo 放写)。
 
+import type { ToolPermission } from '../core/types';
 import type { AgentAdapter, AgentEvent, SpeakRequest } from './base';
 import { runCliHarness, tryParseJson } from './proc';
+
+/** 工具权限档位 → qwen CLI 参数(翻译职责在本层) */
+export function qwenPermissionArgs(p: ToolPermission | undefined): string[] {
+  switch (p) {
+    case 'readwrite': return ['--approval-mode', 'auto-edit'];
+    case 'full': return ['--approval-mode', 'yolo'];
+    case 'readonly':
+    default: return ['--approval-mode', 'plan'];
+  }
+}
 
 export const qwenAdapter: AgentAdapter = {
   speak(req: SpeakRequest, onEvent: (ev: AgentEvent) => void) {
     const resumeArgs = req.resumeSessionId ? ['--resume', req.resumeSessionId] : [];
+    const permReq = { ...req, args: [...req.args, ...qwenPermissionArgs(req.permission)] };
     onEvent({ member: req.member, phase: 'thinking' });
     let result = '';
 
-    const h = runCliHarness(req, resumeArgs, {
+    const h = runCliHarness(permReq, resumeArgs, {
       onLine: (line) => {
         const obj = tryParseJson(line);
         if (!obj) return; // 纯文本行(升级提示等)不进正文

@@ -7,7 +7,7 @@ import type { AgentAdapter, AgentEvent, SpeakRequest } from './base';
 import { runCliHarness, tryParseJson } from './proc';
 
 /** 工具权限档位 → codex CLI 参数(翻译职责在本层) */
-function permissionArgs(p: ToolPermission | undefined): string[] {
+export function codexPermissionArgs(p: ToolPermission | undefined): string[] {
   switch (p) {
     case 'readwrite': return ['--sandbox', 'workspace-write'];
     case 'full': return ['--dangerously-bypass-approvals-and-sandbox'];
@@ -20,7 +20,7 @@ export const codexAdapter: AgentAdapter = {
   speak(req: SpeakRequest, onEvent: (ev: AgentEvent) => void) {
     // resume 模式为 `codex exec resume <id>`;agents.yaml 的 args 以 exec 开头——resume 时整体替换前缀
     let resumeArgs: string[] = [];
-    let args = [...req.args, ...permissionArgs(req.permission)];
+    let args = [...req.args, ...codexPermissionArgs(req.permission)];
     if (req.resumeSessionId) {
       resumeArgs = ['exec', 'resume', req.resumeSessionId];
       if (args[0] === 'exec') args = args.slice(1);

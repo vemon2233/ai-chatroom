@@ -52,11 +52,14 @@ describe('prompt 双语', () => {
     expect(historyText(msgs, 10, 'm1', '甲', 'zh')).toContain('【@提及了你】');
     expect(historyText(msgs, 10, 'm1', '甲', 'zh')).toContain('【私聊密信 ── 你 发送给对方】：');
   });
-  it('lengthBrief/permissionBrief 双语', () => {
+  it('lengthBrief/permissionBrief 双语(ADR-0002 真实语义文案)', () => {
     expect(lengthBrief('short', 'zh')).toContain('300 字');
     expect(lengthBrief('short', 'en')).toContain('300 words');
-    expect(permissionBrief('readonly', 'zh')).toContain('不能修改任何文件');
-    expect(permissionBrief('readonly', 'en')).toContain('must not modify');
+    expect(permissionBrief('readonly', 'zh')).toContain('已被禁用');
+    expect(permissionBrief('readonly', 'zh')).toContain('只能阅读和搜索');
+    expect(permissionBrief('readonly', 'en')).toContain('only read and search');
+    expect(permissionBrief('readwrite', 'zh')).toContain('不能执行命令');
+    expect(permissionBrief('full', 'zh')).toContain('完全权限');
   });
   it('buildScoutPrompt 双语', () => {
     expect(buildScoutPrompt('/x', 'tree', 'en')).toContain('project scout');

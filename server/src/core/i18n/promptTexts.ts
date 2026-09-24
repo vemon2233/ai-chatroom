@@ -22,10 +22,10 @@ export const PROMPT_TEXTS: { zh: PromptTextDict; en: PromptTextDict } = {
     'r.lengthLong': () => '发言长度不限,把论证、证据、推理过程充分展开,像给同事写一份严肃的技术论述。',
     'r.lengthNormal': () => '发言控制在 600 字以内,论证完整、有理有据,不空泛。',
     'r.lengthShort': () => '发言控制在 300 字以内,观点鲜明。如果你不认同某人的说法,直接指出并说明理由。',
-    // render.ts 权限说明
-    'r.permReadwrite': () => '你可以使用 Read / Grep / Glob 工具阅读项目,也可以用 Edit / Write 修改项目文件(谨慎,仅在讨论确有必要时)。',
-    'r.permFull': () => '你可以使用全部工具(读写项目文件、执行命令)围绕项目工作。',
-    'r.permReadonly': () => '你可以使用 Read / Grep / Glob 工具阅读和搜索项目文件,但不能修改任何文件。',
+    // render.ts 权限说明(ADR-0002:文案与档位实际行为对齐——CLI 层硬闸已按此契约翻译)
+    'r.permReadwrite': () => '你可以读写文件(Read/Write/Edit/Glob/Grep),但不能执行命令、不能联网、不能派出子代理——这些工具已被禁用,不要尝试。',
+    'r.permFull': () => '你拥有完全权限:可读写文件、执行命令、联网。请把工作范围限制在此项目目录内。',
+    'r.permReadonly': () => '你只能阅读和搜索(Read/Glob/Grep)。写入文件、执行命令、联网的工具已被禁用,不要尝试。',
 
     // prompt.ts 段落头
     'p.roleHeader': (p) => `# 你的角色\n你是 **【${p?.name ?? ''}】**。\n${p?.persona ?? ''}`,
@@ -44,6 +44,10 @@ export const PROMPT_TEXTS: { zh: PromptTextDict; en: PromptTextDict } = {
     'p.speakDirectly': () => '请直接以你的角色身份发言。不要复述设定,不要使用 markdown 标题,直接说出你的观点/回应。',
     'p.nowTurn': (p) => `# 现在轮到你发言\n${p?.instructions ?? ''}`,
     'p.topicFallback': () => '自由讨论',
+
+    // 任务房 prompt 段族(ADR-0001/工单04:kind=task 专用,替换讨论教学)
+    't.workspace': (p) => `# 任务工作区\n你的工作对象是本地项目。项目根目录:\`${p?.root ?? ''}\`\n\n${p?.perm ?? ''}\n工作范围约定:**你的所有文件操作仅限此项目目录内**。\n动手前先用工具(Read/Glob/Grep)了解项目实际结构,不要凭猜测行事;需要哪个文件就读哪个,项目结构以你工具查到的实时内容为准。`,
+    't.contract': () => `# 任务行动契约\n用户派给你的是实际工作,不是讨论题。按以下契约执行:\n1. **实际动手**:用工具真正读代码、改代码、创建文件——只描述方案不动手等于没做。\n2. **完成汇报**:做完后汇报——做了什么、改了/创建了哪些文件、如何验证(如跑过的测试/命令及结果)。\n3. **遇阻先问**:需求不清楚、有多种做法需要抉择、或遇到阻塞时,先向用户提问,不要基于误解长时间狂奔。\n4. **汇报完整**:输出不设长度限制,把该说的说完整,但不冗余。`,
 
     // prompt.ts delta 段
     'd.identityAnchor': (p) => `你是 **【${p?.name ?? ''}】**。请始终保持你的 **既有人设与核心立场**。`,
@@ -131,9 +135,9 @@ export const PROMPT_TEXTS: { zh: PromptTextDict; en: PromptTextDict } = {
     'r.lengthLong': () => 'No length limit. Fully develop your arguments, evidence and reasoning, like a serious technical essay for colleagues.',
     'r.lengthNormal': () => 'Keep each speech under 600 words: complete reasoning, well-grounded, not vague.',
     'r.lengthShort': () => 'Keep each speech under 300 words with a sharp position. If you disagree with someone, say so directly and explain why.',
-    'r.permReadwrite': () => 'You may use Read / Grep / Glob tools to read the project, and Edit / Write to modify project files (cautiously, only when the discussion truly requires it).',
-    'r.permFull': () => 'You may use all tools (read/write project files, run commands) to work on the project.',
-    'r.permReadonly': () => 'You may use Read / Grep / Glob tools to read and search project files, but must not modify any file.',
+    'r.permReadwrite': () => 'You may read and write files (Read/Write/Edit/Glob/Grep), but you cannot run commands, access the network, or spawn sub-agents — those tools are disabled; do not attempt them.',
+    'r.permFull': () => 'You have full permissions: file read/write, command execution, and network access. Keep your work inside this project directory.',
+    'r.permReadonly': () => 'You may only read and search (Read/Glob/Grep). File writing, command execution, and network tools are disabled; do not attempt them.',
 
     'p.roleHeader': (p) => `# Your Role\nYou are **[${p?.name ?? ''}]**.\n${p?.persona ?? ''}`,
     'p.roomHeader': (p) => `# Room: ${p?.name ?? ''}\nDiscussion topic: ${p?.topic ?? ''}`,
@@ -148,6 +152,10 @@ export const PROMPT_TEXTS: { zh: PromptTextDict; en: PromptTextDict } = {
     'p.speakDirectly': () => 'Speak directly in character. Do not restate your setup, do not use markdown headings — just state your view/response.',
     'p.nowTurn': (p) => `# It Is Your Turn to Speak\n${p?.instructions ?? ''}`,
     'p.topicFallback': () => 'free discussion',
+
+    // Task-room prompt sections (kind=task only; replaces discussion teaching)
+    't.workspace': (p) => `# Task Workspace\nYour work targets a local project. Project root: \`${p?.root ?? ''}\`\n\n${p?.perm ?? ''}\nScope constraint: **keep all file operations inside this project directory**.\nBefore acting, use tools (Read/Glob/Grep) to understand the actual project structure — never guess; read whichever files you need; the live structure you discover with tools is the source of truth.`,
+    't.contract': () => `# Task Contract\nThe user assigns you real work, not a discussion topic. Follow this contract:\n1. **Act, don't describe**: actually read, modify, and create code with tools — describing a plan without doing it means the work was not done.\n2. **Report when done**: report what you did, which files you changed/created, and how you verified it (tests/commands run and their results).\n3. **Ask when blocked**: if the requirement is unclear, a decision has multiple viable options, or you hit a blocker — ask the user first instead of running long on a misunderstanding.\n4. **Report completely**: no length limit on output; say everything that needs saying, without padding.`,
 
     'd.identityAnchor': (p) => `You are **[${p?.name ?? ''}]**. Always keep your **established persona and core stance**.`,
     'd.unreadHeader': () => '# New messages since your last speech:',

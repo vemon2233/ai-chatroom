@@ -7,16 +7,27 @@ import type { ToolPermission } from '../core/types';
 import type { AgentAdapter, AgentEvent, SpeakRequest } from './base';
 import { runCliHarness, tryParseJson } from './proc';
 
-/** 工具权限档位 → claude CLI 参数(领域枚举的翻译职责在本层,v1 曾错误地放在 core) */
-function permissionArgs(p: ToolPermission | undefined): string[] {
+/** 工具权限档位 → claude CLI 参数(领域枚举的翻译职责在本层,v1 曾错误地放在 core)。
+ *  三档经 --disallowedTools 硬闸(ADR-0002,实测有效且不受全局 bypassPermissions 影响):
+ *  --allowedTools 是「预批准清单」而非「限制清单」,单独使用挡不住清单外工具
+ *  (用户全局 bypassPermissions 下 readonly 曾实测可写文件)——真正的闸门是 disallow。 */
+export function claudePermissionArgs(p: ToolPermission | undefined): string[] {
   switch (p) {
     case 'readwrite':
-      return ['--allowedTools', 'Read Write Edit Glob Grep'];
+      // 文件读写,拒命令/网络/子代理(与 prompt 宣称对齐)
+      return [
+        '--allowedTools', 'Read Write Edit Glob Grep',
+        '--disallowedTools', 'Bash Task Agent KillShell WebFetch WebSearch',
+      ];
     case 'full':
       return []; // 不限制
     case 'readonly':
     default:
-      return ['--allowedTools', 'Read Glob Grep'];
+      // 纯只读探索:全拒写/命令/网络/子代理
+      return [
+        '--allowedTools', 'Read Glob Grep',
+        '--disallowedTools', 'Write Edit NotebookEdit Bash Task Agent KillShell WebFetch WebSearch',
+      ];
   }
 }
 
@@ -24,7 +35,7 @@ export const claudeAdapter: AgentAdapter = {
   speak(req: SpeakRequest, onEvent: (ev: AgentEvent) => void) {
     const resumeArgs = req.resumeSessionId ? ['--resume', req.resumeSessionId] : [];
     // 权限翻译在适配器内完成,core 只传领域枚举
-    const args = [...req.args, ...permissionArgs(req.permission)];
+    const args = [...req.args, ...claudePermissionArgs(req.permission)];
 
     onEvent({ member: req.member, phase: 'thinking' });
     let result = '';
