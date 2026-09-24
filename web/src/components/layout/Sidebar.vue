@@ -3,6 +3,7 @@ import { computed, onUnmounted, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { store, refreshRooms, refreshCharacters, openRoom, closeRoom, closeSession, openDirectChat, openInspector } from '@/store';
 import { api, type RoomListItem } from '@/services/api';
+import { initialsFor, colorForName } from '@/utils/avatar';
 import { dialog } from '@/composables/useDialog';
 import { downloadFile } from '@/utils/download';
 import { currentLang, setLang } from '@/i18n';
@@ -270,7 +271,10 @@ onUnmounted(() => {
           :class="{ active: store.activeSession?.type === 'room' && store.activeSession.id === r.config.id }"
           @click="openRoom(r.config.id)"
         >
-          <span class="task-dot" :class="taskStatus(r)"></span>
+          <div class="task-avatar-wrap">
+            <div class="task-avatar" :style="{ background: r.config.color || colorForName(r.config.name) }">{{ initialsFor(r.config.name) }}</div>
+            <span class="task-dot" :class="taskStatus(r)"></span>
+          </div>
           <div class="task-info">
             <div class="task-name">{{ r.config.name }}</div>
             <div class="task-sub">
@@ -478,40 +482,71 @@ onUnmounted(() => {
   cursor: not-allowed;
 }
 
-/* ---------- 任务卡(工单06) ---------- */
+/* ---------- 任务卡(工单06/18:与房间/角色同款首字头像) ---------- */
 .task-card {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 9px 10px;
-  border-radius: 8px;
+  padding: 7px 8px;
+  margin-bottom: 2px;
+  border-radius: 9px;
   cursor: pointer;
-  transition: background 0.15s ease;
+  border-left: 2px solid transparent; /* 与 SidebarCard 激活态色条等宽对齐 */
+  transition: background 0.12s;
 }
 
 .task-card:hover {
-  background: var(--hover);
+  background: var(--panel-softer);
 }
 
 .task-card.active {
   background: var(--accent-soft);
+  border-left-color: var(--accent);
+}
+
+/* 首字彩圆(SidebarCard.card-avatar 同款) + 右下角状态点徽标 */
+.task-avatar-wrap {
+  position: relative;
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+}
+
+.task-avatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .task-dot {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
   width: 9px;
   height: 9px;
   border-radius: 50%;
-  flex-shrink: 0;
   background: var(--faint);
+  border: 2px solid var(--sidebar-bg); /* 与侧栏同底色,切出徽标感 */
 }
 
 .task-dot.running {
   background: #4caf7d;
-  box-shadow: 0 0 0 3px rgba(76, 175, 125, 0.18);
+  animation: task-pulse 1.5s ease-in-out infinite;
 }
 
 .task-dot.error {
   background: #d45a5a;
+}
+
+@keyframes task-pulse {
+  0%, 100% { box-shadow: 0 0 0 2px rgba(76, 175, 125, 0.35); }
+  50% { box-shadow: 0 0 0 4px rgba(76, 175, 125, 0.15); }
 }
 
 .task-info {
