@@ -8,7 +8,7 @@ import { initialsFor, colorForName } from '@/utils/avatar';
 import type { ChatMessage } from '@server/core/types';
 import {
   BATON_STRIP, BATON_LINE, BATON_END_WORDS, USER_NAME_ALIASES,
-  stripBaton, extractBatonTarget,
+  stripBaton, extractBatonTarget, extractImportance,
 } from '@server/protocolKeywords';
 import TraceDetail from './TraceDetail.vue';
 
@@ -21,7 +21,9 @@ const isMultiLine = ref(false);
 
 const cleanText = computed(() => {
   const raw = props.msg.text || '';
-  return stripBaton(raw);
+  // 重要性前缀先剥(旧消息文本兜底;新消息落库已是净文本,extractImportance 不命中零开销)
+  const stripped = extractImportance(raw)?.text ?? raw;
+  return stripBaton(stripped);
 });
 
 function checkMultiLine() {
@@ -310,6 +312,15 @@ const batonBadge = computed(() => {
   return null;
 });
 
+/** 用户重要性药丸:优先结构化字段;文本兜底仅限用户消息(防 AI 模仿语法亮徽章) */
+const importanceBadge = computed<{ level: 2 | 3 } | null>(() => {
+  if (props.msg.importance === 3) return { level: 3 };
+  if (props.msg.importance === 2) return { level: 2 };
+  if (props.msg.from !== 'user') return null;
+  const hit = extractImportance(props.msg.text || '');
+  return hit ? { level: hit.importance } : null;
+});
+
 const clickable = computed(() => !isMe.value && !isSystem.value && !props.msg.streaming && !!props.msg.detail);
 
 /** Markdown 格式化 HTML (隐藏结尾接棒控制行，保证正文纯粹) */
@@ -359,6 +370,9 @@ function onBubbleClick(e: MouseEvent) {
         <span v-if="audienceNames" class="sender-audience">{{ t('chat.privateVisible', { names: audienceNames }) }}</span>
         <span v-if="audienceNames" class="private-round-pill">{{ t('chat.privateRound', { n: msg.privateRound || 1 }) }}</span>
         <span v-if="privateActionBadge" class="handshake-pill" :class="privateActionBadge.type">{{ privateActionBadge.label }}</span>
+        <span v-if="importanceBadge" class="importance-pill" :class="'lv' + importanceBadge.level">
+          {{ importanceBadge.level === 3 ? t('chat.importance3') : t('chat.importance2') }}
+        </span>
         <span v-if="batonBadge" class="baton-pill" :class="batonBadge.type">{{ batonBadge.label }}</span>
         <span class="sender-time">· {{ timeLabel }}</span>
       </div>
@@ -645,6 +659,22 @@ function onBubbleClick(e: MouseEvent) {
 .baton-pill.end {
   color: var(--muted);
   background: var(--hp-gray-b);
+}
+
+.importance-pill {
+  font-size: 10.5px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  font-weight: 550;
+  line-height: normal;
+}
+.importance-pill.lv2 {
+  color: var(--hp-blue-t);
+  background: var(--hp-blue-b);
+}
+.importance-pill.lv3 {
+  color: var(--hp-red-t);
+  background: var(--hp-red-b);
 }
 
 @keyframes caret { 50% { opacity: 0.25; } }

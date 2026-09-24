@@ -414,6 +414,10 @@ export class SubscribeEngine {
       const isStatefulResumed =
         (room.contextMode ?? 'stateless') === 'stateful' &&
         !!member.sessionIds?.[member.adapter];
+      // 3 档用户规则:不在本次增量内的一律 pin 回(游标读过即丢,独立规则段常驻)
+      const pinnedRules = allHistory.filter(
+        (m) => m.importance === 3 && m.from === 'user' && !delta.includes(m),
+      );
       const prompt = buildHeartbeatPrompt(
         room,
         member,
@@ -423,6 +427,7 @@ export class SubscribeEngine {
         isStatefulResumed ? undefined : ctx?.summary,
         allHistory, // 供摘要/纪要锚点失效校验(截断后不注入幽灵摘要)
         this.lang,
+        pinnedRules.length ? pinnedRules : undefined,
       );
       const outcome = await this.deps.speak(member, prompt);
 

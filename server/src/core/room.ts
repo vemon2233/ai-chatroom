@@ -15,6 +15,7 @@ import type { Lang } from './i18n/lang';
 import { getAdapter as getAdapterByKind } from '../adapters/index';
 import { truncateMessages, prepareReroll, prepareEdit, backfillHandshake } from './historyOps';
 import type { AgentTraceLog } from './types';
+import { extractImportance } from '../protocolKeywords';
 import {
   countUncoveredPublic,
   countUncoveredPrivateFor,
@@ -504,8 +505,10 @@ export class ChatRoom {
     await this.sysMessage(text);
   }
 
-  /** 用户发言:消息入库 + 编排器驱动。 */
-  async userSpeak(text: string): Promise<void> {
+  /** 用户发言:消息入库 + 编排器驱动。`!`/`!!` 前缀解析为重要性档位(净文本落库,字段携带)。 */
+  async userSpeak(rawText: string): Promise<void> {
+    const parsed = extractImportance(rawText);
+    const text = parsed?.text ?? rawText;
     await this.pushMessage({
       id: randomUUID(),
       roomId: this.config.id,
@@ -513,6 +516,7 @@ export class ChatRoom {
       fromName: this.config.userPersona?.name || t(this.lang, 'sys.user'),
       text,
       ts: Date.now(),
+      ...(parsed ? { importance: parsed.importance } : {}),
     });
     await this.orch.onUserMessage(text);
   }
@@ -563,12 +567,21 @@ export class ChatRoom {
     this.orch.rerollAgent(targetSpeaker);
   }
 
-  /** 保存编辑:更新该消息文本,若是 Agent 保持原身份且留于 idle;若是用户则驱动后续讨论 */
-  async saveEdit(messageId: string, newText: string): Promise<void> {
+  /** 保存编辑:更新该消息文本,若是 Agent 保持原身份且留于 idle;若是用户则驱动后续讨论。
+   *  仅用户消息解析 `!`/`!!` 前缀(AI 消息不剥不解析——防伪装档位)。 */
+  async saveEdit(messageId: string, newRawText: string): Promise<void> {
     if (this.orch.state !== 'idle' || this.orch.currentSpeaker != null) {
       await this.stop();
     }
-    const { remaining, isUser } = prepareEdit(this.messages, messageId, newText, this.lang);
+    const target = this.messages.find((m) => m.id === messageId);
+    const isUserMsg = target?.from === 'user';
+    const parsed = isUserMsg ? extractImportance(newRawText) : null;
+    const newText = parsed?.text ?? newRawText;
+    const { remaining, isUser, updatedTarget } = prepareEdit(this.messages, messageId, newText, this.lang);
+    if (isUser) {
+      if (parsed) updatedTarget.importance = parsed.importance;
+      else delete updatedTarget.importance; // 前缀移除 = 档位撤销
+    }
     this.messages = remaining;
     await this.persistence.rewriteMessages(this.config.id, this.messages);
     this.bus.emitRoomMessages(this.config.id, this.messages);

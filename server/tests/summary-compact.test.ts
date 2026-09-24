@@ -114,6 +114,25 @@ describe('上下文压缩层 (Summary & Compact Layer) 核心套件', () => {
       const windowForM3 = buildInjectionWindow(history, 'm3', summary);
       expect(windowForM3.map((m) => m.id)).toEqual(['5']);
     });
+
+    it('buildInjectionWindow 3 档用户规则豁免摘要吞没(2 档不豁免)', () => {
+      const history: ChatMessage[] = [
+        { id: '1', roomId: 'r1', from: 'user', fromName: '用户', text: '最高指令规则', ts: 1, importance: 3 },
+        { id: '2', roomId: 'r1', from: 'user', fromName: '用户', text: '普通重点', ts: 2, importance: 2 },
+        { id: '3', roomId: 'r1', from: 'm1', fromName: '诸葛亮', text: '公聊锚点消息', ts: 3 },
+        { id: '4', roomId: 'r1', from: 'm2', fromName: '周瑜', text: '新公聊', ts: 4 },
+      ];
+      const summary: DiscussionSummary = {
+        text: '前期讨论摘要',
+        coveredMessageId: '3',
+        updatedAt: Date.now(),
+        messageCount: 2,
+      };
+
+      // 3 档规则被 pin 回(时序前置);2 档与普通旧公聊仍被摘要吞没
+      const win = buildInjectionWindow(history, 'm2', summary);
+      expect(win.map((m) => m.id)).toEqual(['1', '4']);
+    });
   });
 
   // ---------- 2. 链式滚动与受众隔离 ----------
@@ -252,6 +271,32 @@ describe('上下文压缩层 (Summary & Compact Layer) 核心套件', () => {
       expect(heartbeatPrompt).toContain('# 你的私聊往来纪要 (仅你可见)');
       expect(heartbeatPrompt).toContain('军师本人的私下结盟');
       expect(heartbeatPrompt).toContain('心跳前的新消息');
+    });
+
+    it('buildHeartbeatPrompt pinnedRules 常驻规则段(游标越过即丢 → pin 回)', () => {
+      const delta: ChatMessage[] = [
+        { id: '10', roomId: 'r1', from: 'm2', fromName: '周瑜', text: '心跳前的新消息', ts: 10 },
+      ];
+      const pinnedRules: ChatMessage[] = [
+        { id: 'rule', roomId: 'r1', from: 'user', fromName: '用户', text: '每人只能说一句话', ts: 1, importance: 3 },
+      ];
+      const p = buildHeartbeatPrompt(
+        baseRoom,
+        baseRoom.members[0]!,
+        delta,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        'zh',
+        pinnedRules,
+      );
+      expect(p).toContain('# 用户既定规则');
+      expect(p).toContain('【用户最高指令 ── 必须遵守】[用户]');
+      expect(p).toContain('每人只能说一句话');
+      // 不传时零变化
+      const plain = buildHeartbeatPrompt(baseRoom, baseRoom.members[0]!, delta);
+      expect(plain).not.toContain('用户既定规则');
     });
   });
 

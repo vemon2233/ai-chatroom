@@ -64,6 +64,83 @@ describe('prompt 双语', () => {
   });
 });
 
+// ---------- 用户重要性分档转录(!/!! 前缀) ----------
+
+import { pinVital } from '../src/core/render';
+
+describe('historyText 用户重要性分档', () => {
+  const userMsg = (over: Partial<ChatMessage> = {}): ChatMessage => ({
+    id: 'u1', roomId: 'r', from: 'user', fromName: '用户', text: '每人只能说一句话', ts: 0, ...over,
+  });
+
+  it('2 档 → 【用户重点】;3 档 → 【用户最高指令】+ 冲突优先尾注(zh)', () => {
+    const zh2 = historyText([userMsg({ importance: 2 })], 10, 'm1', '甲', 'zh');
+    expect(zh2).toContain('【用户重点】[用户]');
+    expect(zh2).not.toContain('用户最高指令');
+
+    const zh3 = historyText([userMsg({ importance: 3 })], 10, 'm1', '甲', 'zh');
+    expect(zh3).toContain('【用户最高指令 ── 必须遵守】[用户]');
+    expect(zh3).toContain('以此条为准并严格执行');
+  });
+  it('en 档位标签', () => {
+    expect(historyText([userMsg({ importance: 2 })], 10, 'm1', '甲', 'en')).toContain('[User emphasized]');
+    expect(historyText([userMsg({ importance: 3 })], 10, 'm1', '甲', 'en')).toContain("USER'S HARD RULE");
+  });
+  it('无 importance / 1 档走普通公聊格式(无强调)', () => {
+    const out = historyText([userMsg({ importance: 1 })], 10, 'm1', '甲', 'zh');
+    expect(out).toContain('[用户] (全员公聊)');
+    expect(out).not.toContain('用户重点');
+    expect(out).not.toContain('用户最高指令');
+  });
+  it('档位优先于 @提及判定(规则比点名更硬)', () => {
+    const out = historyText([userMsg({ importance: 3, text: '遵守规则 @甲' })], 10, 'm1', '甲', 'zh');
+    expect(out).toContain('用户最高指令');
+    expect(out).not.toContain('【@提及了你】');
+  });
+  it('3 档豁免 recent 截断(窗口外的规则前置回插)', () => {
+    const msgs: ChatMessage[] = [
+      userMsg({ id: 'rule', importance: 3 }),
+      ...Array.from({ length: 12 }, (_, i) => ({
+        id: `fill_${i}`, roomId: 'r', from: 'm2', fromName: '乙', text: `填充${i}`, ts: i + 1,
+      })),
+    ];
+    const out = historyText(msgs, 5, 'm1', '甲', 'zh');
+    expect(out).toContain('用户最高指令');   // 规则被 pin 回
+    expect(out).toContain('填充11');         // 窗口内最新消息仍在
+    expect(out.indexOf('用户最高指令')).toBeLessThan(out.indexOf('填充11')); // 时序前置
+  });
+});
+
+describe('pinVital 纯函数', () => {
+  const rule = (id: string): ChatMessage => ({
+    id, roomId: 'r', from: 'user', fromName: '用户', text: `规则${id}`, ts: 1, importance: 3,
+  });
+  const plain = (id: string): ChatMessage => ({
+    id, roomId: 'r', from: 'user', fromName: '用户', text: id, ts: 1,
+  });
+
+  it('遗漏的 3 档公聊消息前置;2 档/私聊/已在窗口内的不 pin', () => {
+    const source = [
+      rule('r1'),
+      plain('p1'),
+      { ...rule('r2'), audience: ['m2'] as string[] }, // 私聊形式的 3 档不 pin(公聊语义)
+    ];
+    const win = [plain('p1')];
+    const out = pinVital(source, win);
+    expect(out.map((m) => m.id)).toEqual(['r1', 'p1']);
+  });
+  it('窗口已含该规则(同一引用)不重复', () => {
+    const r = rule('r1');
+    expect(pinVital([r, plain('p1')], [r, plain('p1')]).map((m) => m.id)).toEqual(['r1', 'p1']);
+  });
+  it('无遗漏时返回窗口浅拷贝(不原地改)', () => {
+    const win = [plain('p1')];
+    const out = pinVital([plain('p1')], win);
+    expect(out).toEqual(win);
+    expect(out).not.toBe(win);
+  });
+});
+
 // ---------- 纪要/摘要 prompt 双语 ----------
 
 import { buildPrivateDigestPrompt } from '../src/core/summaryOps';

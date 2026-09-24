@@ -4,7 +4,7 @@
 import type { ChatMessage, DiscussionSummary, DiscussionSummarySnapshot } from '@server/core/types';
 import {
   BATON_LINE, BATON_END_WORDS, BATON_STRIP, DM_STRIP, HANDSHAKE_STRIP, USER_NAME_ALIASES,
-  extractBatonTarget, stripBaton,
+  extractBatonTarget, stripBaton, extractImportance,
 } from '@server/protocolKeywords';
 import { downloadFile } from './download';
 import { t } from '@/i18n';
@@ -49,11 +49,11 @@ export function formatFileTimestamp(ts = Date.now()): string {
 
 /**
  * 剥除聊天正文中的控制标签 (与 MessageBubble 渲染端纪律严格一致:
- * 剥除接棒指令、私聊标签、握手标签,保证导出的正文纯粹)。
+ * 剥除重要性前缀、接棒指令、私聊标签、握手标签,保证导出的正文纯粹)。
  */
 export function stripControlTags(text: string): string {
   if (!text) return '';
-  return stripBaton(text)
+  return stripBaton(extractImportance(text)?.text ?? text)
     .replace(DM_STRIP, '')
     .replace(HANDSHAKE_STRIP, '')
     .trimEnd();

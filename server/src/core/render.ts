@@ -8,7 +8,27 @@ import type { ChatMessage, RoomConfig, ToolPermission } from './types';
 import type { Lang } from './i18n/lang';
 import { pt } from './i18n/promptTexts';
 
-/** 聊天历史 → 文本转录(带发言者名、受众区分与高权重 Markdown 格式)。recent 限制条数以控制 token。 */
+/**
+ * 3 档用户规则豁免纯函数:从 source 找回 window 遗漏的最高指令档用户公聊消息,按时间序前置。
+ * 「哪些消息进 prompt」的常驻规则策略——群聊/私聊全量视窗组装与 historyText 截断共用
+ * (与 buildInjectionWindow 的锚点前活跃私聊豁免同范式:选消息归视窗层,本叶子只提供策略)。
+ */
+export function pinVital(
+  source: readonly ChatMessage[],
+  window: readonly ChatMessage[],
+): ChatMessage[] {
+  const pinned = source.filter(
+    (m) =>
+      m.importance === 3 &&
+      m.from === 'user' &&
+      (!m.audience || m.audience.length === 0) &&
+      !window.includes(m),
+  );
+  return pinned.length ? [...pinned, ...window] : [...window];
+}
+
+/** 聊天历史 → 文本转录(带发言者名、受众区分与高权重 Markdown 格式)。recent 限制条数以控制 token;
+ *  3 档用户规则经 pinVital 豁免截断(规则常驻,不被 recent 窗口挤出)。 */
 export function historyText(
   messages: ChatMessage[],
   recent = 40,
@@ -16,7 +36,7 @@ export function historyText(
   viewerName?: string,
   lang: Lang = 'zh',
 ): string {
-  const slice = messages.slice(-recent);
+  const slice = pinVital(messages, messages.slice(-recent));
   return slice
     .map((m) => {
       // 1. 私聊密信处理
@@ -28,6 +48,14 @@ export function historyText(
           return pt(lang, 'r.privateToYou', { name: m.fromName, text: m.text });
         }
         return pt(lang, 'r.privateOther', { name: m.fromName, text: m.text });
+      }
+
+      // 1.5 用户重要性分档(优先于 @提及判定:规则比点名更硬;仅用户公聊消息带此字段)
+      if (m.importance === 3) {
+        return pt(lang, 'r.userRule', { name: m.fromName, text: m.text });
+      }
+      if (m.importance === 2) {
+        return pt(lang, 'r.userImportant', { name: m.fromName, text: m.text });
       }
 
       // 2. 全员公聊处理 (检测是否 @提及了当前成员)

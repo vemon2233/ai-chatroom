@@ -2,6 +2,7 @@
 
 import type { ChatMessage, DiscussionSummary, MemberConfig, PrivateDigest } from './types';
 import { filterHistoryForViewer } from './modes/subscribe/audience';
+import { pinVital } from './render';
 import { oneShotSpeak } from './exec';
 import type { AgentAdapter, SpeakRequest } from '../adapters/base';
 import { pt } from './i18n/promptTexts';
@@ -155,6 +156,7 @@ export function isPrivateThreadActive(
 /**
  * 组装注入视窗(接棒全量与心跳共用):
  * 锚点后公聊 ∪ 锚点后本人可见私聊 ∪ 锚点前活跃线程私聊(豁免截断), 严格保持原有历史时序
+ * + 3 档用户规则豁免摘要吞没(pinVital 前置,与活跃私聊豁免同范式)
  */
 export function buildInjectionWindow(
   history: readonly ChatMessage[],
@@ -195,7 +197,8 @@ export function buildInjectionWindow(
     }
   }
 
-  return result;
+  // 3 档用户规则豁免摘要吞没:被锚点吞掉的原文按时间序前置回插(规则常驻)
+  return pinVital(history, result);
 }
 
 

@@ -15,6 +15,9 @@ export const PROMPT_TEXTS: { zh: PromptTextDict; en: PromptTextDict } = {
     'r.privateOther': (p) => `> 🔒 **【私聊密信 ── 来自 ${p?.name ?? ''}】：**\n> ${p?.text ?? ''}`,
     'r.mentioned': (p) => `**🎯【@提及了你】[${p?.name ?? ''}] (全员公聊)：**\n${p?.text ?? ''}`,
     'r.publicMsg': (p) => `**[${p?.name ?? ''}] (全员公聊)：**\n${p?.text ?? ''}`,
+    // render.ts 用户重要性分档
+    'r.userImportant': (p) => `**【用户重点】[${p?.name ?? ''}] (全员公聊)：**\n${p?.text ?? ''}`,
+    'r.userRule': (p) => `**【用户最高指令 ── 必须遵守】[${p?.name ?? ''}]：**\n${p?.text ?? ''}\n> ⚠️ 用户的硬性规则。与任何风格/长度/语气指示冲突时,以此条为准并严格执行。`,
     // render.ts 长度指令
     'r.lengthLong': () => '发言长度不限,把论证、证据、推理过程充分展开,像给同事写一份严肃的技术论述。',
     'r.lengthNormal': () => '发言控制在 600 字以内,论证完整、有理有据,不空泛。',
@@ -46,6 +49,7 @@ export const PROMPT_TEXTS: { zh: PromptTextDict; en: PromptTextDict } = {
     'd.identityAnchor': (p) => `你是 **【${p?.name ?? ''}】**。请始终保持你的 **既有人设与核心立场**。`,
     'd.unreadHeader': () => '# 自你上次发言以来的最新未读动态:',
     'd.noNewMsg': () => '# 自你上次发言以来暂无新增动态。',
+    'd.pinnedRules': (p) => `# 用户既定规则(持续有效,不因时间推移失效)\n${p?.rules ?? ''}`,
     'd.taskHeader': (p) => `# 你的行动任务:\n${p?.brief ?? ''}`,
     'd.extraInstruction': (p) => `# 额外指令:\n${p?.text ?? ''}`,
 
@@ -63,6 +67,7 @@ export const PROMPT_TEXTS: { zh: PromptTextDict; en: PromptTextDict } = {
     'h.topic': (p) => `# 讨论主题: ${p?.topic ?? ''}`,
     'h.summaryLabel': () => '# 前期讨论摘要',
     'h.digestLabel': () => '# 你的私聊往来纪要 (仅你可见)',
+    'h.pinnedRules': (p) => `# 用户既定规则(持续有效,不因时间推移失效)\n${p?.rules ?? ''}`,
     'h.unreadHeader': () => '# 自上次查看以来的最新未读消息',
     'h.noNewMsg': () => '(自上次查看以来暂无新消息)',
     'h.twoPhase': (p) => `# 你的行动决策 (两阶段自决法则)\n阅读上述最新讨论，你有完全的自主决定权。请务必按以下两阶段推进你的思考：\n\n【第一阶段：意向自评 (先评估意图，再构思内容)】\n请在心中自评两件事：\n1. **公聊意愿 (0 ~ 100 分)**：你此时在大群公开发言的迫切度。\n   - < 60分：观点刚才已表达清楚、或话题与你关系不大、或想先看别人怎么吵、保持沉默更有利。\n   - ≥ 60分：被他人直接质问、面临重大危机、或有不可不发的新立场/新反驳必须公开宣布。\n2. **私聊意向 (有 / 无)**：审视上方同事白名单，你此刻是否想私下给某人单独通个气、对个暗号、商量对策、提醒兄弟、或暗中结盟？\n   - 若有，明确私聊对象是谁，核心想私下沟通什么 (支持单人如 @名字，也支持同时找多个人如 @名字A @名字B)。\n\n【第二阶段：按自评结果执行输出】\n- 若【公聊意愿 < 60 且 无私聊意向】：**严格直接输出 <跳过>** (保持潜水观望局势，绝不多言)。\n- 若【公聊意愿 ≥ 60 且 无私聊意向】：**直接输出公开发言正文** (纯公聊，无需附带私聊)。\n- 若【公聊意愿 < 60 但 有私聊意向】：**直接输出: <私聊>@同事名字 私信内容** (纯私聊，不发大群公聊)。\n- 若【公聊意愿 ≥ 60 且 有私聊意向】：**先写公开发言，并在结尾另起一行附带: <私聊>@同事名字 私信内容** (系统会自动拆分为公聊与私聊两个独立气泡)。`,
@@ -120,6 +125,9 @@ export const PROMPT_TEXTS: { zh: PromptTextDict; en: PromptTextDict } = {
     'r.privateOther': (p) => `> 🔒 **[Private DM — from ${p?.name ?? ''}]:**\n> ${p?.text ?? ''}`,
     'r.mentioned': (p) => `**🎯[@mentioned you] [${p?.name ?? ''}] (public to all):**\n${p?.text ?? ''}`,
     'r.publicMsg': (p) => `**[${p?.name ?? ''}] (public to all):**\n${p?.text ?? ''}`,
+    // render.ts user importance tiers
+    'r.userImportant': (p) => `**[User emphasized] [${p?.name ?? ''}] (public to all):**\n${p?.text ?? ''}`,
+    'r.userRule': (p) => `**[USER'S HARD RULE — must follow] [${p?.name ?? ''}]:**\n${p?.text ?? ''}\n> ⚠️ The user's hard rule. Whenever it conflicts with any style/length/tone instruction, this rule prevails and must be followed strictly.`,
     'r.lengthLong': () => 'No length limit. Fully develop your arguments, evidence and reasoning, like a serious technical essay for colleagues.',
     'r.lengthNormal': () => 'Keep each speech under 600 words: complete reasoning, well-grounded, not vague.',
     'r.lengthShort': () => 'Keep each speech under 300 words with a sharp position. If you disagree with someone, say so directly and explain why.',
@@ -144,6 +152,7 @@ export const PROMPT_TEXTS: { zh: PromptTextDict; en: PromptTextDict } = {
     'd.identityAnchor': (p) => `You are **[${p?.name ?? ''}]**. Always keep your **established persona and core stance**.`,
     'd.unreadHeader': () => '# New messages since your last speech:',
     'd.noNewMsg': () => '# No new activity since your last speech.',
+    'd.pinnedRules': (p) => `# Standing user rules (remain in effect, do not expire over time)\n${p?.rules ?? ''}`,
     'd.taskHeader': (p) => `# Your Task:\n${p?.brief ?? ''}`,
     'd.extraInstruction': (p) => `# Extra Instruction:\n${p?.text ?? ''}`,
 
@@ -158,6 +167,7 @@ export const PROMPT_TEXTS: { zh: PromptTextDict; en: PromptTextDict } = {
     'h.topic': (p) => `# Discussion Topic: ${p?.topic ?? ''}`,
     'h.summaryLabel': () => '# Earlier Discussion Summary',
     'h.digestLabel': () => '# Your Private DM Digest (visible only to you)',
+    'h.pinnedRules': (p) => `# Standing user rules (remain in effect, do not expire over time)\n${p?.rules ?? ''}`,
     'h.unreadHeader': () => '# Unread Messages Since You Last Checked',
     'h.noNewMsg': () => '(no new messages since you last checked)',
     'h.twoPhase': (p) => `# Your Action Decision (Two-Phase Self-Determination)\nRead the latest discussion above. You have full autonomy. Proceed in two phases:\n\n[Phase 1: Intent Self-Assessment (assess intent before composing)]\nPrivately evaluate two things:\n1. **Public-speech willingness (0-100)**: how urgently you want to speak publicly in the group right now.\n   - < 60: your view was already made clear, the topic has little to do with you, you want to watch the argument unfold first, or staying silent is safer.\n   - ≥ 60: you were directly challenged, face a major crisis, or have a new position/rebuttal that must be declared publicly.\n2. **DM intent (yes/no)**: review the colleague whitelist above — do you want to privately message someone right now: align, exchange signals, scheme, warn an ally, or form a covert alliance?\n   - If yes, decide who, and what you want to communicate privately (single target like @name, or multiple like @nameA @nameB).\n\n[Phase 2: Execute According to Your Self-Assessment]\n- If [public willingness < 60 AND no DM intent]: **output exactly ${p?.silentTag ?? '<skip>'}** (stay lurking; say nothing more).\n- If [public willingness ≥ 60 AND no DM intent]: **output your public speech directly** (pure public, no DM attached).\n- If [public willingness < 60 BUT DM intent]: **output exactly: ${p?.dmTag ?? '<dm>'}@colleague private message** (pure DM, no group speech).\n- If [public willingness ≥ 60 AND DM intent]: **write your public speech first, then append on a new line at the end: ${p?.dmTag ?? '<dm>'}@colleague private message** (the system splits it into a public bubble and a private bubble).`,

@@ -156,6 +156,8 @@ export function buildDeltaPrompt(
     batonMode?: 'chain' | 'callout';
     /** 订阅模式:强制回应条目——禁跳过 */
     mustRespond?: boolean;
+    /** 3 档用户规则常驻注入(增量游标越过后的豁免;调用方组装,不含 delta 内已有条目) */
+    pinnedRules?: readonly ChatMessage[];
     /** prompt 语言(缺省 zh——与改造前逐字节一致) */
     lang?: Lang;
   } = {},
@@ -169,6 +171,15 @@ export function buildDeltaPrompt(
 
   // 1. 精炼身份锚点 (Identity Anchor, 防长程人设漂移)
   parts.push(pt(lang, 'd.identityAnchor', { name: member.name }));
+
+  // 1.5 用户既定规则段(增量游标越过即丢 → 调用方 pin 回,独立段呈现语义更准)
+  if (opts.pinnedRules && opts.pinnedRules.length > 0) {
+    parts.push(pt(lang, 'd.pinnedRules', {
+      rules: opts.pinnedRules
+        .map((m) => pt(lang, 'r.userRule', { name: m.fromName, text: m.text }))
+        .join('\n\n'),
+    }));
+  }
 
   // 2. 自上次发言以来的新增动态
   if (visibleDelta.length > 0) {

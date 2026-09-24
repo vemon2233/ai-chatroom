@@ -103,6 +103,23 @@ describe('双上下文模式 (Dual Context Mode) 单元测试', () => {
       expect(promptForB).toContain('咱们私下结盟吧');
       expect(promptForB).toContain('密谋细节如下');
     });
+
+    it('pinnedRules 常驻规则段:游标越过后的 3 档规则以独立段注入', () => {
+      const pinnedRules: ChatMessage[] = [
+        { id: 'rule1', roomId: 'room_1', from: 'user', fromName: '用户', text: '每人只能说一句话', ts: 500, importance: 3 },
+      ];
+      const delta: ChatMessage[] = [
+        { id: 'd1', roomId: 'room_1', from: 'c2', fromName: '反方', text: '新观点', ts: 6000 },
+      ];
+      const prompt = buildDeltaPrompt(mockRoom, mockRoom.members[0]!, delta, { pinnedRules });
+      // 独立规则段 + 3 档强调格式(与 historyText 同款 r.userRule)
+      expect(prompt).toContain('用户既定规则');
+      expect(prompt).toContain('【用户最高指令 ── 必须遵守】[用户]');
+      expect(prompt).toContain('每人只能说一句话');
+      // 未传 pinnedRules 时零变化(既有断言不回归)
+      const plain = buildDeltaPrompt(mockRoom, mockRoom.members[0]!, delta);
+      expect(plain).not.toContain('用户既定规则');
+    });
   });
 
   describe('DirectChatService: 1v1 私聊在 stateless vs stateful 下的调用行为', () => {

@@ -9,7 +9,7 @@ import {
 } from '../src/core/modes/subscribe/audience';
 import {
   BATON_LINE, BATON_END_WORDS, batonTagFor, USER_NAME_ALIASES, isSilentText,
-  extractBatonTarget,
+  extractBatonTarget, extractImportance,
 } from '../src/protocolKeywords';
 
 const members = [
@@ -69,6 +69,35 @@ describe('batonTagFor 按语言发射', () => {
   it('zh → <接棒>,en → <pass>', () => {
     expect(batonTagFor('zh')).toBe('<接棒>');
     expect(batonTagFor('en')).toBe('<pass>');
+  });
+});
+
+describe('重要性前缀解析(! / !!)', () => {
+  it('! = 2 档,!! = 3 档,净文本正确剥除', () => {
+    expect(extractImportance('!重点内容')).toEqual({ importance: 2, text: '重点内容' });
+    expect(extractImportance('!!每人只能说一句话')).toEqual({ importance: 3, text: '每人只能说一句话' });
+    expect(extractImportance('!@玩家1 开始投票')).toEqual({ importance: 2, text: '@玩家1 开始投票' });
+  });
+  it('!!! 与裸前缀不解析(惊讶语气放行)', () => {
+    expect(extractImportance('!!!太震惊了')).toBeNull();
+    expect(extractImportance('!!!!更震惊')).toBeNull();
+    expect(extractImportance('!!')).toBeNull();
+    expect(extractImportance('!')).toBeNull();
+  });
+  it('!! 后紧跟正文才命中;第二个 ! 后跟 ! 被正确拒绝(防前缀吞噬)', () => {
+    // !!规则 → 3 档;!!规则! 结尾感叹号不影响(锚定行首)
+    expect(extractImportance('!!规则!')).toEqual({ importance: 3, text: '规则!' });
+    expect(extractImportance('!规则!!')).toEqual({ importance: 2, text: '规则!!' });
+  });
+  it('前缀后跟空白不命中(裸感叹号 + 正文放行)', () => {
+    expect(extractImportance('! 注意这里有空格')).toBeNull();
+    expect(extractImportance('普通消息')).toBeNull();
+    expect(extractImportance('')).toBeNull();
+  });
+  it('正文中间的感叹号不受影响(仅行首锚定)', () => {
+    expect(extractImportance('好!太棒了!')).toBeNull();
+    expect(extractImportance('多行\n!第二行前缀不解析(锚定首行)')).toBeNull();
+    expect(extractImportance('!多行\n第二行保留')).toEqual({ importance: 2, text: '多行\n第二行保留' });
   });
 });
 

@@ -119,6 +119,22 @@ export function stripBaton(text: string): string {
   return text.trim();
 }
 
+// ---------- 重要性前缀(用户消息,! = 2档重点 / !! = 3档最高指令) ----------
+
+/**
+ * 行首感叹号计数;仅 1-2 个且后跟非"!"的非空白正文才命中。
+ * 3 个及以上(!!!)或裸前缀视为普通文本放行(惊讶语气与强调不互踩)——
+ * 负向前瞻 (?!!) 确保第 3 个 ! 不被当作正文首字符吞进前缀。
+ */
+export const IMPORTANCE_PREFIX = /^(!{1,2})(?=[^\s!])/;
+
+/** 提取重要性前缀。返回 { importance: 2|3, text(净文本) };不匹配返回 null(原样保留)。 */
+export function extractImportance(text: string): { importance: 2 | 3; text: string } | null {
+  const m = (text ?? '').match(IMPORTANCE_PREFIX);
+  if (!m) return null;
+  return { importance: m[1]!.length === 2 ? 3 : 2, text: text.slice(m[0].length) };
+}
+
 // ---------- 沉默/跳过(订阅模式心跳自决) ----------
 
 /** 精确等于即沉默(中英并集) */

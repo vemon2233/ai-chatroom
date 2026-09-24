@@ -3,10 +3,11 @@ import type { AgentAdapter, AgentEvent } from '../adapters/base';
 import type { AgentTraceLog, Character, ChatMessage, DiscussionSummary, ContextMode, DirectChatMeta, UserPersonaSnapshot } from './types';
 import type { MessageBus } from './bus';
 import { extractDeltaMessages } from './prompt';
-import { historyText } from './render';
+import { historyText, pinVital } from './render';
 import { isPublicSummaryUsable, splitHistoryByAnchor } from './summaryOps';
 import { truncateMessages, prepareReroll, prepareEdit } from './historyOps';
 import { assertSessionConfigMutable } from './sessionGuard';
+import { extractImportance } from '../protocolKeywords';
 import type { Admin } from './admin';
 import { t } from './i18n/messages';
 import { pt } from './i18n/promptTexts';
@@ -169,11 +170,20 @@ export class DirectChatService {
     void this.generateReply(character, remaining);
   }
 
-  /** 保存编辑:更新消息文本,若是用户发言则重置 session 并重新触发角色回答 */
-  async saveEdit(character: Character, messageId: string, newText: string): Promise<void> {
+  /** 保存编辑:更新消息文本,若是用户发言则重置 session 并重新触发角色回答。
+   *  仅用户消息解析 `!`/`!!` 前缀(AI 消息不剥不解析——防伪装档位)。 */
+  async saveEdit(character: Character, messageId: string, newRawText: string): Promise<void> {
     this.stop(character.id);
     const msgs = await this.store.loadDirectMessages(character.id);
-    const { remaining, isUser } = prepareEdit(msgs, messageId, newText, this.lang);
+    const target = msgs.find((m) => m.id === messageId);
+    const isUserMsg = target?.from === 'user';
+    const parsed = isUserMsg ? extractImportance(newRawText) : null;
+    const newText = parsed?.text ?? newRawText;
+    const { remaining, isUser, updatedTarget } = prepareEdit(msgs, messageId, newText, this.lang);
+    if (isUser) {
+      if (parsed) updatedTarget.importance = parsed.importance;
+      else delete updatedTarget.importance; // 前缀移除 = 档位撤销
+    }
     await this.store.rewriteDirectMessages(character.id, remaining);
     this.deps.bus.emitDirectMessages(character.id, remaining);
     if (isUser) {
@@ -183,9 +193,11 @@ export class DirectChatService {
   }
 
   /** 用户在 1v1 私聊中直接发言 */
-  async userSpeak(character: Character, userText: string): Promise<void> {
+  async userSpeak(character: Character, rawText: string): Promise<void> {
     this.stop(character.id);
 
+    const parsed = extractImportance(rawText);
+    const userText = parsed?.text ?? rawText;
     const meta = await this.getMeta(character.id);
     const fromName = meta.userPersona?.name || t(this.lang, 'sys.user');
 
@@ -196,6 +208,7 @@ export class DirectChatService {
       fromName,
       text: userText,
       ts: Date.now(),
+      ...(parsed ? { importance: parsed.importance } : {}),
     };
     await this.store.appendDirectMessage(character.id, userMsg);
     this.deps.bus.emitDirectMessage(character.id, userMsg);
@@ -240,8 +253,19 @@ export class DirectChatService {
         if (isReanchored) {
           prompt = this.buildDirectFullPrompt(character, history, summary, meta.userPersona);
         } else {
+          // 3 档用户规则:游标切片越过即丢 → pin 回作独立规则段(常驻注入)
+          const pinnedRules = history.filter(
+            (m) => m.importance === 3 && m.from === 'user' && !delta.includes(m),
+          );
           prompt = [
             pt(this.lang, 'dv.keepPersona', { name: character.name }),
+            ...(pinnedRules.length ? [
+              pt(this.lang, 'd.pinnedRules', {
+                rules: pinnedRules
+                  .map((m) => pt(this.lang, 'r.userRule', { name: m.fromName, text: m.text }))
+                  .join('\n\n'),
+              }),
+            ] : []),
             `\n${pt(this.lang, 'dv.deltaIntro')}\n${historyText(delta, 30, character.id, character.name, this.lang)}`,
             `\n${pt(this.lang, 'dv.replyPrompt')}`,
           ].join('\n\n');
@@ -442,7 +466,8 @@ export class DirectChatService {
       parts.push(`${pt(this.lang, 'dv.prevSummaryLabel')}\n${summary.text.trim()}`);
     }
 
-    const visibleHistory = splitHistoryByAnchor(history, summary?.coveredMessageId).after;
+    // 3 档用户规则豁免摘要吞没(pinVital 前置):被锚点吞掉的规则原文常驻注入
+    const visibleHistory = pinVital(history, splitHistoryByAnchor(history, summary?.coveredMessageId).after);
     parts.push(`\n${pt(this.lang, 'dv.historyLabel')}\n${historyText(visibleHistory, 30, character.id, character.name, this.lang)}`);
     parts.push(`\n${pt(this.lang, 'dv.replyPrompt')}`);
 

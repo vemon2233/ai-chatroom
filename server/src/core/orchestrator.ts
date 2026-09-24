@@ -580,11 +580,16 @@ export class Orchestrator {
         });
       } else {
         // 正常增量调用：只注入自上次发言以来的新增对话与精简行动指引
+        // 3 档用户规则经游标切片已丢 → pin 回作独立规则段(常驻注入)
+        const pinnedRules = history.filter(
+          (m) => m.importance === 3 && m.from === 'user' && !delta.includes(m),
+        );
         prompt = buildDeltaPrompt(this.deps.room, member, delta, {
           trigger: entry.trigger,
           instruction: entry.instruction,
           batonMode: entry.batonMode,
           mustRespond: entry.mustRespond,
+          pinnedRules: pinnedRules.length ? pinnedRules : undefined,
           lang: this.lang,
         });
       }

@@ -104,6 +104,8 @@ export interface ChatMessage {
   batonTarget?: string;
   /** 接棒模式: 是否交还给用户/房主 */
   batonToUser?: boolean;
+  /** 用户重要性标注(1=普通缺省,2=重点,3=最高指令;仅用户消息经入口解析;3 档豁免摘要/截断/游标,常驻注入) */
+  importance?: number;
 }
 
 /** 成员私聊纪要(第一人称,只注入该成员本人) */

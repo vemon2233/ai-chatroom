@@ -100,4 +100,14 @@ describe('Web vue-i18n 全量词典与插值真实渲染扫描', () => {
     console.log('chipHint rendered:', r);
     expect(r).toBe('丞相\n点击下指令 | ✕ 移出房间');
   });
+
+  it('importance2/importance3 双语 key 存在且渲染', () => {
+    i18n.global.locale.value = 'zh';
+    expect(i18n.global.t('chat.importance2')).toBe('⭐ 用户重点');
+    expect(i18n.global.t('chat.importance3')).toBe('❗ 用户最高指令');
+
+    i18n.global.locale.value = 'en';
+    expect(i18n.global.t('chat.importance2')).toBe('⭐ User emphasized');
+    expect(i18n.global.t('chat.importance3')).toBe("❗ User's hard rule");
+  });
 });

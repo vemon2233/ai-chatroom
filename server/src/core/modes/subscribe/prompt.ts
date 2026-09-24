@@ -25,6 +25,7 @@ export function buildHeartbeatPrompt(
   summary?: DiscussionSummary | null,
   fullHistory?: readonly ChatMessage[],
   lang: Lang = 'zh',
+  pinnedRules?: readonly ChatMessage[],
 ): string {
   // 锚点失效校验:摘要锚点不在历史 → 整份不注入(含纪要);
   // 摘要有效但本人纪要锚点失效 → 仅剔除该成员纪要段
@@ -78,6 +79,18 @@ export function buildHeartbeatPrompt(
   const memberDigest = usableSummary?.privateDigests?.[member.id];
   if (memberDigest?.text?.trim()) {
     sections.push(``, pt(lang, 'h.digestLabel'), memberDigest.text.trim());
+  }
+
+  // 3 档用户规则常驻段(心跳 lastSeenIndices 游标越过即丢 → 调用方 pin 回)
+  if (pinnedRules && pinnedRules.length > 0) {
+    sections.push(
+      ``,
+      pt(lang, 'h.pinnedRules', {
+        rules: pinnedRules
+          .map((m) => pt(lang, 'r.userRule', { name: m.fromName, text: m.text }))
+          .join('\n\n'),
+      }),
+    );
   }
 
   sections.push(
