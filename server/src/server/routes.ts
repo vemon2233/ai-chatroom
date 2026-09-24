@@ -8,6 +8,8 @@ import { CharacterStore } from '../store/characters';
 import { DirectChatService } from '../core/direct';
 import { getAdapter as getAdapterByKind } from '../adapters/index';
 import { Admin } from '../core/admin';
+import { filterExtraArgs } from '../core/extraArgs';
+import { listSkills } from '../core/skills';
 import { getTrace, listTraces, computeSessionStats, saveTrace } from '../store/trace';
 import { listSummarySnapshots, getSummarySnapshot, getSummary, saveSummarySnapshot } from '../store/summary';
 import { parseCharacterCard, detectImportType } from '../core/characterCard';
@@ -21,7 +23,7 @@ import {
   loadDirectMeta,
   saveDirectMeta,
 } from '../store/directChats';
-import type { Character, RoomSettings } from '../core/types';
+import type { Character, RoomConfig, RoomSettings } from '../core/types';
 import type { AdapterConfig, AppConfig } from './config';
 import { settings } from '../store/settings';
 import { t } from '../core/i18n/messages';
@@ -151,7 +153,7 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
     const existingNames = Array.from(rooms.values()).map((r) => r.config.name);
     const dedupedName = dedupeName(name, existingNames);
 
-    // 成员快照自愈与清洗 (剥离旧 sessionIds)
+    // 成员快照自愈与清洗 (剥离旧 sessionIds;extraArgs 白名单过滤在 makeRoomConfig 单一收口)
     const rawMembers = Array.isArray(rawData.members) ? rawData.members : [];
     const defaultAdapter = cfg.admin?.adapter || Object.keys(adapterConfigs)[0] || 'claude';
     const cleanedMembers = rawMembers.map((m: any, idx: number) => {
@@ -169,10 +171,15 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
       };
     });
 
-    // 项目路径跨机检查：本地不存在则置空
+    // 项目路径跨机检查:本地不存在则置空;task 房路径失效 → 降级 chat + 警示(工单09)
     let projectPath: string | undefined = undefined;
+    let kind: RoomConfig['kind'] = rawData.kind === 'task' ? 'task' : 'chat';
+    let degradedFromTask = false;
     if (typeof rawData.projectPath === 'string' && existsSync(rawData.projectPath)) {
       projectPath = rawData.projectPath;
+    } else if (kind === 'task') {
+      kind = 'chat'; // task 必须有项目:路径失效降级 chat,不产无项目僵尸房
+      degradedFromTask = true;
     }
 
     const userPersona = rawData.userPersona && typeof rawData.userPersona === 'object'
@@ -187,6 +194,7 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
 
     const rcfg = makeRoomConfig({
       name: dedupedName,
+      kind,
       topic: typeof rawData.topic === 'string' ? rawData.topic : undefined,
       color: typeof rawData.color === 'string' ? rawData.color : undefined,
       speechLength: rawData.speechLength,
@@ -209,11 +217,17 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
         appendMessage,
       },
       cfg.summary,
-      { summaryStore, traceStore, getLang: settings.getLang },
+      { summaryStore, traceStore, getLang: settings.getLang, speakTimeoutMs: cfg.speakTimeoutMs },
     );
 
     rooms.set(newRoom.id, newRoom);
     await persistRoom(rcfg);
+    if (degradedFromTask) {
+      await newRoom.systemNotice(t(settings.getLang(), 'api.taskDegraded', {
+        name: dedupedName,
+        path: typeof rawData.projectPath === 'string' ? rawData.projectPath : '',
+      }));
+    }
     bus.broadcast({ type: 'rooms' });
     return { id: newRoom.id, state: newRoom.getState() };
   }
@@ -262,12 +276,17 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
         if (!adapterConfigs[body.adapter]) {
           return json(res, 400, { error: t(settings.getLang(), 'api.unknownAdapter', { key: body.adapter }) });
         }
+        // extraArgs 白名单(ADR-0002):非白名单参数直接 400(创建侧整体拒绝,导入侧剥离)
+        const filtered = filterExtraArgs(body.extraArgs);
+        if (filtered.removed.length > 0) {
+          return json(res, 400, { error: t(settings.getLang(), 'api.extraArgsNotAllowed', { args: filtered.removed.join(' ') }) });
+        }
         const c = await characters.create({
           name: body.name.trim(),
           color: body.color,
           adapter: body.adapter,
           persona: body.persona.trim(),
-          extraArgs: body.extraArgs,
+          extraArgs: filtered.args.length > 0 ? filtered.args : undefined,
           note: body.note,
         });
         bus.broadcast({ type: 'characters' });
@@ -495,14 +514,20 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
           .filter((c): c is Character => !!c);
         if (inputs.length === 0) return json(res, 400, { error: t(settings.getLang(), 'api.noValidCharacters') });
         const added = await room.addMembers(
-          inputs.map((c) => ({
-            name: c.name,
-            color: c.color,
-            adapter: c.adapter,
-            persona: c.persona,
-            extraArgs: c.extraArgs,
-            characterId: c.id,
-          })),
+          inputs.map((c) => {
+            const filtered = filterExtraArgs(c.extraArgs);
+            if (filtered.removed.length > 0) {
+              console.warn(`[pull-character] 角色 "${c.name}" extraArgs 含非白名单参数(历史数据),已剥离: ${filtered.removed.join(' ')}`);
+            }
+            return {
+              name: c.name,
+              color: c.color,
+              adapter: c.adapter,
+              persona: c.persona,
+              extraArgs: filtered.args.length > 0 ? filtered.args : undefined,
+              characterId: c.id,
+            };
+          }),
         );
         return json(res, 201, { added, state: room.getState() });
       }
@@ -529,7 +554,15 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
             return json(res, 400, { error: t(settings.getLang(), 'api.unknownAdapter', { key: m.adapter }) });
           }
         }
-        if (body.projectPath && !existsSync(body.projectPath)) {
+        // 任务房校验(ADR-0001):projectPath 必填且本机存在(mode 恒 baton 在 makeRoomConfig 强制)
+        if (body.kind === 'task') {
+          if (typeof body.projectPath !== 'string' || !body.projectPath.trim()) {
+            return json(res, 400, { error: t(settings.getLang(), 'api.taskNeedsProject') });
+          }
+          if (!existsSync(body.projectPath)) {
+            return json(res, 400, { error: t(settings.getLang(), 'api.projectDirMissing', { path: body.projectPath }) });
+          }
+        } else if (body.projectPath && !existsSync(body.projectPath)) {
           return json(res, 400, { error: t(settings.getLang(), 'api.projectDirMissing', { path: body.projectPath }) });
         }
         const rcfg = makeRoomConfig(body, settings.getLang());
@@ -543,7 +576,7 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
             appendMessage,
           },
           cfg.summary,
-          { summaryStore, traceStore, getLang: settings.getLang },
+          { summaryStore, traceStore, getLang: settings.getLang, speakTimeoutMs: cfg.speakTimeoutMs },
         );
         rooms.set(room.id, room);
         await persistRoom(rcfg);
@@ -582,6 +615,7 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
           const exportData = {
             schema: 'ai-chatroom.room.v1',
             name: r.name,
+            kind: r.kind,
             topic: r.topic,
             color: r.color,
             speechLength: r.speechLength,
@@ -705,6 +739,44 @@ export function createRoutes(bus: MessageBus, cfg: AppConfig, rooms: Map<string,
             void room!.systemNotice(t(settings.getLang(), 'api.instructionFailed', { msg: String(e) }));
           });
           return json(res, 202, { ok: true });
+        }
+
+        // ---- 斜杠命令支撑端点(工单08) ----
+
+        // skill 候选扫描:用户级 + 本房项目级(前端不可达文件系统,扫描在 server)
+        if (sub === 'skills' && method === 'GET') {
+          return json(res, 200, { skills: listSkills(room?.config.projectPath) });
+        }
+
+        // /model:成员模型变更(下次发言生效)
+        if (sub === 'model' && method === 'POST') {
+          const { memberId, model } = await readBody(req);
+          if (!memberId || typeof model !== 'string' || !model.trim()) {
+            return json(res, 400, { error: t(settings.getLang(), 'api.needMemberAndText') });
+          }
+          if (model.startsWith('-')) {
+            return json(res, 400, { error: t(settings.getLang(), 'api.extraArgsNotAllowed', { args: model }) });
+          }
+          try {
+            await room!.updateMemberModel(memberId, model.trim());
+            bus.broadcast({ type: 'rooms' });
+            return json(res, 200, room!.getState());
+          } catch (e: any) {
+            return json(res, 404, { error: e?.message || String(e) });
+          }
+        }
+
+        // /compact:手动压缩成员 session(异步执行,系统消息反馈)
+        if (sub === 'compact' && method === 'POST') {
+          const { memberId } = await readBody(req);
+          const target = memberId ?? room!.config.members[0]?.id;
+          if (!target) return json(res, 400, { error: t(settings.getLang(), 'api.needMemberAndText') });
+          try {
+            const r = await room!.compactMember(target);
+            return json(res, r.ok ? 200 : 409, r);
+          } catch (e: any) {
+            return json(res, 404, { error: e?.message || String(e) });
+          }
         }
 
         // 添加成员(批量)

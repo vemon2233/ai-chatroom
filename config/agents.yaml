@@ -63,6 +63,10 @@ summary:
   privateThreshold: 20      # 私聊消息自动触发纪要阈值(0为关闭)
   compactThreshold: 40      # stateful 成员自动 compact 阈值(0为关闭)
 
+# 单次发言超时(毫秒)。默认 0 = 无限(行为与旧版一致);
+# 设为正数后,单次 CLI 发言到点被停止(cancelled 轨道,session 保留,重发即续跑)
+speakTimeoutMs: 0
+
 server:
   port: 3220
   host: 127.0.0.1

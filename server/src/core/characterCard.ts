@@ -2,6 +2,7 @@
 // 纯原生实现：支持本项目原生 JSON、SillyTavern V1/V2/V3 JSON 以及 PNG tEXt base64 角色卡
 
 import type { Character } from './types';
+import { filterExtraArgs } from './extraArgs';
 
 /** PNG 签名: 89 50 4E 47 0D 0A 1A 0A */
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
@@ -126,6 +127,11 @@ export function parseCharacterCard(
   if (typeof data.name === 'string' && typeof data.persona === 'string') {
     const rawAdapter = typeof data.adapter === 'string' ? data.adapter : defaultAdapter;
     const adapter = available.includes(rawAdapter) ? rawAdapter : defaultAdapter;
+    // extraArgs 白名单(ADR-0002):导入侧剥离子项(导入永不失败)
+    const filteredArgs = filterExtraArgs(data.extraArgs);
+    if (filteredArgs.removed.length > 0) {
+      console.warn(`[character-card] "${data.name}" extraArgs 含非白名单参数,已剥离: ${filteredArgs.removed.join(' ')}`);
+    }
 
     return {
       name: data.name.trim() || '未命名角色',
@@ -135,7 +141,7 @@ export function parseCharacterCard(
       color: typeof data.color === 'string' ? data.color : undefined,
       persona: data.persona.trim() || '无设定',
       thinking: typeof data.thinking === 'boolean' ? data.thinking : undefined,
-      extraArgs: Array.isArray(data.extraArgs) ? data.extraArgs.map(String) : undefined,
+      extraArgs: filteredArgs.args.length > 0 ? filteredArgs.args : undefined,
       note: typeof data.note === 'string' ? data.note : undefined,
     };
   }

@@ -86,6 +86,7 @@ const mockConfig: AppConfig = {
     maxRetries: 2,
   },
   server: { port: 3220, host: '127.0.0.1' },
+  speakTimeoutMs: 0,
   adapters: {
     claude: {
       displayName: 'Claude',

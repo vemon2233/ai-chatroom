@@ -51,7 +51,7 @@ async function main() {
   const persisted = await loadAllRooms();
   for (const rcfg of persisted) {
     // 适配器被删的角色:成员保留,首次发言时报错并提示(不阻塞复活)
-    const room = new ChatRoom(rcfg, bus, cfg.adapters, cfg.admin, roomPersistence, cfg.summary, { ...ports, getLang: settings.getLang });
+    const room = new ChatRoom(rcfg, bus, cfg.adapters, cfg.admin, roomPersistence, cfg.summary, { ...ports, getLang: settings.getLang, speakTimeoutMs: cfg.speakTimeoutMs });
     await room.restore(); // JSONL 历史进内存(listen 前完成)
     rooms.set(room.id, room);
   }

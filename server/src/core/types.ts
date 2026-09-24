@@ -195,6 +195,9 @@ export interface AgentTraceLog {
 /** 房间基础讨论模式:接棒模式(默认) vs 订阅模式(心跳去中心群聊) */
 export type DiscussionMode = 'baton' | 'subscribe';
 
+/** 房间类别:聊天房(默认,多 agent 讨论) vs 任务房(派工作给 agent,ADR-0001) */
+export type RoomKind = 'chat' | 'task';
+
 /** 上下文编排模式: stateless(无状态全量注入, 默认) vs stateful(有状态增量追加 --resume) */
 export type ContextMode = 'stateless' | 'stateful';
 
@@ -221,6 +224,8 @@ export interface DirectChatMeta {
 export interface RoomConfig {
   id: string;
   name: string;
+  /** 房间类别(ADR-0001:task=任务房,绑定项目必填/无 scout/任务 prompt 教学;缺省 chat,存量兼容) */
+  kind?: RoomKind;
   /** 房间背景颜色(CSS 颜色) */
   color?: string;
   /** 房间主题/讨论题目(注入每个成员的 prompt) */

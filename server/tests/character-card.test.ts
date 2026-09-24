@@ -13,14 +13,15 @@ describe('characterCard parser', () => {
     expect(resolved).toBe('赛博朋克小艾 是一名黑客。赛博朋克小艾 正在与 用户 对话。用户 请保持警惕。');
   });
 
-  it('解析本项目原生 Character JSON', () => {
+  it('解析本项目原生 Character JSON(extraArgs 白名单过滤)', () => {
     const nativeJson = JSON.stringify({
       name: '架构师',
       avatar: 'emoji:robot',
       adapter: 'haiku',
       persona: '你是一名资深系统架构师。',
       color: '#e06c75',
-      extraArgs: ['--temp', '0.2'],
+      // 白名单(--model)通过,非白名单(--temp)按 ADR-0002 剥离
+      extraArgs: ['--model', 'sonnet', '--temp', '0.2'],
       note: '核心成员',
     });
 
@@ -33,7 +34,7 @@ describe('characterCard parser', () => {
     expect(parsed.avatar).toBe('emoji:robot');
     expect(parsed.adapter).toBe('haiku');
     expect(parsed.persona).toBe('你是一名资深系统架构师。');
-    expect(parsed.extraArgs).toEqual(['--temp', '0.2']);
+    expect(parsed.extraArgs).toEqual(['--model', 'sonnet']);
     expect(parsed.note).toBe('核心成员');
   });
 

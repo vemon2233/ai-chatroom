@@ -53,6 +53,8 @@ export interface SpeakRequest {
   resumeSessionId?: string;
   /** 工具权限档位(领域枚举;适配器负责翻译成 CLI 参数) */
   permission?: ToolPermission;
+  /** 单次发言超时毫秒数(工单05:0/缺省=无限;超时走 cancelled 轨道+timedOut 标记) */
+  timeoutMs?: number;
 }
 
 /** 一次发言的最终结果(outcome 三态,编排器据此分流) */
@@ -66,6 +68,8 @@ export interface SpeakOutcome {
   error?: string;
   /** token 用量(尽力解析,字段缺失则略) */
   usage?: AgentEvent['usage'];
+  /** 超时终止标记(工单05:仅 status='cancelled' 时可能为 true;区分用户主动停与超时停) */
+  timedOut?: boolean;
 }
 
 /** 适配器:spawn 一次发言进程,把 CLI 原始输出解析为统一事件。

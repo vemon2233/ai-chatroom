@@ -48,28 +48,39 @@ export async function buildPrompt(
 
   parts.push(pt(lang, 'p.roomHeader', { name: room.name, topic: room.topic || pt(lang, 'p.topicFallback') }));
 
-  if (others) {
+  // 参与者列表/房主段:任务房不注入(单成员为主,协作走 @ 点名;工单04 契约)
+  const isTask = room.kind === 'task';
+  if (others && !isTask) {
     parts.push(pt(lang, 'p.othersHeader', { list: others }));
   }
 
-  if (room.userPersona && room.userPersona.persona?.trim()) {
+  if (!isTask && room.userPersona && room.userPersona.persona?.trim()) {
     parts.push(pt(lang, 'p.ownerSection', { name: room.userPersona.name, persona: room.userPersona.persona.trim() }));
   }
 
-  // 项目上下文:目录树 + 工具探索引导;若已有侦察报告则注入报告并阻止重复探索
+  // 项目上下文:任务房 = 任务工作区段(真实权限说明+范围约定+自主探索,不注入目录树——
+  // agent 用工具查实时结构;scout 报告在任务房永不产生,runScout 已短路);
+  // 聊天房 = 原状(目录树+讨论教学或 scout 报告)
   if (room.projectPath) {
-    const scoutReport = history.find(
-      (m) => m.from === 'scout' && typeof m.text === 'string',
-    );
-    if (scoutReport) {
-      parts.push(pt(lang, 'p.projectScoutSection', { root: room.projectPath, report: scoutReport.text }));
-    } else {
-      const ctx = await collectProjectContext(room.projectPath);
-      parts.push(pt(lang, 'p.projectFreshSection', {
-        root: ctx.root,
-        tree: ctx.tree,
+    if (isTask) {
+      parts.push(pt(lang, 't.workspace', {
+        root: room.projectPath,
         perm: permissionBrief(room.toolPermission, lang),
       }));
+    } else {
+      const scoutReport = history.find(
+        (m) => m.from === 'scout' && typeof m.text === 'string',
+      );
+      if (scoutReport) {
+        parts.push(pt(lang, 'p.projectScoutSection', { root: room.projectPath, report: scoutReport.text }));
+      } else {
+        const ctx = await collectProjectContext(room.projectPath);
+        parts.push(pt(lang, 'p.projectFreshSection', {
+          root: ctx.root,
+          tree: ctx.tree,
+          perm: permissionBrief(room.toolPermission, lang),
+        }));
+      }
     }
   }
 
@@ -106,16 +117,24 @@ export async function buildPrompt(
   const instructions: string[] = [];
   if (opts.trigger) instructions.push(opts.trigger);
   if (opts.instruction) instructions.push(opts.instruction);
-  instructions.push(
-    pt(lang, 'p.speakDirectly'),
-    lengthBrief(room.speechLength, lang),
-  );
+  if (isTask) {
+    // 任务房:任务行动契约替换讨论指令(无"角色发言"框架、无长度约束)
+    instructions.push(pt(lang, 't.contract'));
+  } else {
+    instructions.push(
+      pt(lang, 'p.speakDirectly'),
+      lengthBrief(room.speechLength, lang),
+    );
+  }
 
-  // 模式规则段落: 订阅模式 vs 接棒模式
-  if (room.mode === 'subscribe') {
-    parts.push(buildSubscribePromptSection(member, room.members, { mustRespond: opts.mustRespond }, lang));
-  } else if (opts.batonMode === 'chain' || opts.batonMode === 'callout') {
-    parts.push(buildBatonPromptSection(member, room.members, opts.batonMode, lang));
+  // 模式规则段落: 订阅模式 vs 接棒模式(任务房恒 baton 且不教接棒——
+  // 多成员协作由用户手动 @ 驱动,成员干完即停;ADR-0001)
+  if (!isTask) {
+    if (room.mode === 'subscribe') {
+      parts.push(buildSubscribePromptSection(member, room.members, { mustRespond: opts.mustRespond }, lang));
+    } else if (opts.batonMode === 'chain' || opts.batonMode === 'callout') {
+      parts.push(buildBatonPromptSection(member, room.members, opts.batonMode, lang));
+    }
   }
 
   parts.push(pt(lang, 'p.nowTurn', { instructions: instructions.join('\n') }));
@@ -188,8 +207,10 @@ export function buildDeltaPrompt(
     parts.push(pt(lang, 'd.noNewMsg'));
   }
 
-  // 3. 极简行动指引 (按模式适配)
-  if (room.mode === 'subscribe') {
+  // 3. 极简行动指引 (按模式适配;任务房=任务契约,无接棒教学无长度约束)
+  if (room.kind === 'task') {
+    parts.push(pt(lang, 't.contract'));
+  } else if (room.mode === 'subscribe') {
     parts.push(buildSubscribePromptSection(member, room.members, { mustRespond: opts.mustRespond }, lang));
   } else {
     const brief = lengthBrief(room.speechLength, lang);

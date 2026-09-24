@@ -20,6 +20,8 @@ export interface AppConfig {
   adapters: Record<string, AdapterConfig>;
   admin: AdminConfig;
   summary: SummaryConfig;
+  /** 单次发言超时毫秒数(0=无限;工单05) */
+  speakTimeoutMs: number;
   server: { port: number; host: string };
 }
 
@@ -53,6 +55,7 @@ export async function loadConfig(): Promise<AppConfig> {
     adapters: parsed.adapters,
     admin: adminCfg,
     summary: summaryCfg,
+    speakTimeoutMs: typeof parsed.speakTimeoutMs === 'number' && parsed.speakTimeoutMs > 0 ? parsed.speakTimeoutMs : 0,
     server: parsed.server ?? { port: 3220, host: '127.0.0.1' },
   };
 }

@@ -14,6 +14,7 @@ import { t } from './i18n/messages';
 import type { Lang } from './i18n/lang';
 import { getAdapter as getAdapterByKind } from '../adapters/index';
 import { truncateMessages, prepareReroll, prepareEdit, backfillHandshake } from './historyOps';
+import { filterExtraArgs } from './extraArgs';
 import type { AgentTraceLog } from './types';
 import { extractImportance } from '../protocolKeywords';
 import {
@@ -56,6 +57,8 @@ export interface TraceStorePort {
 
 export interface CreateRoomInput {
   name: string;
+  /** 房间类别:'task'=任务房(缺省 chat;task 的约束见 makeRoomConfig) */
+  kind?: RoomConfig['kind'];
   color?: string;
   topic: string;
   projectPath?: string;
@@ -77,6 +80,8 @@ export class ChatRoom {
   private adminCfg: AdminConfig;
   private currentSummary: DiscussionSummary | null = null;
   private summaryCfg: SummaryConfig;
+  /** 单次发言超时(工单05:0=无限) */
+  private speakTimeoutMs: number;
   private adapterConfigs: Record<string, { kind: string; command: string; args: string[] }>;
   private privateDigestRunning = new Set<string>();
   /** store 窄接口(摘要快照/trace;server 装配注入) */
@@ -114,6 +119,8 @@ export class ChatRoom {
       traceStore?: TraceStorePort;
       /** 语言注入(未注入 → zh,与改造前逐字节一致) */
       getLang?: LangGetter;
+      /** 单次发言超时毫秒数(工单05:0/缺省=无限) */
+      speakTimeoutMs?: number;
     },
   ) {
     this.config = cfg;
@@ -121,6 +128,7 @@ export class ChatRoom {
     this.adminCfg = adminCfg;
     this.ports = ports ?? {};
     this.getLangFn = ports?.getLang;
+    this.speakTimeoutMs = ports?.speakTimeoutMs ?? 0;
     this.summaryCfg = summaryCfg ?? {
       model: 'haiku',
       autoThreshold: 30,
@@ -154,7 +162,8 @@ export class ChatRoom {
       onStatuses: () => this.bus.emitRoomState(this.getState()),
       persistRoom: () => this.persistence.persistRoom(this.config),
       runScout: async () => {
-        if (!this.config.projectPath || this.admin.isScoutDone) {
+        // 任务房跳过 Scout 预检(ADR-0001:任务 agent 自主探索,无 haiku 侦察报告)
+        if (this.config.kind === 'task' || !this.config.projectPath || this.admin.isScoutDone) {
           return null;
         }
         if (this.orch) {
@@ -202,6 +211,7 @@ export class ChatRoom {
       getSummary: () => this.currentSummary,
       saveTrace: (scope, id, traceLog) => this.traceStore.saveTrace(scope, id, traceLog),
       summaryCfg: this.summaryCfg,
+      speakTimeoutMs: this.speakTimeoutMs,
       getLang: () => this.lang,
     });
   }
@@ -528,6 +538,42 @@ export class ChatRoom {
     return Promise.resolve();
   }
 
+  /** 斜杠命令 /model(工单08):更新成员 CLI 附加参数中的 --model,下次发言生效。
+   *  extraArgs 走白名单(filterExtraArgs),既有 --model 原位替换。 */
+  async updateMemberModel(memberId: string, model: string): Promise<void> {
+    const member = this.config.members.find((m) => m.id === memberId);
+    if (!member) throw new Error(t(this.lang, 'room.memberMissing', { id: memberId }));
+    const rest = (member.extraArgs ?? []).filter((a, i, arr) =>
+      !(a === '--model' || a.startsWith('--model=')) && !(arr[i - 1] === '--model'),
+    );
+    member.extraArgs = ['--model', model, ...rest];
+    await this.persistence.persistRoom(this.config);
+    await this.sysMessage(t(this.lang, 'room.modelUpdated', { name: member.name, model }));
+  }
+
+  /** 斜杠命令 /compact(工单08):手动触发指定成员(或唯一成员)的 session 压缩。
+   *  复用编排器 compact 基建;无 session(stateless/未发言)时提示不可用。 */
+  async compactMember(memberId?: string): Promise<{ ok: boolean; reason?: string }> {
+    let member = memberId
+      ? this.config.members.find((m) => m.id === memberId)
+      : this.config.members[0];
+    if (!memberId && this.config.members.length === 1) member = this.config.members[0];
+    if (!member) throw new Error(t(this.lang, 'room.memberMissing', { id: memberId ?? '' }));
+    const sessionId = member.sessionIds?.[member.adapter];
+    if (!sessionId) {
+      await this.sysMessage(t(this.lang, 'room.compactNoSession', { name: member.name }));
+      return { ok: false, reason: 'no-session' };
+    }
+    // 复用 orchestrator 的公开压缩入口(maybeCompact 带 session 校验/熔断;这里显式直调)
+    const ok = await this.orch.runCompactNow(member.id);
+    if (ok) {
+      await this.sysMessage(t(this.lang, 'room.compactDone', { name: member.name }));
+    } else {
+      await this.sysMessage(t(this.lang, 'room.compactFailed', { name: member.name }));
+    }
+    return { ok };
+  }
+
   async start(): Promise<void> {
     if (this.config.members.length === 0) {
       await this.sysMessage(t(this.lang, 'room.needMembersFirst'));
@@ -615,12 +661,15 @@ export class ChatRoom {
     if (patch.name != null && patch.name.trim()) this.config.name = patch.name.trim();
     if (patch.color !== undefined) this.config.color = patch.color;
     if (patch.topic != null && patch.topic.trim()) this.config.topic = patch.topic.trim();
-    if (patch.speechLength != null) this.config.speechLength = patch.speechLength;
-    if (patch.chainBudget != null) {
+    // 任务房(工单09):chainBudget/subscribeConfig 为聊天概念,task 房忽略(设置面板也不渲染,
+    // 此处过滤是后端防线——直接 PATCH 亦不生效)
+    const isTask = this.config.kind === 'task';
+    if (!isTask && patch.speechLength != null) this.config.speechLength = patch.speechLength;
+    if (!isTask && patch.chainBudget != null) {
       this.config.chainBudget = patch.chainBudget;
       this.orch.setBudget(patch.chainBudget);
     }
-    if (patch.subscribeConfig !== undefined) {
+    if (!isTask && patch.subscribeConfig !== undefined) {
       this.config.subscribeConfig = {
         ...this.config.subscribeConfig,
         ...patch.subscribeConfig,
@@ -645,23 +694,37 @@ export function dedupeName(base: string, existing: string[]): string {
 }
 
 export function makeRoomConfig(input: CreateRoomInput, lang: Lang = 'zh'): RoomConfig {
-  const members: MemberConfig[] = input.members.map((m, i) => ({
-    ...m,
-    id: `m${i + 1}_${Math.random().toString(36).slice(2, 6)}`,
-    color: m.color || MEMBER_PALETTE[i % MEMBER_PALETTE.length]!,
-  }));
+  // 任务房配置束(ADR-0001):mode 恒 baton(编排退化为问答)、权限默认 full(跑测试刚需,
+  // 前提是 ADR-0002 权限真实化)、上下文默认 stateful(与直接用 CLI 同构)。
+  // 聊天房一切照旧(缺省值逐字节不变)。
+  const isTask = input.kind === 'task';
+  // extraArgs 白名单(ADR-0002):makeRoomConfig 是建房与房间导入的共用收口,
+  // 在此过滤即覆盖两个入口;非白名单参数剥离(导入永不失败原则)
+  const members: MemberConfig[] = input.members.map((m, i) => {
+    const filtered = filterExtraArgs(m.extraArgs);
+    if (filtered.removed.length > 0) {
+      console.warn(`[room-config] 成员 "${m.name}" extraArgs 含非白名单参数,已剥离: ${filtered.removed.join(' ')}`);
+    }
+    return {
+      ...m,
+      extraArgs: filtered.args.length > 0 ? filtered.args : undefined,
+      id: `m${i + 1}_${Math.random().toString(36).slice(2, 6)}`,
+      color: m.color || MEMBER_PALETTE[i % MEMBER_PALETTE.length]!,
+    };
+  });
   return {
     id: `room_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
     name: input.name || t(lang, 'room.defaultName'),
+    kind: input.kind,
     color: input.color,
     topic: input.topic || t(lang, 'room.defaultTopic'),
     chainBudget: input.chainBudget ?? 6,
     speechLength: input.speechLength ?? 'normal',
     projectPath: input.projectPath || undefined,
-    toolPermission: input.toolPermission ?? 'readonly',
-    mode: input.mode ?? 'baton',
-    subscribeConfig: input.subscribeConfig,
-    contextMode: input.contextMode ?? 'stateless',
+    toolPermission: isTask ? (input.toolPermission ?? 'full') : (input.toolPermission ?? 'readonly'),
+    mode: isTask ? 'baton' : (input.mode ?? 'baton'),
+    subscribeConfig: isTask ? undefined : input.subscribeConfig,
+    contextMode: isTask ? (input.contextMode ?? 'stateful') : (input.contextMode ?? 'stateless'),
     userPersona: input.userPersona,
     members,
     createdAt: Date.now(),

@@ -138,6 +138,9 @@ export function runCliHarness(
   // 外部主动终止(编排器 stop/点名打断):此时尚未 settled → cancelled;
   // 适配器拿到 result 后自行杀进程(settle 已置位)属正常完成,不算 cancelled。
   let externallyCancelled = false;
+  // 超时终止(工单05/ADR-0002):与用户主动 stop 同走 cancelled 轨道,
+  // 但标记 timedOut 供编排器区分占位文案;不清 session、不触发重试
+  let timedOut = false;
   // done 的 resolve 句柄:close 事件与 cancel 兜底定时器谁先到谁结案(Promise resolve 幂等)
   let resolveDone: ((o: SpeakOutcome) => void) | null = null;
 
@@ -186,7 +189,7 @@ export function runCliHarness(
       // 可能永不到达(管道悬挂)→ done 永不 resolve → 编排器卡死(用户须按两次停止的直接根因)。
       // 兜底:cancel 后 2s 仍无 close 则主动以 cancelled 结案。resolve 幂等,先到先得。
       const timer = setTimeout(() => {
-        resolveDone?.({ status: 'cancelled', result: '', durationMs: Date.now() - started });
+        resolveDone?.({ status: 'cancelled', result: '', durationMs: Date.now() - started, timedOut });
       }, 2000);
       timer.unref?.(); // 不阻止进程退出
     },
@@ -200,9 +203,26 @@ export function runCliHarness(
           result: errorText ?? '',
           durationMs: Date.now() - started,
           error: errorText,
+          timedOut,
         });
       });
     }),
   };
+
+  // 超时计时(工单05):req.timeoutMs > 0 时挂载;到点走 cancel 路径(cancelled 轨道)
+  // 并置 timedOut 标记——不清 sessionIds、编排器不重试(ADR-0002 实现约束:
+  // 严禁 error 轨道,其自愈会清 session + 自动重跑,与超时语义相反)
+  if (req.timeoutMs && req.timeoutMs > 0) {
+    const t = setTimeout(() => {
+      if (!settled) {
+        timedOut = true;
+        externallyCancelled = true; // 超时本质是系统主动终止 → cancelled 三态
+        harness.cancel();
+      }
+    }, req.timeoutMs);
+    t.unref?.();
+    // 进程正常结束后清计时器(防泄漏;unref 已保退出,双保险)
+    child.on('close', () => clearTimeout(t));
+  }
   return harness;
 }

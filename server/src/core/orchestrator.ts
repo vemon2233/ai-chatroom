@@ -72,6 +72,8 @@ export interface OrchestratorDeps {
   getSummary?: () => DiscussionSummary | null;
   /** 压缩层配置(autoThreshold, privateThreshold, compactThreshold) */
   summaryCfg?: SummaryConfig;
+  /** 单次发言超时毫秒数(工单05:0/缺省=无限;超时 cancelled 轨道+timedOut 标记) */
+  speakTimeoutMs?: number;
   /** Trace 落库接缝(未注入时跳过——测试场景) */
   saveTrace?: (scope: 'room' | 'direct', id: string, trace: AgentTraceLog) => Promise<void>;
   /** 语言注入(未注入 → zh,与改造前逐字节一致) */
@@ -652,7 +654,10 @@ export class Orchestrator {
           .filter((t) => t.kind === 'text')
           .map((t) => t.content)
           .join('');
-        const text = streamed.trim() || t(this.lang, 'sys.stoppedThinking');
+        // 超时停与用户主动停同走 cancelled 轨道,仅占位文案区分(工单05/ADR-0002);
+        // 半截正文照旧保留;sessionIds 不清、不重试——重发即 resume 续跑
+        const text = streamed.trim()
+          || (outcome.timedOut ? t(this.lang, 'sys.speakTimedOut') : t(this.lang, 'sys.stoppedThinking'));
         const msgId = runOneTraceId!;
         recordTraceOnce(text);
         runOneTraceId = null;
@@ -673,6 +678,12 @@ export class Orchestrator {
           },
         });
         this.onStatuses();
+        // 超时停没有 stop() 调用路径兜底 setState——此处显式归 idle(工单05);
+        // 用户主动 stop 的 idle 由 stop() 统一负责,不重复处理
+        if (outcome.timedOut) {
+          this.bumpGeneration(); // 作废队列中一切过期条目(超时即本轮编排终止)
+          this.setState('idle');
+        }
         return;
       }
       case 'error': {
@@ -891,6 +902,31 @@ export class Orchestrator {
     // 清零计数并上锁
     this.memberMsgCounts.set(member.id, 0);
 
+    return this.executeCompact(member);
+  }
+
+  /**
+   * 显式执行成员 session 压缩(斜杠命令 /compact,工单08)。
+   * 与 maybeCompact 共用锁与熔断;绕过阈值(手动触发不受计数限制)。
+   * 返回是否成功(无 session/执行失败 → false)。
+   */
+  async runCompactNow(memberId: string): Promise<boolean> {
+    const member = this.deps.room.members.find((m) => m.id === memberId);
+    if (!member) return false;
+    if ((this.deps.room.contextMode ?? 'stateless') !== 'stateful') return false;
+    if (!member.sessionIds?.[member.adapter]) return false;
+    if (this.compactingPromises.has(memberId)) return false; // 进行中:既有车即已受理
+    if ((this.compactFailures.get(memberId) ?? 0) >= 2) return false; // 熔断闩
+    if (!this.deps.adapterConfigs[member.adapter]) return false;
+
+    return this.executeCompact(member);
+  }
+
+  /** compact 执行主体(锁/计数清零/失败计数;maybeCompact 与 runCompactNow 共用)。 */
+  private executeCompact(member: MemberConfig): Promise<boolean> {
+    this.memberMsgCounts.set(member.id, 0);
+    const entry = this.deps.adapterConfigs[member.adapter]!;
+    const sessionId = member.sessionIds![member.adapter]!;
     const adapter = this.deps.resolveAdapter(member.adapter);
     const compactP = executeCompactSession({
       member,
@@ -925,6 +961,7 @@ export class Orchestrator {
         }
       });
     this.compactingPromises.set(member.id, tracked);
+    return tracked;
   }
 
   /** invoke + resume 失败自愈 */
@@ -996,6 +1033,7 @@ export class Orchestrator {
       cwd: this.deps.room.projectPath || undefined,
       resumeSessionId,
       permission: this.deps.room.toolPermission,
+      timeoutMs: this.deps.speakTimeoutMs,
     };
 
     const handle = adapter.speak(req, (ev: AgentEvent) => {
